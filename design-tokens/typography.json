@@ -1,0 +1,284 @@
+{
+    "framework": "shadcn",
+    "version": "1.0.0",
+    "generatedAt": "2026-07-07T00:00:00.000Z",
+    "tokens": {
+        "typography": {
+            "Body/body-lg": {
+                "value": "16px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "16px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Medium",
+                "letterSpacing": "-1%",
+                "lineHeight": "24pixels",
+                "css": "var(--body-lg)"
+            },
+            "Body/body-lg-bold": {
+                "value": "16px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "16px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Bold",
+                "letterSpacing": "-1%",
+                "lineHeight": "24pixels",
+                "css": "var(--body-lg-bold)"
+            },
+            "Body/body-md": {
+                "value": "14px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "14px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Medium",
+                "letterSpacing": "-1%",
+                "lineHeight": "20pixels",
+                "css": "var(--body-md)"
+            },
+            "Body/body-md-bold": {
+                "value": "14px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "14px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Bold",
+                "letterSpacing": "-1%",
+                "lineHeight": "20pixels",
+                "css": "var(--body-md-bold)"
+            },
+            "Body/body-sm": {
+                "value": "10px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "10px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Medium",
+                "letterSpacing": "-1%",
+                "lineHeight": "12pixels",
+                "css": "var(--body-sm)"
+            },
+            "Body/body-sm-bold": {
+                "value": "10px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "10px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Bold",
+                "letterSpacing": "-1%",
+                "lineHeight": "12pixels",
+                "css": "var(--body-sm-bold)"
+            },
+            "Code/Link": {
+                "value": "14px Geist Mono",
+                "type": "typography",
+                "description": "",
+                "fontSize": "14px",
+                "fontFamily": "Geist Mono",
+                "fontWeight": "Regular",
+                "letterSpacing": "0%",
+                "lineHeight": "20pixels",
+                "css": "var(--link)"
+            },
+            "Code/body-lg": {
+                "value": "17px Geist Mono",
+                "type": "typography",
+                "description": "",
+                "fontSize": "17px",
+                "fontFamily": "Geist Mono",
+                "fontWeight": "Regular",
+                "letterSpacing": "0%",
+                "lineHeight": "24pixels",
+                "css": "var(--body-lg)"
+            },
+            "Code/body-lg-bold": {
+                "value": "17px Geist Mono",
+                "type": "typography",
+                "description": "",
+                "fontSize": "17px",
+                "fontFamily": "Geist Mono",
+                "fontWeight": "Bold",
+                "letterSpacing": "0%",
+                "lineHeight": "24pixels",
+                "css": "var(--body-lg-bold)"
+            },
+            "Code/body-md": {
+                "value": "14px Geist Mono",
+                "type": "typography",
+                "description": "",
+                "fontSize": "14px",
+                "fontFamily": "Geist Mono",
+                "fontWeight": "Regular",
+                "letterSpacing": "0%",
+                "lineHeight": "20pixels",
+                "css": "var(--body-md)"
+            },
+            "Code/body-md-bold": {
+                "value": "14px Geist Mono",
+                "type": "typography",
+                "description": "",
+                "fontSize": "14px",
+                "fontFamily": "Geist Mono",
+                "fontWeight": "Bold",
+                "letterSpacing": "0%",
+                "lineHeight": "20pixels",
+                "css": "var(--body-md-bold)"
+            },
+            "Code/body-sm": {
+                "value": "9px Geist Mono",
+                "type": "typography",
+                "description": "",
+                "fontSize": "9px",
+                "fontFamily": "Geist Mono",
+                "fontWeight": "Regular",
+                "letterSpacing": "0%",
+                "lineHeight": "12pixels",
+                "css": "var(--body-sm)"
+            },
+            "Code/body-sm-bold": {
+                "value": "9px Geist Mono",
+                "type": "typography",
+                "description": "",
+                "fontSize": "9px",
+                "fontFamily": "Geist Mono",
+                "fontWeight": "Bold",
+                "letterSpacing": "0%",
+                "lineHeight": "12pixels",
+                "css": "var(--body-sm-bold)"
+            },
+            "Display/display-lg": {
+                "value": "83px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "83px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "88pixels",
+                "css": "var(--display-lg)"
+            },
+            "Display/display-md": {
+                "value": "67px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "67px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "72pixels",
+                "css": "var(--display-md)"
+            },
+            "Display/display-sm": {
+                "value": "53px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "53px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "56pixels",
+                "css": "var(--display-sm)"
+            },
+            "Heading/heading-lg": {
+                "value": "43px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "43px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "48pixels",
+                "css": "var(--heading-lg)"
+            },
+            "Heading/heading-md": {
+                "value": "34px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "34px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "40pixels",
+                "css": "var(--heading-md)"
+            },
+            "Heading/heading-sm": {
+                "value": "27px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "27px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "32pixels",
+                "css": "var(--heading-sm)"
+            },
+            "Others/btn-lg": {
+                "value": "16px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "16px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Bold",
+                "letterSpacing": "0%",
+                "lineHeight": "20pixels",
+                "css": "var(--btn-lg)"
+            },
+            "Others/btn-sm": {
+                "value": "14px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "14px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Bold",
+                "letterSpacing": "0%",
+                "lineHeight": "16pixels",
+                "css": "var(--btn-sm)"
+            },
+            "Others/link": {
+                "value": "14px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "14px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Regular",
+                "letterSpacing": "0%",
+                "lineHeight": "20pixels",
+                "css": "var(--link)"
+            },
+            "Title/title-lg": {
+                "value": "22px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "22px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "28pixels",
+                "css": "var(--title-lg)"
+            },
+            "Title/title-md": {
+                "value": "17px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "17px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "24pixels",
+                "css": "var(--title-md)"
+            },
+            "Title/title-sm": {
+                "value": "14px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "14px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "20pixels",
+                "css": "var(--title-sm)"
+            }
+        }
+    }
+}
