@@ -1,5 +1,8 @@
 "use server"
 
+// Not currently wired into any route. Preserved for the task that reconnects
+// Supabase signup to the new /signup screen at app/(signup)/signup/.
+
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"

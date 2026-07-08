@@ -145,7 +145,8 @@
   --border-subtle: #e7dfdc;
   --border-minimal: #f3efec;
   --button-brand-primary-rest: #ff4901;
-  --button-brand-primary-hover: #d03b03;
+  /* No hover state in Figma yet — set to Flame300 (brightened) per explicit instruction. */
+  --button-brand-primary-hover: #ff7d5a;
   --button-brand-primary-pressed: #3e0b00;
   --button-brand-primary-focused: #ff4901;
   --button-brand-primary-disabled: #cac2bf;

@@ -5,10 +5,10 @@ import { usePathname } from "next/navigation"
 import {
   BookOpen,
   Calendar,
-  LayoutDashboard,
-  Link2,
-  Sparkles,
-} from "lucide-react"
+  LinkSimple,
+  Sparkle,
+  SquaresFour,
+} from "@phosphor-icons/react"
 
 import {
   Sidebar,
@@ -22,11 +22,11 @@ import {
 } from "@/components/ui/sidebar"
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: SquaresFour },
   { href: "/instructions", label: "Instructions & Resources", icon: BookOpen },
-  { href: "/generate", label: "Generate", icon: Sparkles },
+  { href: "/generate", label: "Generate", icon: Sparkle },
   { href: "/calendar", label: "Content Calendar", icon: Calendar },
-  { href: "/connections", label: "Connections", icon: Link2 },
+  { href: "/connections", label: "Connections", icon: LinkSimple },
 ]
 
 export function AppSidebar() {
@@ -50,7 +50,7 @@ export function AppSidebar() {
                     isActive={pathname.startsWith(href)}
                     tooltip={label}
                   >
-                    <Icon />
+                    <Icon weight="bold" />
                     <span>{label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

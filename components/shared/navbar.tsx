@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Settings, User } from "lucide-react"
+import { Gear, User } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -14,10 +14,10 @@ export function Navbar() {
       <Separator orientation="vertical" className="mr-2 h-4!" />
       <div className="flex flex-1" />
       <Button variant="ghost" size="icon" render={<Link href="/settings" aria-label="Settings" />}>
-        <Settings />
+        <Gear weight="bold" />
       </Button>
       <Button variant="ghost" size="icon" render={<Link href="/profile" aria-label="Profile" />}>
-        <User />
+        <User weight="bold" />
       </Button>
     </header>
   )

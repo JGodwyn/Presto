@@ -18,18 +18,35 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        brand:
+          "border-2 border-flame-500 bg-button-brand-primary-rest text-text-inverse text-shadow-[0px_1px_0px_rgba(0,0,0,0.3)] hover:bg-button-brand-primary-hover",
+        "brand-secondary":
+          "border-2 border-flame-200 bg-button-brand-secondary-rest text-flame-900 text-shadow-[0px_1px_0px_rgba(0,0,0,0.15)] hover:bg-button-brand-secondary-hover",
+        success:
+          "border-2 border-green-800 bg-button-success-primary-rest text-text-inverse text-shadow-[0px_1px_0px_rgba(0,0,0,0.3)] hover:bg-button-success-primary-hover",
+        danger:
+          "border-2 border-red-800 bg-button-danger-primary-rest text-text-inverse text-shadow-[0px_1px_0px_rgba(0,0,0,0.3)] hover:bg-button-danger-primary-hover",
       },
       size: {
         default:
           "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        // Overrides base's always-on rounded-lg/text-sm/font-medium with our
+        // token scale via bracket syntax (see pill-input.tsx for why:
+        // tailwind-merge doesn't recognize custom-named theme utilities as
+        // belonging to the same group as Tailwind's built-in ones).
+        xl: "h-[var(--pad-3xl)] gap-[var(--dist-md)] rounded-[var(--rad-lg)] px-[var(--pad-lg)] text-[length:var(--text-btn-lg)] leading-[var(--text-btn-lg--line-height)] tracking-[var(--text-btn-lg--letter-spacing)] font-bold [&_svg:not([class*='size-'])]:size-5",
+        // Figma "TextField"-sibling "Buttton" component (node 46:512) basic/sm.
+        sm: "h-[var(--pad-2xl)] gap-[var(--dist-md)] rounded-[var(--rad-xmd)] p-[var(--pad-md)] text-[length:var(--text-btn-lg)] leading-[var(--text-btn-lg--line-height)] tracking-[var(--text-btn-lg--letter-spacing)] font-bold [&_svg:not([class*='size-'])]:size-5",
         xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         icon: "size-8",
         "icon-xs":
           "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        // Figma "Buttton" (node 46:512) kind=icon, size=sm/md.
         "icon-sm":
-          "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+          "w-[var(--pad-3xl)] h-[var(--pad-2xl)] rounded-[var(--rad-xmd)] [&_svg:not([class*='size-'])]:size-5",
+        "icon-md":
+          "w-[var(--pad-4xl)] h-[var(--pad-3xl)] rounded-[var(--rad-lg)] [&_svg:not([class*='size-'])]:size-5",
         "icon-lg": "size-9",
       },
     },

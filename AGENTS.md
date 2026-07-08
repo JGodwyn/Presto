@@ -56,7 +56,8 @@ Read the relevant section before building a page for the first time. Don't ask t
 
 ```
 /app
-  /(auth)          → login, signup, forgot-password
+  /(auth)          → login, forgot-password
+  /(signup)        → signup — own route group for its full-bleed branded layout
   /(dashboard)     → dashboard, instructions, generate, calendar, connections, settings
 /components
   /ui              → shadcn base components, restyled to tokens
@@ -102,4 +103,5 @@ Read the relevant section before building a page for the first time. Don't ask t
 - Calendar: Kanban + List views; drag-and-drop between columns is Phase 2, not MVP
 - Open before high-fidelity design: draft carryover behavior across month boundaries, URL fetch timing on Resources
 - Design tokens wired: foundations.json + typography.json fully resolved into app/globals.css (@theme, Tailwind v4 CSS-first, no tailwind.config.ts). Light mode only — foundations.json has no dark-mode values yet. No chart-1..5 colors (not defined in tokens). Open Runde self-hosted in app/fonts/; Phudu via next/font/google.
+- /signup restyled to match Figma (UI only, not wired to Supabase yet — old signup-form.tsx/actions.ts preserved unused in app/(auth)/signup/ for a follow-up task). New reusable primitives: components/ui/segmented-control.tsx, components/ui/pill-input.tsx, Button's new "brand" variant/"xl" size. Signup fields follow Figma (email/name/password) which conflicts with the UX doc's email/password/confirm-password spec — needs reconciling.
 <!-- END:presto-agent-rules -->
