@@ -4,51 +4,50 @@ import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import {
-  Envelope,
-  Eye,
-  EyeClosedIcon,
-  Lock,
-  SpinnerGap,
-  User,
-} from "@phosphor-icons/react"
+import { Envelope, Eye, EyeClosedIcon, LockKey } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { GoogleIcon } from "@/components/shared/google-icon"
 
-// Client-side validation only for now — Supabase wiring (including a real
-// "this email already exists" check) is a separate follow-up task.
-const createAccountSchema = z.object({
+// Client-side validation only for now — Supabase wiring is a separate
+// follow-up task. Supabase's real signInWithPassword() deliberately returns
+// one generic error for both cases (to avoid leaking which emails are
+// registered), so these two distinct states are simulated with fixed
+// trigger values until the real check replaces them.
+const SIMULATED_UNKNOWN_EMAIL = "unknown@example.com"
+const SIMULATED_WRONG_PASSWORD = "wrongpassword"
+
+const loginSchema = z.object({
   email: z.string().min(1, "This is required").email("Enter a valid email"),
-  name: z.string().min(1, "This is required"),
-  password: z
-    .string()
-    .min(1, "This is required")
-    .min(8, "Password must be at least 8 characters"),
+  password: z.string().min(1, "This is required"),
 })
 
-type CreateAccountValues = z.infer<typeof createAccountSchema>
+type LoginValues = z.infer<typeof loginSchema>
 
-interface CreateAccountScreenProps {
-  onContinue: (email: string) => void
+interface LoginScreenProps {
+  onForgotPassword: () => void
 }
 
-function CreateAccountScreen({ onContinue }: CreateAccountScreenProps) {
+function LoginScreen({ onForgotPassword }: LoginScreenProps) {
   const [showPassword, setShowPassword] = React.useState(false)
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<CreateAccountValues>({ resolver: zodResolver(createAccountSchema) })
+    setError,
+    formState: { errors },
+  } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) })
 
-  const onSubmit = async (values: CreateAccountValues) => {
+  const onSubmit = (values: LoginValues) => {
+    if (values.email === SIMULATED_UNKNOWN_EMAIL) {
+      setError("email", { message: "No account found with this email" })
+      return
+    }
+    if (values.password === SIMULATED_WRONG_PASSWORD) {
+      setError("password", { message: "Incorrect password" })
+      return
+    }
     // Supabase wiring is a separate follow-up task; this is validation-only.
-    // The delay simulates a network round-trip so the loading state is
-    // testable — remove once the real signup call lands.
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    // Treated as "account created, verification code sent" for now.
-    onContinue(values.email)
   }
 
   return (
@@ -57,9 +56,7 @@ function CreateAccountScreen({ onContinue }: CreateAccountScreenProps) {
       noValidate
       className="flex w-full flex-col items-start gap-dist-xl"
     >
-      <h1 className="text-heading-md font-display text-text-bold">
-        Create Account
-      </h1>
+      <h1 className="text-heading-md font-display text-text-bold">LOGIN</h1>
 
       <div className="flex w-full flex-col gap-dist-lg">
         <PillInput
@@ -72,19 +69,10 @@ function CreateAccountScreen({ onContinue }: CreateAccountScreenProps) {
           {...register("email")}
         />
         <PillInput
-          type="text"
-          placeholder="Your name"
-          autoComplete="name"
-          icon={<User weight="bold" />}
-          aria-invalid={!!errors.name}
-          helperText={errors.name?.message}
-          {...register("name")}
-        />
-        <PillInput
           type={showPassword ? "text" : "password"}
           placeholder="Password"
-          autoComplete="new-password"
-          icon={<Lock weight="bold" />}
+          autoComplete="current-password"
+          icon={<LockKey weight="bold" />}
           aria-invalid={!!errors.password}
           helperText={errors.password?.message}
           endAdornment={
@@ -107,21 +95,8 @@ function CreateAccountScreen({ onContinue }: CreateAccountScreenProps) {
       </div>
 
       <div className="flex w-full gap-dist-md">
-        <Button
-          type="submit"
-          variant="brand"
-          size="xl"
-          className="flex-1"
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? (
-            <>
-              <SpinnerGap weight="bold" className="animate-spin" />
-              Creating account...
-            </>
-          ) : (
-            "Create Account"
-          )}
+        <Button type="submit" variant="brand" size="xl" className="flex-1">
+          Login
         </Button>
         <Button
           type="button"
@@ -133,8 +108,19 @@ function CreateAccountScreen({ onContinue }: CreateAccountScreenProps) {
           <GoogleIcon className="size-6" />
         </Button>
       </div>
+
+      <p className="text-[length:var(--text-body-lg)] leading-[var(--text-body-lg--line-height)] tracking-[var(--text-body-lg--letter-spacing)] font-medium text-text-bold">
+        Forgot password?{" "}
+        <button
+          type="button"
+          onClick={onForgotPassword}
+          className="cursor-pointer font-bold text-flame-500 hover:underline"
+        >
+          Reset it here
+        </button>
+      </p>
     </form>
   )
 }
 
-export { CreateAccountScreen }
+export { LoginScreen }

@@ -1,5 +1,10 @@
 "use client"
 
+// Not currently wired into any route. Preserved for the task that reconnects
+// Supabase password reset to the new /forgot-password flow at
+// forgot-password-screen.tsx / forgot-password-verify-screen.tsx /
+// reset-password-screen.tsx.
+
 import { useState, useTransition } from "react"
 import Link from "next/link"
 import { zodResolver } from "@hookform/resolvers/zod"

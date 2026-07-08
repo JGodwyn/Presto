@@ -1,5 +1,8 @@
 "use server"
 
+// Not currently wired into any route. Preserved for the task that reconnects
+// Supabase password reset to the new /forgot-password flow.
+
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"

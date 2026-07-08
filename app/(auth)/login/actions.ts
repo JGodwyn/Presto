@@ -1,5 +1,8 @@
 "use server"
 
+// Not currently wired into any route. Preserved for the task that reconnects
+// Supabase login to the new /login screen at login-screen.tsx.
+
 import { redirect } from "next/navigation"
 import { z } from "zod"
 

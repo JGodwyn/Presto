@@ -1,23 +1,9 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { redirect } from "next/navigation"
 
-import { LoginForm } from "./login-form"
-
+// The real login screen now lives in the persisted /signup flow (so the
+// segmented control's tab-switch animation has a component to animate
+// across instead of a page remount) — this keeps /login as a working,
+// bookmarkable entry point into that flow.
 export default function LoginPage() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Log in to Presto</CardTitle>
-        <CardDescription>Enter your email and password to continue.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <LoginForm />
-      </CardContent>
-    </Card>
-  )
+  redirect("/signup?view=login")
 }

@@ -1,5 +1,9 @@
 "use client"
 
+// Not currently wired into any route. Preserved for the task that reconnects
+// Supabase login to the new /login screen at login-screen.tsx — this already
+// has real signInWithPassword() wiring via ./actions, just not the Figma UI.
+
 import { useState, useTransition } from "react"
 import Link from "next/link"
 import { zodResolver } from "@hookform/resolvers/zod"

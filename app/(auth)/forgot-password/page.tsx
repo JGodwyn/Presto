@@ -1,25 +1,8 @@
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { redirect } from "next/navigation"
 
-import { ForgotPasswordForm } from "./forgot-password-form"
-
+// The real forgot-password flow now lives in the persisted /signup flow
+// (reachable via the login screen's "Reset it here" link) — this keeps
+// /forgot-password as a working, bookmarkable entry point into that flow.
 export default function ForgotPasswordPage() {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Reset your password</CardTitle>
-        <CardDescription>
-          We&apos;ll email you a link to get back into your account.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ForgotPasswordForm />
-      </CardContent>
-    </Card>
-  )
+  redirect("/signup?view=forgot-password")
 }
