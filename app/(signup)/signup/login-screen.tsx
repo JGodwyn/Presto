@@ -4,7 +4,7 @@ import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { Envelope, Eye, EyeClosedIcon, LockKey } from "@phosphor-icons/react"
+import { Envelope, Eye, EyeClosedIcon, LockKey, SpinnerGap } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
@@ -90,7 +90,14 @@ function LoginScreen({ onForgotPassword }: LoginScreenProps) {
           className="flex-1"
           disabled={isSubmitting}
         >
-          Login
+          {isSubmitting ? (
+            <>
+              <SpinnerGap weight="bold" className="animate-spin" />
+              Logging in...
+            </>
+          ) : (
+            "Login"
+          )}
         </Button>
         <Button
           type="button"

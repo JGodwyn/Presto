@@ -38,11 +38,11 @@ export type VerifyRecoveryInput = z.infer<typeof verifyRecoverySchema>
 
 export async function verifyRecoveryOtp(
   input: VerifyRecoveryInput
-): Promise<{ error: string } | { success: true }> {
+): Promise<{ error: true } | { success: true }> {
   const parsed = verifyRecoverySchema.safeParse(input)
 
   if (!parsed.success) {
-    return { error: "Enter the 6-digit code." }
+    return { error: true }
   }
 
   const supabase = await createClient()
@@ -52,8 +52,11 @@ export async function verifyRecoveryOtp(
     type: "recovery",
   })
 
+  // Supabase's verifyOtp doesn't distinguish a wrong code from an expired
+  // one (both return error_code "otp_expired") — the caller picks the
+  // right message client-side from elapsed time. See lib/supabase/otp-error.
   if (error) {
-    return { error: error.message }
+    return { error: true }
   }
 
   return { success: true }

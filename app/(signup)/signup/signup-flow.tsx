@@ -16,11 +16,11 @@ import { ResetPasswordScreen } from "./reset-password-screen"
 
 type AuthStep =
   | { name: "create-account" }
-  | { name: "verify-email"; email: string }
+  | { name: "verify-email"; email: string; sentAt: number }
   | { name: "login" }
   | { name: "forgot-password" }
-  | { name: "forgot-password-verify"; email: string }
-  | { name: "reset-password"; email: string }
+  | { name: "forgot-password-verify"; email: string; sentAt: number }
+  | { name: "reset-password"; email: string; sentAt: number }
 
 // Create account and login are one persisted client-side view (not two page
 // navigations) so the segmented control's tab indicator can actually slide
@@ -95,7 +95,9 @@ function AuthFlow() {
               inert={step.name !== "create-account"}
             >
               <CreateAccountScreen
-                onContinue={(email) => setStep({ name: "verify-email", email })}
+                onContinue={(email) =>
+                  setStep({ name: "verify-email", email, sentAt: Date.now() })
+                }
               />
             </div>
             <div
@@ -114,22 +116,34 @@ function AuthFlow() {
       ) : step.name === "verify-email" ? (
         <VerifyEmailScreen
           email={step.email}
+          sentAt={step.sentAt}
           onBack={() => setStep({ name: "create-account" })}
         />
       ) : step.name === "forgot-password" ? (
         <ForgotPasswordScreen
           onBack={goToLogin}
-          onContinue={(email) => setStep({ name: "forgot-password-verify", email })}
+          onContinue={(email) =>
+            setStep({ name: "forgot-password-verify", email, sentAt: Date.now() })
+          }
         />
       ) : step.name === "forgot-password-verify" ? (
         <ForgotPasswordVerifyScreen
           email={step.email}
+          sentAt={step.sentAt}
           onBack={() => setStep({ name: "forgot-password" })}
-          onContinue={() => setStep({ name: "reset-password", email: step.email })}
+          onContinue={() =>
+            setStep({ name: "reset-password", email: step.email, sentAt: step.sentAt })
+          }
         />
       ) : (
         <ResetPasswordScreen
-          onBack={() => setStep({ name: "forgot-password-verify", email: step.email })}
+          onBack={() =>
+            setStep({
+              name: "forgot-password-verify",
+              email: step.email,
+              sentAt: step.sentAt,
+            })
+          }
           onContinue={() => {
             setShowResetSuccessToast(true)
             goToLogin()

@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { ArrowLeft, Envelope } from "@phosphor-icons/react"
+import { ArrowLeft, Envelope, SpinnerGap } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
@@ -87,7 +87,14 @@ function ForgotPasswordScreen({ onBack, onContinue }: ForgotPasswordScreenProps)
         className="w-full"
         disabled={isSubmitting}
       >
-        Send
+        {isSubmitting ? (
+          <>
+            <SpinnerGap weight="bold" className="animate-spin" />
+            Sending...
+          </>
+        ) : (
+          "Send"
+        )}
       </Button>
     </form>
   )

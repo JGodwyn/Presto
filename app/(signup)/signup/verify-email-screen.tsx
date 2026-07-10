@@ -1,20 +1,22 @@
 "use client"
 
 import * as React from "react"
-import { ArrowLeft, Warning } from "@phosphor-icons/react"
+import { ArrowLeft, SpinnerGap, Warning } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
 import { verifySignup } from "@/app/(auth)/signup/actions"
+import { otpErrorMessage } from "@/lib/supabase/otp-error"
 
 const CODE_LENGTH = 6
 
 interface VerifyEmailScreenProps {
   email: string
+  sentAt: number
   onBack: () => void
 }
 
-function VerifyEmailScreen({ email, onBack }: VerifyEmailScreenProps) {
+function VerifyEmailScreen({ email, sentAt, onBack }: VerifyEmailScreenProps) {
   const [code, setCode] = React.useState("")
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
@@ -29,7 +31,7 @@ function VerifyEmailScreen({ email, onBack }: VerifyEmailScreenProps) {
     setIsSubmitting(true)
     const result = await verifySignup({ email, token: code })
     if (result && "error" in result) {
-      setErrorMessage(result.error)
+      setErrorMessage(otpErrorMessage(sentAt))
       setIsSubmitting(false)
     }
   }
@@ -91,7 +93,14 @@ function VerifyEmailScreen({ email, onBack }: VerifyEmailScreenProps) {
         className="w-full"
         disabled={code.length < CODE_LENGTH || isSubmitting}
       >
-        Continue
+        {isSubmitting ? (
+          <>
+            <SpinnerGap weight="bold" className="animate-spin" />
+            Verifying...
+          </>
+        ) : (
+          "Continue"
+        )}
       </Button>
     </form>
   )

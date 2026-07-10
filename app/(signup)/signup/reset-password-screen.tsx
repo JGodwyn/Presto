@@ -4,7 +4,7 @@ import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { ArrowLeft, Eye, EyeClosedIcon, LockKey } from "@phosphor-icons/react"
+import { ArrowLeft, Eye, EyeClosedIcon, LockKey, SpinnerGap } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
@@ -131,7 +131,14 @@ function ResetPasswordScreen({ onBack, onContinue }: ResetPasswordScreenProps) {
         className="w-full"
         disabled={isSubmitting}
       >
-        Reset password
+        {isSubmitting ? (
+          <>
+            <SpinnerGap weight="bold" className="animate-spin" />
+            Resetting...
+          </>
+        ) : (
+          "Reset password"
+        )}
       </Button>
     </form>
   )

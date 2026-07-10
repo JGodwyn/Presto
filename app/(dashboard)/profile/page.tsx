@@ -1,3 +1,6 @@
+import { logout } from "@/app/(auth)/logout/actions"
+import { LogoutButton } from "./logout-button"
+
 export default function ProfilePage() {
   return (
     <div>
@@ -5,6 +8,9 @@ export default function ProfilePage() {
       <p className="mt-2 text-muted-foreground">
         Your account details will live here.
       </p>
+      <form action={logout} className="mt-6">
+        <LogoutButton />
+      </form>
     </div>
   )
 }

@@ -23,7 +23,7 @@ export async function signup(
   }
 
   const supabase = await createClient()
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
     options: { data: { name: parsed.data.name } },
@@ -31,6 +31,14 @@ export async function signup(
 
   if (error) {
     return { error: error.message }
+  }
+
+  // Supabase deliberately returns success (not an error) for an email that's
+  // already registered, to avoid leaking which emails exist. The one signal
+  // it does give: `identities` comes back empty instead of containing the
+  // new email/password identity.
+  if (data.user?.identities?.length === 0) {
+    return { error: "This email is already in use" }
   }
 
   return { success: true }
@@ -45,11 +53,11 @@ export type VerifySignupInput = z.infer<typeof verifySignupSchema>
 
 export async function verifySignup(
   input: VerifySignupInput
-): Promise<{ error: string } | void> {
+): Promise<{ error: true } | void> {
   const parsed = verifySignupSchema.safeParse(input)
 
   if (!parsed.success) {
-    return { error: "Enter the 6-digit code." }
+    return { error: true }
   }
 
   const supabase = await createClient()
@@ -59,8 +67,11 @@ export async function verifySignup(
     type: "signup",
   })
 
+  // Supabase's verifyOtp doesn't distinguish a wrong code from an expired
+  // one (both return error_code "otp_expired") — the caller picks the
+  // right message client-side from elapsed time. See lib/supabase/otp-error.
   if (error) {
-    return { error: error.message }
+    return { error: true }
   }
 
   redirect("/dashboard")

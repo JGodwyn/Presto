@@ -1,22 +1,25 @@
 "use client"
 
 import * as React from "react"
-import { ArrowLeft, Warning } from "@phosphor-icons/react"
+import { ArrowLeft, SpinnerGap, Warning } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
 import { verifyRecoveryOtp } from "@/app/(auth)/forgot-password/actions"
+import { otpErrorMessage } from "@/lib/supabase/otp-error"
 
 const CODE_LENGTH = 6
 
 interface ForgotPasswordVerifyScreenProps {
   email: string
+  sentAt: number
   onBack: () => void
   onContinue: () => void
 }
 
 function ForgotPasswordVerifyScreen({
   email,
+  sentAt,
   onBack,
   onContinue,
 }: ForgotPasswordVerifyScreenProps) {
@@ -35,7 +38,7 @@ function ForgotPasswordVerifyScreen({
     const result = await verifyRecoveryOtp({ email, token: code })
     setIsSubmitting(false)
     if ("error" in result) {
-      setErrorMessage(result.error)
+      setErrorMessage(otpErrorMessage(sentAt))
       return
     }
     onContinue()
@@ -99,7 +102,14 @@ function ForgotPasswordVerifyScreen({
         className="w-full"
         disabled={code.length < CODE_LENGTH || isSubmitting}
       >
-        Continue
+        {isSubmitting ? (
+          <>
+            <SpinnerGap weight="bold" className="animate-spin" />
+            Verifying...
+          </>
+        ) : (
+          "Continue"
+        )}
       </Button>
     </form>
   )
