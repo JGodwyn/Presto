@@ -5,35 +5,37 @@ import { ArrowLeft, Warning } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
+import { verifyRecoveryOtp } from "@/app/(auth)/forgot-password/actions"
 
-const CODE_LENGTH = 5
-
-// Temporary test-only trigger for the error state, since Supabase OTP
-// verification isn't wired up yet — remove once the real check lands.
-const SIMULATED_INCORRECT_CODE = "12345"
+const CODE_LENGTH = 6
 
 interface ForgotPasswordVerifyScreenProps {
+  email: string
   onBack: () => void
   onContinue: () => void
 }
 
 function ForgotPasswordVerifyScreen({
+  email,
   onBack,
   onContinue,
 }: ForgotPasswordVerifyScreenProps) {
   const [code, setCode] = React.useState("")
-  const [hasError, setHasError] = React.useState(false)
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
 
   const handleCodeChange = (value: string) => {
     setCode(value)
-    if (hasError) setHasError(false)
+    if (errorMessage) setErrorMessage(null)
   }
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    // Supabase OTP verification is a separate follow-up task; this is UI-only.
-    if (code === SIMULATED_INCORRECT_CODE) {
-      setHasError(true)
+    setIsSubmitting(true)
+    const result = await verifyRecoveryOtp({ email, token: code })
+    setIsSubmitting(false)
+    if ("error" in result) {
+      setErrorMessage(result.error)
       return
     }
     onContinue()
@@ -73,18 +75,18 @@ function ForgotPasswordVerifyScreen({
         >
           <InputOTPGroup>
             {Array.from({ length: CODE_LENGTH }, (_, index) => (
-              <InputOTPSlot key={index} index={index} error={hasError} />
+              <InputOTPSlot key={index} index={index} error={!!errorMessage} />
             ))}
           </InputOTPGroup>
         </InputOTP>
 
-        {hasError ? (
-          <div className="flex w-full items-start gap-dist-md transition-[opacity,transform] duration-150 ease-out starting:-translate-y-0.5 starting:opacity-0">
+        {errorMessage ? (
+          <div className="flex w-full items-start gap-dist-md transition-[opacity,translate] duration-150 ease-out starting:-translate-y-0.5 starting:opacity-0">
             <span className="flex shrink-0 items-center justify-center text-icon-danger [&_svg]:size-5">
               <Warning weight="bold" />
             </span>
             <p className="text-[length:var(--text-body-lg-bold)] leading-[var(--text-body-lg-bold--line-height)] tracking-[var(--text-body-lg-bold--letter-spacing)] font-bold text-text-danger">
-              This code is incorrect
+              {errorMessage}
             </p>
           </div>
         ) : null}
@@ -95,7 +97,7 @@ function ForgotPasswordVerifyScreen({
         variant="brand"
         size="xl"
         className="w-full"
-        disabled={code.length < CODE_LENGTH}
+        disabled={code.length < CODE_LENGTH || isSubmitting}
       >
         Continue
       </Button>

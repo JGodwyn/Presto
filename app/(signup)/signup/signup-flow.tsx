@@ -19,8 +19,8 @@ type AuthStep =
   | { name: "verify-email"; email: string }
   | { name: "login" }
   | { name: "forgot-password" }
-  | { name: "forgot-password-verify" }
-  | { name: "reset-password" }
+  | { name: "forgot-password-verify"; email: string }
+  | { name: "reset-password"; email: string }
 
 // Create account and login are one persisted client-side view (not two page
 // navigations) so the segmented control's tab indicator can actually slide
@@ -55,13 +55,15 @@ function AuthFlow() {
 
   return (
     <AuthShell>
-      {showResetSuccessToast ? (
-        <div className="absolute inset-x-0 top-pad-2xl flex justify-center">
-          <Toast onDismiss={() => setShowResetSuccessToast(false)}>
-            Password reset
-          </Toast>
-        </div>
-      ) : null}
+      <div className="absolute inset-x-0 top-pad-2xl flex justify-center">
+        <Toast
+          open={showResetSuccessToast}
+          onOpenChange={setShowResetSuccessToast}
+          direction="top"
+        >
+          Password reset
+        </Toast>
+      </div>
 
       {isTabStep ? (
         <div className="flex w-full max-w-sm flex-col items-start gap-dist-xl">
@@ -117,16 +119,17 @@ function AuthFlow() {
       ) : step.name === "forgot-password" ? (
         <ForgotPasswordScreen
           onBack={goToLogin}
-          onContinue={() => setStep({ name: "forgot-password-verify" })}
+          onContinue={(email) => setStep({ name: "forgot-password-verify", email })}
         />
       ) : step.name === "forgot-password-verify" ? (
         <ForgotPasswordVerifyScreen
+          email={step.email}
           onBack={() => setStep({ name: "forgot-password" })}
-          onContinue={() => setStep({ name: "reset-password" })}
+          onContinue={() => setStep({ name: "reset-password", email: step.email })}
         />
       ) : (
         <ResetPasswordScreen
-          onBack={() => setStep({ name: "forgot-password-verify" })}
+          onBack={() => setStep({ name: "forgot-password-verify", email: step.email })}
           onContinue={() => {
             setShowResetSuccessToast(true)
             goToLogin()

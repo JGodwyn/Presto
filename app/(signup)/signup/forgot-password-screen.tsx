@@ -7,11 +7,13 @@ import { ArrowLeft, Envelope } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
+import { requestPasswordReset } from "@/app/(auth)/forgot-password/actions"
 
-// Client-side validation only for now — Supabase wiring is a separate
-// follow-up task. Deliberately no "email doesn't exist" error state here
-// (Figma doesn't show one either) — password-reset flows conventionally
-// don't reveal whether an email is registered.
+// Deliberately no "email doesn't exist" error state here (Figma doesn't
+// show one either) — password-reset flows conventionally don't reveal
+// whether an email is registered, and Supabase's resetPasswordForEmail()
+// already returns success regardless. Errors surfaced below are things
+// like rate limiting, not registration status.
 const forgotPasswordSchema = z.object({
   email: z.string().min(1, "This is required").email("Enter a valid email"),
 })
@@ -27,14 +29,18 @@ function ForgotPasswordScreen({ onBack, onContinue }: ForgotPasswordScreenProps)
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    setError,
+    formState: { errors, isSubmitting },
   } = useForm<ForgotPasswordValues>({
     resolver: zodResolver(forgotPasswordSchema),
   })
 
-  const onSubmit = (values: ForgotPasswordValues) => {
-    // Supabase wiring is a separate follow-up task; this is validation-only.
-    // Treated as "reset code sent" for now.
+  const onSubmit = async (values: ForgotPasswordValues) => {
+    const result = await requestPasswordReset({ email: values.email })
+    if ("error" in result) {
+      setError("email", { message: result.error })
+      return
+    }
     onContinue(values.email)
   }
 
@@ -74,7 +80,13 @@ function ForgotPasswordScreen({ onBack, onContinue }: ForgotPasswordScreenProps)
         {...register("email")}
       />
 
-      <Button type="submit" variant="brand" size="xl" className="w-full">
+      <Button
+        type="submit"
+        variant="brand"
+        size="xl"
+        className="w-full"
+        disabled={isSubmitting}
+      >
         Send
       </Button>
     </form>

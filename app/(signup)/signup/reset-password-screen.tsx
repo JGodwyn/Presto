@@ -8,9 +8,8 @@ import { ArrowLeft, Eye, EyeClosedIcon, LockKey } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
+import { updatePassword } from "@/app/(auth)/forgot-password/actions"
 
-// Client-side validation only for now — Supabase wiring is a separate
-// follow-up task.
 const resetPasswordSchema = z
   .object({
     password: z
@@ -37,13 +36,18 @@ function ResetPasswordScreen({ onBack, onContinue }: ResetPasswordScreenProps) {
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    setError,
+    formState: { errors, isSubmitting },
   } = useForm<ResetPasswordValues>({
     resolver: zodResolver(resetPasswordSchema),
   })
 
-  const onSubmit = () => {
-    // Supabase wiring is a separate follow-up task; this is validation-only.
+  const onSubmit = async (values: ResetPasswordValues) => {
+    const result = await updatePassword({ password: values.password })
+    if ("error" in result) {
+      setError("password", { message: result.error })
+      return
+    }
     onContinue()
   }
 
@@ -120,7 +124,13 @@ function ResetPasswordScreen({ onBack, onContinue }: ResetPasswordScreenProps) {
         />
       </div>
 
-      <Button type="submit" variant="brand" size="xl" className="w-full">
+      <Button
+        type="submit"
+        variant="brand"
+        size="xl"
+        className="w-full"
+        disabled={isSubmitting}
+      >
         Reset password
       </Button>
     </form>

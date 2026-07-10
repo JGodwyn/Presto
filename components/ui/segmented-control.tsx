@@ -4,7 +4,15 @@ import * as React from "react"
 import Link from "next/link"
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
 
+import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { cn } from "@/lib/utils"
+
+// Figma corner radii (app/globals.css --rad-xmd / --rad-md) matched to
+// pixel numbers here because the squircle path math needs actual px, not a
+// CSS var — see hooks/use-squircle-clip-path.ts.
+const TRACK_CORNER_RADIUS = 12
+const INDICATOR_CORNER_RADIUS = 8
+const CORNER_SMOOTHING = 1
 
 interface SegmentedControlItem {
   label: string
@@ -26,6 +34,15 @@ function SegmentedControl({
   className,
   ...props
 }: SegmentedControlProps) {
+  const { ref: trackRef, style: trackSquircleStyle } = useSquircleClipPath<HTMLDivElement>({
+    cornerRadius: TRACK_CORNER_RADIUS,
+    cornerSmoothing: CORNER_SMOOTHING,
+  })
+  const { ref: indicatorRef, style: indicatorSquircleStyle } = useSquircleClipPath<HTMLSpanElement>({
+    cornerRadius: INDICATOR_CORNER_RADIUS,
+    cornerSmoothing: CORNER_SMOOTHING,
+  })
+
   return (
     <TabsPrimitive.Root
       data-slot="segmented-control"
@@ -33,8 +50,13 @@ function SegmentedControl({
       className={cn("w-full", className)}
       {...props}
     >
-      <TabsPrimitive.List className="relative flex items-start gap-0 rounded-rad-xmd bg-surface-2 p-pad-xs">
+      <TabsPrimitive.List
+        ref={trackRef}
+        className="relative flex items-start gap-0 rounded-rad-xmd bg-surface-2 p-pad-xs"
+        style={trackSquircleStyle}
+      >
         <TabsPrimitive.Indicator
+          ref={indicatorRef}
           renderBeforeHydration
           className={cn(
             // Only transform is animated (never left/width) so the slide
@@ -48,6 +70,7 @@ function SegmentedControl({
           style={{
             width: "var(--active-tab-width)",
             transform: "translateX(var(--active-tab-left))",
+            ...indicatorSquircleStyle,
           }}
         />
         {items.map((item) => {

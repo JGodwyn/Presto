@@ -1,8 +1,5 @@
 "use server"
 
-// Not currently wired into any route. Preserved for the task that reconnects
-// Supabase login to the new /login screen at login-screen.tsx.
-
 import { redirect } from "next/navigation"
 import { z } from "zod"
 
@@ -26,7 +23,9 @@ export async function login(input: LoginInput): Promise<{ error: string } | void
   const { error } = await supabase.auth.signInWithPassword(parsed.data)
 
   if (error) {
-    return { error: error.message }
+    // Supabase deliberately returns one generic error for both an unknown
+    // email and a wrong password, to avoid leaking which emails exist.
+    return { error: "Incorrect email or password." }
   }
 
   redirect("/dashboard")

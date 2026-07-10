@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Phudu } from "next/font/google";
 import localFont from "next/font/local";
+import { Agentation } from "agentation";
 import "./globals.css";
 
 const openRunde = localFont({
@@ -50,7 +51,16 @@ export default function RootLayout({
       lang="en"
       className={`${openRunde.variable} ${geistMono.variable} ${phudu.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        {process.env.NODE_ENV === "development" && (
+          // Without `endpoint`, the toolbar silently falls back to
+          // browser-local storage and never syncs to agentation-mcp — the
+          // MCP server on this port is how the coding agent reads/resolves
+          // annotations.
+          <Agentation endpoint="http://localhost:4747" />
+        )}
+      </body>
     </html>
   );
 }

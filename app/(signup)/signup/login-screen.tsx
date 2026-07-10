@@ -9,14 +9,7 @@ import { Envelope, Eye, EyeClosedIcon, LockKey } from "@phosphor-icons/react"
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { GoogleIcon } from "@/components/shared/google-icon"
-
-// Client-side validation only for now — Supabase wiring is a separate
-// follow-up task. Supabase's real signInWithPassword() deliberately returns
-// one generic error for both cases (to avoid leaking which emails are
-// registered), so these two distinct states are simulated with fixed
-// trigger values until the real check replaces them.
-const SIMULATED_UNKNOWN_EMAIL = "unknown@example.com"
-const SIMULATED_WRONG_PASSWORD = "wrongpassword"
+import { login } from "@/app/(auth)/login/actions"
 
 const loginSchema = z.object({
   email: z.string().min(1, "This is required").email("Enter a valid email"),
@@ -35,19 +28,14 @@ function LoginScreen({ onForgotPassword }: LoginScreenProps) {
     register,
     handleSubmit,
     setError,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) })
 
-  const onSubmit = (values: LoginValues) => {
-    if (values.email === SIMULATED_UNKNOWN_EMAIL) {
-      setError("email", { message: "No account found with this email" })
-      return
+  const onSubmit = async (values: LoginValues) => {
+    const result = await login(values)
+    if (result && "error" in result) {
+      setError("password", { message: result.error })
     }
-    if (values.password === SIMULATED_WRONG_PASSWORD) {
-      setError("password", { message: "Incorrect password" })
-      return
-    }
-    // Supabase wiring is a separate follow-up task; this is validation-only.
   }
 
   return (
@@ -95,7 +83,13 @@ function LoginScreen({ onForgotPassword }: LoginScreenProps) {
       </div>
 
       <div className="flex w-full gap-dist-md">
-        <Button type="submit" variant="brand" size="xl" className="flex-1">
+        <Button
+          type="submit"
+          variant="brand"
+          size="xl"
+          className="flex-1"
+          disabled={isSubmitting}
+        >
           Login
         </Button>
         <Button

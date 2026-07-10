@@ -16,9 +16,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { GoogleIcon } from "@/components/shared/google-icon"
+import { signup } from "@/app/(auth)/signup/actions"
 
-// Client-side validation only for now — Supabase wiring (including a real
-// "this email already exists" check) is a separate follow-up task.
 const createAccountSchema = z.object({
   email: z.string().min(1, "This is required").email("Enter a valid email"),
   name: z.string().min(1, "This is required"),
@@ -39,15 +38,16 @@ function CreateAccountScreen({ onContinue }: CreateAccountScreenProps) {
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<CreateAccountValues>({ resolver: zodResolver(createAccountSchema) })
 
   const onSubmit = async (values: CreateAccountValues) => {
-    // Supabase wiring is a separate follow-up task; this is validation-only.
-    // The delay simulates a network round-trip so the loading state is
-    // testable — remove once the real signup call lands.
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    // Treated as "account created, verification code sent" for now.
+    const result = await signup(values)
+    if ("error" in result) {
+      setError("email", { message: result.error })
+      return
+    }
     onContinue(values.email)
   }
 

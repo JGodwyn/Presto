@@ -104,7 +104,10 @@ function PillInput({
         {isInvalid ? (
           // Conditionally mounted, so transition-colors can't smooth it in —
           // starting: (@starting-style) fades/scales it in on insertion instead.
-          <span className="flex shrink-0 items-center justify-center text-icon-danger transition-[opacity,transform] duration-150 ease-out starting:scale-90 starting:opacity-0 [&_svg]:size-5">
+          // Tailwind v4's scale-* utilities animate the standalone CSS
+          // `scale` property, not `transform` — transitioning `transform`
+          // here would silently do nothing.
+          <span className="flex shrink-0 items-center justify-center text-icon-danger transition-[opacity,scale] duration-150 ease-out starting:scale-90 starting:opacity-0 [&_svg]:size-5">
             <Warning weight="bold" />
           </span>
         ) : null}
@@ -119,10 +122,11 @@ function PillInput({
         // transition-colors and the mount-in fade both act on `color`, so
         // they're combined into one transition-property list — two separate
         // transition-* utilities here would fight in tailwind-merge and only
-        // one would survive.
+        // one would survive. Tailwind v4's translate-* utilities animate the
+        // standalone CSS `translate` property, not `transform`.
         <p
           className={cn(
-            "text-[length:var(--text-body-md-bold)] leading-[var(--text-body-md-bold--line-height)] tracking-[var(--text-body-md-bold--letter-spacing)] font-bold transition-[color,opacity,transform] duration-150 ease-out starting:-translate-y-0.5 starting:opacity-0",
+            "text-[length:var(--text-body-md-bold)] leading-[var(--text-body-md-bold--line-height)] tracking-[var(--text-body-md-bold--letter-spacing)] font-bold transition-[color,opacity,translate] duration-150 ease-out starting:-translate-y-0.5 starting:opacity-0",
             isInvalid ? "text-text-danger" : "text-text-subtle"
           )}
         >
