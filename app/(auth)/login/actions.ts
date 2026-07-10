@@ -28,5 +28,8 @@ export async function login(input: LoginInput): Promise<{ error: string } | void
     return { error: "Incorrect email or password." }
   }
 
-  redirect("/dashboard")
+  // Projects don't exist in the database yet, so every user lands on the
+  // no-project screen. Once they do, this becomes conditional: has projects
+  // → /dashboard, none → /create-project.
+  redirect("/create-project")
 }

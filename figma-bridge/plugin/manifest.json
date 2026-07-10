@@ -1,0 +1,14 @@
+{
+  "name": "Presto Export",
+  "id": "presto-export-dev",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:4411"],
+    "reasoning": "Sends exported frame data to a local bridge script that writes it into the Presto repo."
+  }
+}

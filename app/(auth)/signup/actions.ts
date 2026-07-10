@@ -74,5 +74,6 @@ export async function verifySignup(
     return { error: true }
   }
 
-  redirect("/dashboard")
+  // A fresh account can't have a project yet — land on the no-project screen.
+  redirect("/create-project")
 }

@@ -1,0 +1,88 @@
+<style>
+  body {
+    font-family: Inter, system-ui, sans-serif;
+    font-size: 12px;
+    margin: 0;
+    padding: 16px;
+    color: #1e1e1e;
+  }
+  button {
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    border-radius: 6px;
+    background: #0d99ff;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled {
+    background: #b3b3b3;
+    cursor: default;
+  }
+  #status {
+    margin-top: 12px;
+    line-height: 1.5;
+    color: #555;
+    word-break: break-word;
+  }
+  #status.error {
+    color: #c00;
+  }
+</style>
+
+<button id="export">Export selection to Presto</button>
+<div id="status">Select one or more frames, then export.</div>
+
+<script>
+  const BRIDGE_URL = "http://localhost:4411/export";
+  const btn = document.getElementById("export");
+  const status = document.getElementById("status");
+
+  function setStatus(text, isError) {
+    status.textContent = text;
+    status.className = isError ? "error" : "";
+  }
+
+  btn.onclick = () => {
+    btn.disabled = true;
+    setStatus("Serializing selection…");
+    parent.postMessage({ pluginMessage: { type: "export" } }, "*");
+  };
+
+  onmessage = async (event) => {
+    const msg = event.data.pluginMessage;
+    if (!msg) return;
+
+    if (msg.type === "error") {
+      setStatus(msg.message, true);
+      btn.disabled = false;
+      return;
+    }
+
+    if (msg.type === "payload") {
+      setStatus("Sending to bridge…");
+      try {
+        const res = await fetch(BRIDGE_URL, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(msg.payload),
+        });
+        if (!res.ok) throw new Error("Bridge responded " + res.status);
+        const result = await res.json();
+        setStatus("Done — wrote " + result.written.length + " files:\n" + result.dirs.join(", "));
+        parent.postMessage(
+          { pluginMessage: { type: "done", count: result.written.length } },
+          "*"
+        );
+      } catch (e) {
+        setStatus(
+          "Could not reach the bridge. In the repo, run: npm run figma:bridge — then try again.",
+          true
+        );
+      }
+      btn.disabled = false;
+    }
+  };
+</script>

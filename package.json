@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "figma:bridge": "node figma-bridge/server.mjs",
+    "figma:plugin": "tsc -p figma-bridge/plugin/tsconfig.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -30,6 +32,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@figma/plugin-typings": "^1.130.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
