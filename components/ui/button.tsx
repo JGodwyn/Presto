@@ -2,6 +2,7 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 
 const buttonVariants = cva(
   // transition-all animates every property (including layout ones) whenever
@@ -64,16 +65,62 @@ const buttonVariants = cva(
   }
 )
 
+// Corner radius (px) each size variant actually renders at, matched to
+// app/globals.css --rad-* tokens (see AGENTS.md's corner-smoothing rule) so
+// squircle clipping applies automatically without a per-call-site prop.
+// "xs"/"icon-xs" render at 6px (Tailwind's stock `min(var(--radius-md),10px)`,
+// not itself a --rad-* value) — mapped to the nearest token, --rad-sm (4px),
+// per an explicit call rather than left un-smoothed.
+const SIZE_CORNER_RADIUS: Partial<Record<string, number>> = {
+  default: 8, // --rad-md, via base class's unmodified Tailwind rounded-lg
+  lg: 8, // --rad-md, same base class
+  icon: 8, // --rad-md, same base class
+  "icon-lg": 8, // --rad-md, same base class
+  xl: 16, // --rad-lg
+  sm: 12, // --rad-xmd
+  "icon-sm": 12, // --rad-xmd
+  "icon-md": 16, // --rad-lg
+  xs: 4, // --rad-sm
+  "icon-xs": 4, // --rad-sm
+}
+
+interface ButtonProps
+  extends ButtonPrimitive.Props,
+    VariantProps<typeof buttonVariants> {
+  // Overrides the automatic per-size corner radius above (figma-squircle,
+  // see AGENTS.md's corner-radius rule). Pass explicitly only when a size's
+  // default mapping is wrong for this instance.
+  cornerRadius?: number
+  cornerSmoothing?: number
+}
+
 function Button({
   className,
   variant = "default",
   size = "default",
+  cornerRadius,
+  cornerSmoothing = 1,
+  style,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonProps) {
+  const resolvedCornerRadius =
+    cornerRadius ?? SIZE_CORNER_RADIUS[size ?? "default"]
+  const { ref: squircleRef, style: squircleStyle } =
+    useSquircleClipPath<HTMLButtonElement>({
+      cornerRadius: resolvedCornerRadius ?? 0,
+      cornerSmoothing,
+    })
+
   return (
     <ButtonPrimitive
       data-slot="button"
+      ref={resolvedCornerRadius !== undefined ? squircleRef : undefined}
       className={cn(buttonVariants({ variant, size, className }))}
+      style={
+        resolvedCornerRadius !== undefined
+          ? { ...squircleStyle, ...style }
+          : style
+      }
       {...props}
     />
   )

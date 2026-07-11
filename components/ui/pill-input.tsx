@@ -3,6 +3,13 @@ import { Warning } from "@phosphor-icons/react"
 
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+
+// Figma corner radius (app/globals.css --rad-lg) matched to a pixel number
+// here because the squircle path math needs actual px, not a CSS var — see
+// hooks/use-squircle-clip-path.ts.
+const CONTAINER_CORNER_RADIUS = 16
+const CORNER_SMOOTHING = 1
 
 // Figma "TextField" (node 41:326) sizes map straight onto existing pad tokens:
 // sm = pad-2xl/pad-md, md = pad-3xl/pad-lg, lg = pad-4xl/pad-lg.
@@ -40,6 +47,11 @@ function PillInput({
   const generatedId = React.useId()
   const inputId = id ?? generatedId
   const isInvalid = ariaInvalid === true || ariaInvalid === "true"
+  const { ref: squircleRef, style: squircleStyle } =
+    useSquircleClipPath<HTMLDivElement>({
+      cornerRadius: CONTAINER_CORNER_RADIUS,
+      cornerSmoothing: CORNER_SMOOTHING,
+    })
 
   return (
     <div
@@ -58,18 +70,22 @@ function PillInput({
       ) : null}
 
       <div
+        ref={squircleRef}
         data-slot="pill-input"
         className={cn(
           // Border is always present at full width, just transparent at rest,
           // so swapping it in for focus/danger never shifts layout.
           // transition-colors eases the border/background swap instead of
           // snapping instantly between rest/focus/danger/disabled.
+          // rounded-rad-lg is the fallback shape until the squircle
+          // clip-path is measured on mount (see use-squircle-clip-path.ts).
           "flex w-full items-center gap-dist-md rounded-rad-lg border-[length:var(--stroke-xl)] border-transparent bg-text-input-surface-rest py-pad-sm transition-colors duration-150 ease has-[input:disabled]:bg-surface-2",
           isInvalid
             ? "border-border-danger"
             : "focus-within:border-border-focused",
           sizeClasses[fieldSize]
         )}
+        style={squircleStyle}
       >
         {icon ? (
           <span className="flex shrink-0 items-center justify-center text-icon-subtle [&_svg]:size-5">

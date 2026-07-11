@@ -4,6 +4,13 @@ import * as React from "react"
 import { OTPInput, OTPInputContext } from "input-otp"
 
 import { cn } from "@/lib/utils"
+import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+
+// Figma corner radius (app/globals.css --rad-lg) matched to a pixel number
+// here because the squircle path math needs actual px, not a CSS var — see
+// hooks/use-squircle-clip-path.ts.
+const SLOT_CORNER_RADIUS = 16
+const CORNER_SMOOTHING = 1
 
 function InputOTP({
   className,
@@ -42,9 +49,15 @@ function InputOTPSlot({
   const inputOTPContext = React.useContext(OTPInputContext)
   const { char, hasFakeCaret, isActive } =
     inputOTPContext?.slots[index] ?? {}
+  const { ref: squircleRef, style: squircleStyle } =
+    useSquircleClipPath<HTMLDivElement>({
+      cornerRadius: SLOT_CORNER_RADIUS,
+      cornerSmoothing: CORNER_SMOOTHING,
+    })
 
   return (
     <div
+      ref={squircleRef}
       data-slot="input-otp-slot"
       className={cn(
         // Border is always present at full width, transparent at rest, so
@@ -53,6 +66,8 @@ function InputOTPSlot({
         // tailwind-merge can't tell that custom-named text-* size and
         // text-* color utilities belong to different groups — combined
         // through cn() it silently drops one of them (see pill-input.tsx).
+        // rounded-rad-lg is the fallback shape until the squircle
+        // clip-path is measured on mount (see use-squircle-clip-path.ts).
         "relative flex h-pad-6xl flex-1 items-center justify-center rounded-rad-lg border-[length:var(--stroke-xl)] bg-text-input-surface-rest text-[length:var(--text-heading-md)] leading-[var(--text-heading-md--line-height)] tracking-[var(--text-heading-md--letter-spacing)] font-display font-bold text-text-bold transition-colors duration-150 ease",
         error
           ? "border-border-danger"
@@ -61,6 +76,7 @@ function InputOTPSlot({
             : "border-transparent",
         className
       )}
+      style={squircleStyle}
       {...props}
     >
       {char ?? <span className="text-text-minimal">•</span>}

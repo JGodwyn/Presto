@@ -10,6 +10,13 @@ import {
 } from "@phosphor-icons/react"
 
 import { cn } from "@/lib/utils"
+import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+
+// Figma corner radius (app/globals.css --rad-xmd) matched to a pixel number
+// here because the squircle path math needs actual px, not a CSS var — see
+// hooks/use-squircle-clip-path.ts.
+const TOAST_CORNER_RADIUS = 12
+const CORNER_SMOOTHING = 1
 
 // Figma component set (node 287:20020) confirmed via screenshot: 4 types,
 // each with its own fixed icon — info/danger/success/warning. Danger uses
@@ -68,6 +75,11 @@ function Toast({
   const [prevOpen, setPrevOpen] = React.useState(open)
   const [mounted, setMounted] = React.useState(open)
   const [isVisible, setIsVisible] = React.useState(open)
+  const { ref: squircleRef, style: squircleStyle } =
+    useSquircleClipPath<HTMLDivElement>({
+      cornerRadius: TOAST_CORNER_RADIUS,
+      cornerSmoothing: CORNER_SMOOTHING,
+    })
 
   // Presence pattern: closing doesn't unmount immediately. It first flips the
   // toast to its exit position/opacity — a style change on an already-
@@ -104,6 +116,7 @@ function Toast({
 
   return (
     <div
+      ref={squircleRef}
       role="status"
       className={cn(
         // ease-out on the way in (starts fast, feels responsive), same
@@ -112,6 +125,8 @@ function Toast({
         // Tailwind v4's translate-* utilities animate the standalone CSS
         // `translate` property, not `transform` — transitioning `transform`
         // here would silently do nothing and the slide would just snap.
+        // rounded-rad-xmd is the fallback shape until the squircle
+        // clip-path is measured on mount (see use-squircle-clip-path.ts).
         "flex items-center gap-dist-sm rounded-rad-xmd px-pad-md py-pad-xs shadow-[0px_4px_16px_0px_rgba(0,0,0,0.25)] transition-[opacity,translate] duration-200 ease-out",
         isVisible
           ? cn("opacity-100", starting, "starting:opacity-0")
@@ -119,6 +134,7 @@ function Toast({
         variantClassName,
         className
       )}
+      style={squircleStyle}
     >
       <span className="flex shrink-0 items-center justify-center text-icon-inverse [&_svg]:size-5">
         <VariantIcon weight="bold" />

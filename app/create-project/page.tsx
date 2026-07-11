@@ -1,11 +1,19 @@
 import Image from "next/image"
 import { redirect } from "next/navigation"
-import { Folder } from "@phosphor-icons/react/dist/ssr"
 
-import { Button } from "@/components/ui/button"
+import { CreateProjectModal } from "@/components/create-project/create-project-modal"
 import { createClient } from "@/lib/supabase/server"
 import { logout } from "@/app/(auth)/logout/actions"
+import { cn } from "@/lib/utils"
 import { LogoutButton } from "./logout-button"
+
+// Blur+opacity mount-in via @starting-style (Tailwind's `starting:` variant)
+// needs no client-side JS, so this stays a Server Component. Strong ease-out
+// curve per .agents/skills/review-animations/STANDARDS.md (Emil Kowalski's
+// animations.dev conventions). Applied once to the whole group below (not
+// per-element) so it reads as one unified appearance, not a stagger.
+const ENTRANCE_TRANSITION =
+  "transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]"
 
 // First screen after signup/login while the user has no project yet
 // (Figma "Create project"). Full-bleed like the auth shell, so it lives
@@ -36,7 +44,12 @@ export default async function CreateProjectPage() {
         Presto
       </p>
 
-      <div className="relative flex min-h-screen flex-col items-center justify-center gap-dist-3xl p-pad-sm">
+      <div
+        className={cn(
+          "relative flex min-h-screen flex-col items-center justify-center gap-dist-3xl p-pad-sm",
+          ENTRANCE_TRANSITION
+        )}
+      >
         <div className="flex w-68 flex-col items-center gap-dist-xl">
           <div className="flex flex-col items-center gap-dist-md">
             <Image
@@ -54,11 +67,7 @@ export default async function CreateProjectPage() {
             You don&rsquo;t have any projects here. Let&rsquo;s create one.
           </h1>
 
-          {/* Project creation flow isn't designed yet — CTA is UI-only for now. */}
-          <Button variant="brand" size="xl" className="w-full">
-            <Folder weight="bold" />
-            Create project
-          </Button>
+          <CreateProjectModal />
         </div>
 
         <p className="w-68 text-center text-body-md text-text-subtle">

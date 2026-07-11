@@ -180,6 +180,18 @@ const server = http.createServer((req, res) => {
   res.writeHead(404).end();
 });
 
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") {
+    console.error(
+      `Port ${PORT} is already in use — the bridge is probably already running.\n` +
+        `Check with:  curl http://localhost:${PORT}\n` +
+        `If it responds, just use the running one. To replace it:  kill $(lsof -ti :${PORT})`
+    );
+    process.exit(1);
+  }
+  throw e;
+});
+
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`Presto Figma bridge listening on http://localhost:${PORT}`);
   console.log(`Exports will be written to ${OUT_ROOT}`);
