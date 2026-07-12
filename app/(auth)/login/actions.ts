@@ -4,6 +4,7 @@ import { redirect } from "next/navigation"
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
+import { hasProjects } from "@/lib/supabase/queries"
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -28,8 +29,7 @@ export async function login(input: LoginInput): Promise<{ error: string } | void
     return { error: "Incorrect email or password." }
   }
 
-  // Projects don't exist in the database yet, so every user lands on the
-  // no-project screen. Once they do, this becomes conditional: has projects
-  // → /dashboard, none → /create-project.
-  redirect("/create-project")
+  // Users with projects land on the project picker; the rest start at the
+  // no-project empty state. (Becomes /dashboard once that flow is decided.)
+  redirect((await hasProjects(supabase)) ? "/projects" : "/create-project")
 }

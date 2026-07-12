@@ -24,6 +24,13 @@ interface LoginScreenProps {
 
 function LoginScreen({ onForgotPassword }: LoginScreenProps) {
   const [showPassword, setShowPassword] = React.useState(false)
+  // RHF's isSubmitting ends when the handler resolves — but on success the
+  // login action redirects, and the await resolves before the router has
+  // fetched (in dev: compiled) the target page. Without this flag the button
+  // snaps back to "Login" during that gap and the screen looks stalled. Kept
+  // true on success on purpose: this screen unmounts when the redirect lands
+  // (same pattern as verify-email-screen's manual isSubmitting).
+  const [isRedirecting, setIsRedirecting] = React.useState(false)
   const {
     register,
     handleSubmit,
@@ -31,10 +38,14 @@ function LoginScreen({ onForgotPassword }: LoginScreenProps) {
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({ resolver: zodResolver(loginSchema) })
 
+  const isLoggingIn = isSubmitting || isRedirecting
+
   const onSubmit = async (values: LoginValues) => {
     const result = await login(values)
     if (result && "error" in result) {
       setError("password", { message: result.error })
+    } else {
+      setIsRedirecting(true)
     }
   }
 
@@ -88,9 +99,9 @@ function LoginScreen({ onForgotPassword }: LoginScreenProps) {
           variant="brand"
           size="xl"
           className="flex-1"
-          disabled={isSubmitting}
+          disabled={isLoggingIn}
         >
-          {isSubmitting ? (
+          {isLoggingIn ? (
             <>
               <SpinnerGap weight="bold" className="animate-spin" />
               Logging in...

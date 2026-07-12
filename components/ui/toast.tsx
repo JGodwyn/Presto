@@ -59,6 +59,10 @@ interface ToastProps {
   variant?: ToastVariant
   direction?: ToastDirection
   duration?: number
+  showIcon?: boolean
+  // Rendered in the icon slot instead of the variant's fixed Figma icon —
+  // for cases like an in-progress spinner that no variant provides.
+  icon?: React.ReactNode
   className?: string
   children: React.ReactNode
 }
@@ -69,6 +73,8 @@ function Toast({
   variant = "success",
   direction = "top",
   duration = 4000,
+  showIcon = true,
+  icon,
   className,
   children,
 }: ToastProps) {
@@ -115,8 +121,14 @@ function Toast({
   const { starting, exit } = directionOffsetClasses[direction]
 
   return (
+    // Two layers on purpose. The squircle clip-path must not share an element
+    // with the shadow: clipping runs after filters, so a drop-shadow() on the
+    // clipped element itself gets cut away with everything else outside the
+    // clip region (and a box-shadow follows the border box, not the clip).
+    // The unclipped wrapper paints the shadow instead — a filter on a parent
+    // shadows its children's composited silhouette, squircle included. The
+    // slide/fade transitions also live out here so they never fight the clip.
     <div
-      ref={squircleRef}
       role="status"
       className={cn(
         // ease-out on the way in (starts fast, feels responsive), same
@@ -125,23 +137,34 @@ function Toast({
         // Tailwind v4's translate-* utilities animate the standalone CSS
         // `translate` property, not `transform` — transitioning `transform`
         // here would silently do nothing and the slide would just snap.
-        // rounded-rad-xmd is the fallback shape until the squircle
-        // clip-path is measured on mount (see use-squircle-clip-path.ts).
-        "flex items-center gap-dist-sm rounded-rad-xmd px-pad-md py-pad-xs shadow-[0px_4px_16px_0px_rgba(0,0,0,0.25)] transition-[opacity,translate] duration-200 ease-out",
+        // Same Figma shadow values (0 4 16, 25% black) as the old box-shadow —
+        // the two blur radii share the same spec math.
+        "drop-shadow-[0px_4px_16px_rgba(0,0,0,0.25)] transition-[opacity,translate] duration-200 ease-out",
         isVisible
           ? cn("opacity-100", starting, "starting:opacity-0")
           : cn("opacity-0", exit),
-        variantClassName,
         className
       )}
-      style={squircleStyle}
     >
-      <span className="flex shrink-0 items-center justify-center text-icon-inverse [&_svg]:size-5">
-        <VariantIcon weight="bold" />
-      </span>
-      <p className="text-[length:var(--text-title-md)] leading-[var(--text-title-md--line-height)] tracking-[var(--text-title-md--letter-spacing)] font-display font-bold text-text-inverse uppercase">
-        {children}
-      </p>
+      <div
+        ref={squircleRef}
+        className={cn(
+          // rounded-rad-xmd is the fallback shape until the squircle
+          // clip-path is measured on mount (see use-squircle-clip-path.ts).
+          "flex items-center gap-dist-sm rounded-rad-xmd px-pad-md py-pad-xs",
+          variantClassName
+        )}
+        style={squircleStyle}
+      >
+        {showIcon && (
+          <span className="flex shrink-0 items-center justify-center text-icon-inverse [&_svg]:size-5">
+            {icon ?? <VariantIcon weight="bold" />}
+          </span>
+        )}
+        <p className="text-[length:var(--text-title-md)] leading-[var(--text-title-md--line-height)] tracking-[var(--text-title-md--letter-spacing)] font-display font-bold text-text-inverse uppercase">
+          {children}
+        </p>
+      </div>
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 
 import { CreateProjectModal } from "@/components/create-project/create-project-modal"
 import { createClient } from "@/lib/supabase/server"
+import { hasProjects } from "@/lib/supabase/queries"
 import { logout } from "@/app/(auth)/logout/actions"
 import { cn } from "@/lib/utils"
 import { LogoutButton } from "./logout-button"
@@ -24,6 +25,9 @@ export default async function CreateProjectPage() {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) redirect("/login")
+
+  // This screen is strictly the no-project empty state.
+  if (await hasProjects(supabase)) redirect("/projects")
 
   const firstName =
     (user.user_metadata?.name as string | undefined)?.trim().split(/\s+/)[0] ??
