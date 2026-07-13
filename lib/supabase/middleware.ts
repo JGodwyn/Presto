@@ -1,17 +1,9 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
-const PROTECTED_PREFIXES = [
-  "/create-project",
-  "/projects",
-  "/dashboard",
-  "/instructions",
-  "/generate",
-  "/calendar",
-  "/connections",
-  "/settings",
-  "/profile",
-]
+// Everything signed-in lives under these three: the dashboard sections all
+// moved to /projects/<id>/…, and /settings is the gear's redirect stub.
+const PROTECTED_PREFIXES = ["/create-project", "/projects", "/settings"]
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request })

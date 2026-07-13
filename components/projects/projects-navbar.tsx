@@ -34,7 +34,15 @@ function PrestoLogoMono() {
   )
 }
 
-export function ProjectsNavbar({ userName }: { userName: string }) {
+// settingsHref: the gear points at the user-level /settings stub by default;
+// inside a project the layout passes that project's settings path instead.
+export function ProjectsNavbar({
+  userName,
+  settingsHref = "/settings",
+}: {
+  userName: string
+  settingsHref?: string
+}) {
   const { ref: chipRef, style: chipStyle } =
     useSquircleClipPath<HTMLDivElement>({
       cornerRadius: CHIP_CORNER_RADIUS,
@@ -68,7 +76,7 @@ export function ProjectsNavbar({ userName }: { userName: string }) {
           // Base UI requires this when `render` swaps the underlying element
           // to a non-<button> (here a Link) — silences its semantics warning.
           nativeButton={false}
-          render={<Link href="/settings" aria-label="Settings" />}
+          render={<Link href={settingsHref} aria-label="Settings" />}
         >
           <Gear weight="fill" />
         </Button>

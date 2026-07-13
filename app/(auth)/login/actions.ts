@@ -30,6 +30,7 @@ export async function login(input: LoginInput): Promise<{ error: string } | void
   }
 
   // Users with projects land on the project picker; the rest start at the
-  // no-project empty state. (Becomes /dashboard once that flow is decided.)
+  // no-project empty state. Dashboards live inside a project
+  // (/projects/<id>/dashboard), so there's no project-less landing page.
   redirect((await hasProjects(supabase)) ? "/projects" : "/create-project")
 }

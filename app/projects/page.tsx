@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { redirect } from "next/navigation"
 
 import { NewProjectFolder } from "@/components/projects/new-project-folder"
@@ -52,7 +53,9 @@ export default async function ProjectsPage() {
         )}
       >
         {projects.map((project) => (
-          <ProjectFolder key={project.id} name={project.name} />
+          <Link key={project.id} href={`/projects/${project.id}/dashboard`}>
+            <ProjectFolder name={project.name} />
+          </Link>
         ))}
         <NewProjectFolder />
       </main>

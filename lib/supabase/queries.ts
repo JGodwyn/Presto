@@ -24,6 +24,22 @@ export async function fetchProjects(
   }))
 }
 
+export async function fetchProject(
+  supabase: SupabaseClient,
+  id: string
+): Promise<Project | null> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, name, created_at")
+    .eq("id", id)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  return { id: data.id, name: data.name, createdAt: data.created_at }
+}
+
 export async function hasProjects(supabase: SupabaseClient): Promise<boolean> {
   const { count, error } = await supabase
     .from("projects")
