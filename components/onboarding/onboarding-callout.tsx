@@ -12,15 +12,16 @@ const CARD_CORNER_RADIUS = 16 // rad-lg
 // The card's vertical offset mirrors ProjectSidebar's own rhythm — pad-md
 // container padding, 2.5rem/40px-tall SideBarItems, dist-md gaps between
 // them — so it lines up with whichever nav item it's explaining without
-// measuring the DOM. The `- pad-lg` corrects for this card rendering inside
-// <main>'s own padding, while the sidebar's rhythm is measured from the
-// shared row's top edge. Keep both in sync if that spacing ever changes.
+// measuring the DOM. <main> no longer has padding of its own (content and
+// sidebar top-align since the scroll-container change), so this card's
+// wrapper starts at the same row edge the sidebar's rhythm is measured
+// from. Keep both in sync if that spacing ever changes.
 //
 // Expressed as a `translate` (not `top`) so moving between steps animates on
 // the compositor instead of triggering layout — per the animation standards'
 // "only animate transform and opacity" rule.
 function calloutOffset(index: number) {
-  return `0 calc(var(--pad-md) - var(--pad-lg) + ${index} * (2.5rem + var(--dist-md)))`
+  return `0 calc(var(--pad-md) + ${index} * (2.5rem + var(--dist-md)))`
 }
 
 // Wraps the main content area during the tour (Figma "Onboarding 1-5"):

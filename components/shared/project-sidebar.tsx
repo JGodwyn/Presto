@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
@@ -38,11 +39,13 @@ function SidebarItem({
   label,
   icon: ItemIcon,
   active,
+  onNavigate,
 }: {
   href: string
   label: string
   icon: Icon
   active: boolean
+  onNavigate: () => void
 }) {
   const { ref, style } = useSquircleClipPath<HTMLAnchorElement>({
     cornerRadius: ITEM_CORNER_RADIUS,
@@ -54,6 +57,7 @@ function SidebarItem({
       ref={ref}
       style={style}
       href={href}
+      onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex items-center gap-dist-md rounded-rad-xmd border-2 px-pad-md py-pad-sm",
@@ -75,11 +79,21 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
   const pathname = usePathname()
   const { projectId } = useParams<{ projectId: string }>()
   const { activePath } = useOnboarding()
+  // The clicked item highlights immediately (optimistic), not when the
+  // route commits — section navigations hit the server and the gap between
+  // click and pathname change otherwise reads as a dead click.
+  const [pendingPath, setPendingPath] = React.useState<string | null>(null)
   const { ref: cardRef, style: cardStyle } =
     useSquircleClipPath<HTMLElement>({
       cornerRadius: CARD_CORNER_RADIUS,
       cornerSmoothing: 1,
     })
+
+  // Navigation committed (or was abandoned for another route) — hand the
+  // highlight back to the real pathname.
+  React.useEffect(() => {
+    setPendingPath(null)
+  }, [pathname])
 
   return (
     <aside
@@ -92,10 +106,13 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
           const href = `/projects/${projectId}/${path}`
           // During the onboarding tour, the callout forces one item to
           // read as active regardless of the actual route — the tour
-          // narrates sections in place without navigating.
+          // narrates sections in place without navigating. Outside it, a
+          // just-clicked item wins over the (still old) pathname.
           const active = activePath
             ? path === activePath
-            : pathname.startsWith(href)
+            : pendingPath
+              ? path === pendingPath
+              : pathname.startsWith(href)
           return (
             <SidebarItem
               key={path}
@@ -103,6 +120,7 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
               label={label}
               icon={icon}
               active={active}
+              onNavigate={() => setPendingPath(path)}
             />
           )
         })}

@@ -33,7 +33,7 @@ export default async function ProjectsPage() {
     "there"
 
   return (
-    <div className="flex min-h-screen w-full flex-col gap-dist-5xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl">
+    <div className="flex min-h-screen w-full flex-col gap-dist-5xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl xl:px-pad-9xl">
       <ProjectsNavbar userName={firstName} />
 
       {/* The standard fluid card grid: fit as many ≥16rem (256px, the Figma

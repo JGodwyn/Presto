@@ -48,11 +48,16 @@ function DialogOverlay({
 
 function DialogContent({
   className,
+  popupClassName,
   children,
   showCloseButton = true,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  // Sizing/position overrides for the Popup itself (e.g. a wider modal);
+  // `className` styles the inner card div, which is the wrong layer for
+  // width — the Popup owns it.
+  popupClassName?: string
 }) {
   // The squircle clip-path has to live on a plain div we own, not on
   // Popup itself — Popup writes its own `style` attribute directly to the
@@ -69,7 +74,10 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
-        className="fixed top-1/2 left-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 transition duration-150 ease-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
+        className={cn(
+          "fixed top-1/2 left-1/2 z-50 w-80 -translate-x-1/2 -translate-y-1/2 transition duration-150 ease-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0",
+          popupClassName
+        )}
         {...props}
       >
         <div

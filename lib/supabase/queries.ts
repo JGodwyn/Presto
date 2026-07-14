@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import type { Instructions } from "@/types/instructions"
 import type { Project } from "@/types/project"
 
 // RLS on public.projects already scopes every query to the signed-in user,
@@ -38,6 +39,34 @@ export async function fetchProject(
   if (!data) return null
 
   return { id: data.id, name: data.name, createdAt: data.created_at }
+}
+
+export async function fetchInstructions(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<Instructions | null> {
+  const { data, error } = await supabase
+    .from("instructions")
+    .select(
+      "project_id, single_prompt, single_prompt_text, tone, content_rules, post_structure, what_to_avoid, topics, updated_at"
+    )
+    .eq("project_id", projectId)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  return {
+    projectId: data.project_id,
+    singlePrompt: data.single_prompt,
+    singlePromptText: data.single_prompt_text,
+    tone: data.tone,
+    contentRules: data.content_rules,
+    postStructure: data.post_structure,
+    whatToAvoid: data.what_to_avoid,
+    topics: data.topics,
+    updatedAt: data.updated_at,
+  }
 }
 
 export async function hasProjects(supabase: SupabaseClient): Promise<boolean> {

@@ -45,15 +45,22 @@ export default async function ProjectLayout({
 
   return (
     <OnboardingProvider>
-      <div className="flex min-h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl">
+      {/* h-screen (not min-h-screen) pins the chrome to the viewport: tall
+          page content scrolls inside <main> instead of stretching the
+          sidebar. The -mb/pb pair on <main> makes its scroll area bleed
+          through the page's bottom padding to the real screen edge, so
+          overflowing content visibly runs past the sidebar's foot rather
+          than clipping at the padding line; the inner pb restores the same
+          breathing room at the end of the scroll. */}
+      <div className="flex h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl xl:px-pad-9xl">
         <ProjectTopbar
           userName={firstName}
           settingsHref={`/projects/${projectId}/settings`}
         />
 
-        <div className="flex flex-1 items-stretch gap-dist-xl">
+        <div className="flex min-h-0 flex-1 items-stretch gap-dist-xl">
           <ProjectSidebar projectName={project.name} />
-          <main className="flex flex-1 flex-col p-pad-lg">
+          <main className="-mb-pad-4xl flex flex-1 flex-col overflow-y-auto pb-pad-4xl">
             <OnboardingCallout>{children}</OnboardingCallout>
           </main>
         </div>

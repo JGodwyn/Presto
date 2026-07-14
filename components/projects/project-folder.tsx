@@ -1,3 +1,5 @@
+import { FolderLoadingIndicator } from "@/components/projects/folder-loading-indicator"
+
 // Folder-shaped project card from the Figma "Your projects" frame. The
 // silhouette (tab + rounded body) is the exported vector path, so it stays an
 // inline SVG behind the content — Purple400 fill, Purple700 inside stroke.
@@ -17,6 +19,8 @@
 // on the wrapping <Link> in app/projects/page.tsx having `className="group"`
 // — this component itself stays a plain server-renderable presentational
 // piece, no "use client" needed since :active/:hover are pure CSS states.
+// (FolderLoadingIndicator is the one client island inside, reading the
+// wrapping Link's pending state.)
 export function ProjectFolder({
   name,
   createdAt,
@@ -47,6 +51,8 @@ export function ProjectFolder({
           className="fill-purple-400 stroke-purple-700"
         />
       </svg>
+
+      <FolderLoadingIndicator />
 
       {/* `relative` here (not on the svg) is what makes this whole group
           paint above the absolute background svg despite coming later in

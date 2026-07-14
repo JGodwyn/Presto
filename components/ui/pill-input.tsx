@@ -63,7 +63,7 @@ function PillInput({
       {label ? (
         <label
           htmlFor={inputId}
-          className="text-[length:var(--text-body-lg)] leading-[var(--text-body-lg--line-height)] tracking-[var(--text-body-lg--letter-spacing)] font-medium text-text-bold transition-colors duration-150 ease group-has-[input:disabled]/field:text-text-subtle"
+          className="text-body-lg text-text-bold transition-colors duration-150 ease group-has-[input:disabled]/field:text-text-subtle"
         >
           {label}
         </label>
@@ -88,7 +88,7 @@ function PillInput({
         style={squircleStyle}
       >
         {icon ? (
-          <span className="flex shrink-0 items-center justify-center text-icon-subtle [&_svg]:size-5">
+          <span className="flex shrink-0 items-center justify-center text-icon-subtle [&_svg]:size-6">
             {icon}
           </span>
         ) : null}
@@ -96,24 +96,25 @@ function PillInput({
           id={inputId}
           aria-invalid={ariaInvalid}
           className={cn(
-            // Input's own defaults (h-8, rounded-lg, border, ring, text-base) use
-            // Tailwind's built-in scale, which tailwind-merge can't reconcile
-            // against our custom-named token utilities (e.g. h-pad-3xl) since it
-            // doesn't know they belong to the same group — so these overrides use
-            // bracket syntax against the same CSS vars to guarantee eviction.
-            // The outer container now owns the visible border/background for
+            // md:text-body-lg is not redundant: the base Input carries
+            // shadcn's responsive `md:text-sm`, and tailwind-merge only
+            // reconciles classes under the same variant — a bare text-body-lg
+            // evicts Input's `text-base` but leaves `md:text-sm` standing,
+            // silently shrinking the text (and placeholder) to 14px on
+            // desktop widths.
+            // The outer container owns the visible border/background for
             // focus, danger, and disabled states, so the input's own variants
             // for those are neutralized here to avoid a second border/tint.
             // Chrome/Safari paint autofilled inputs with a UA background that
             // ignores plain background-color — only an inset box-shadow can
             // override it, which is why this can't just be another bg-* class.
-            "h-auto flex-1 rounded-none border-0 bg-[var(--text-input-surface-rest)] p-0 text-[length:var(--text-body-lg)] leading-[var(--text-body-lg--line-height)] tracking-[var(--text-body-lg--letter-spacing)] font-medium text-text-bold placeholder:text-text-subtle focus-visible:border-0 focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 disabled:bg-[var(--surface-2)] disabled:text-text-subtle disabled:opacity-100 autofill:shadow-[inset_0_0_0px_1000px_var(--text-input-surface-rest)] autofill:[-webkit-text-fill-color:var(--text-bold)] autofill:caret-text-bold",
+            "h-auto flex-1 rounded-none border-0 bg-text-input-surface-rest p-0 text-body-lg text-text-bold placeholder:text-text-subtle focus-visible:border-0 focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 disabled:bg-surface-2 disabled:text-text-subtle disabled:opacity-100 autofill:shadow-[inset_0_0_0px_1000px_var(--text-input-surface-rest)] autofill:[-webkit-text-fill-color:var(--text-bold)] autofill:caret-text-bold md:text-body-lg",
             className
           )}
           {...props}
         />
         {suffix ? (
-          <span className="shrink-0 text-[length:var(--text-body-lg)] leading-[var(--text-body-lg--line-height)] tracking-[var(--text-body-lg--letter-spacing)] font-medium text-text-subtle">
+          <span className="shrink-0 text-body-lg text-text-subtle">
             {suffix}
           </span>
         ) : null}
