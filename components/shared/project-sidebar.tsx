@@ -15,6 +15,7 @@ import {
 
 import { cn } from "@/lib/utils"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { useOnboarding } from "@/components/onboarding/onboarding-context"
 
 // Figma --rad-* as pixel numbers for the squircle path math (same reason as
 // projects-navbar: the clip-path calculation can't read CSS vars).
@@ -73,6 +74,7 @@ function SidebarItem({
 export function ProjectSidebar({ projectName }: { projectName: string }) {
   const pathname = usePathname()
   const { projectId } = useParams<{ projectId: string }>()
+  const { activePath } = useOnboarding()
   const { ref: cardRef, style: cardStyle } =
     useSquircleClipPath<HTMLElement>({
       cornerRadius: CARD_CORNER_RADIUS,
@@ -88,13 +90,19 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
       <nav className="relative flex flex-col gap-dist-md">
         {NAV_ITEMS.map(({ path, label, icon }) => {
           const href = `/projects/${projectId}/${path}`
+          // During the onboarding tour, the callout forces one item to
+          // read as active regardless of the actual route — the tour
+          // narrates sections in place without navigating.
+          const active = activePath
+            ? path === activePath
+            : pathname.startsWith(href)
           return (
             <SidebarItem
               key={path}
               href={href}
               label={label}
               icon={icon}
-              active={pathname.startsWith(href)}
+              active={active}
             />
           )
         })}

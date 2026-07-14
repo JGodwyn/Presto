@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button"
+import { ReplayOnboardingButton } from "@/components/onboarding/replay-onboarding-button"
 
 // No-posts empty state from the Figma "Dashboard" frame. The stats/dashboard
 // content replaces this once posts exist — UI only for now, so "Get started"
@@ -6,7 +7,11 @@ import { Button } from "@/components/ui/button"
 // /projects (see that page for the @starting-style rationale).
 export default function DashboardPage() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
+    <div className="relative flex flex-1 flex-col items-center justify-center transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
+      <div className="absolute top-0 right-0">
+        <ReplayOnboardingButton />
+      </div>
+
       <div className="flex w-68 flex-col items-center gap-dist-xl text-center">
         <h1 className="text-heading-sm font-display text-text-bold">
           Nothing here

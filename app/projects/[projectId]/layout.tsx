@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation"
 import { z } from "zod"
 
-import { ProjectsNavbar } from "@/components/projects/projects-navbar"
 import { ProjectSidebar } from "@/components/shared/project-sidebar"
+import { ProjectTopbar } from "@/components/shared/project-topbar"
+import { OnboardingProvider } from "@/components/onboarding/onboarding-context"
+import { OnboardingCover } from "@/components/onboarding/onboarding-cover"
+import { OnboardingCallout } from "@/components/onboarding/onboarding-callout"
 import { createClient } from "@/lib/supabase/server"
 import { fetchProject } from "@/lib/supabase/queries"
 
@@ -14,7 +17,9 @@ const projectIdSchema = z.string().uuid()
 
 // Chrome from the Figma "Dashboard" frame: the same full-bleed navbar as
 // /projects (gear re-pointed at this project's settings) beside a floating
-// sidebar card, on the shared surface-3 canvas.
+// sidebar card, on the shared surface-3 canvas. OnboardingProvider wraps all
+// of it so the cover, the navbar swap, and the sidebar's forced-active state
+// share one source of truth for tour progress.
 export default async function ProjectLayout({
   children,
   params,
@@ -39,16 +44,22 @@ export default async function ProjectLayout({
     "there"
 
   return (
-    <div className="flex min-h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl">
-      <ProjectsNavbar
-        userName={firstName}
-        settingsHref={`/projects/${projectId}/settings`}
-      />
+    <OnboardingProvider>
+      <div className="flex min-h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl">
+        <ProjectTopbar
+          userName={firstName}
+          settingsHref={`/projects/${projectId}/settings`}
+        />
 
-      <div className="flex flex-1 items-stretch gap-dist-xl">
-        <ProjectSidebar projectName={project.name} />
-        <main className="flex flex-1 flex-col p-pad-lg">{children}</main>
+        <div className="flex flex-1 items-stretch gap-dist-xl">
+          <ProjectSidebar projectName={project.name} />
+          <main className="flex flex-1 flex-col p-pad-lg">
+            <OnboardingCallout>{children}</OnboardingCallout>
+          </main>
+        </div>
       </div>
-    </div>
+
+      <OnboardingCover />
+    </OnboardingProvider>
   )
 }

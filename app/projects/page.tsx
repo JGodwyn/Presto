@@ -53,8 +53,12 @@ export default async function ProjectsPage() {
         )}
       >
         {projects.map((project) => (
-          <Link key={project.id} href={`/projects/${project.id}/dashboard`}>
-            <ProjectFolder name={project.name} />
+          <Link
+            key={project.id}
+            href={`/projects/${project.id}/dashboard`}
+            className="group"
+          >
+            <ProjectFolder name={project.name} createdAt={project.createdAt} />
           </Link>
         ))}
         <NewProjectFolder />

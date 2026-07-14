@@ -12,9 +12,28 @@
 // 0.9 floor for delight), strong ease-out curve, at the 300ms UI ceiling.
 // Tailwind v4's scale-* animates the standalone `scale` property, so that's
 // what the transition lists — `transform` would silently not animate.
-export function ProjectFolder({ name }: { name: string }) {
+//
+// Press feedback (group-active:scale) and the hover date caption both rely
+// on the wrapping <Link> in app/projects/page.tsx having `className="group"`
+// — this component itself stays a plain server-renderable presentational
+// piece, no "use client" needed since :active/:hover are pure CSS states.
+export function ProjectFolder({
+  name,
+  createdAt,
+}: {
+  name: string
+  createdAt: string
+}) {
+  const formattedDate = new Date(createdAt).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+
   return (
-    <div className="relative flex h-42 w-full min-w-64 flex-col justify-end p-pad-xl transition-[scale,opacity] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-75 starting:opacity-0">
+    <div
+      className="relative flex h-42 w-full min-w-64 flex-col justify-end p-pad-xl [transition:scale_150ms_ease-out,opacity_300ms_cubic-bezier(0.23,1,0.32,1)] starting:scale-75 starting:opacity-0 group-active:scale-[0.97]"
+    >
       <svg
         viewBox="0 0 256 168"
         preserveAspectRatio="none"
@@ -29,9 +48,24 @@ export function ProjectFolder({ name }: { name: string }) {
         />
       </svg>
 
-      <p className="relative line-clamp-2 text-heading-sm font-display break-words text-text-inverse">
-        {name}
-      </p>
+      {/* `relative` here (not on the svg) is what makes this whole group
+          paint above the absolute background svg despite coming later in
+          flow — same trick the old bare `relative` on <p> used, just moved
+          up a level now that the date caption needs the same anchor. */}
+      <div className="relative">
+        {/* Hover-only caption — CSS-only reveal (group-hover), no tooltip
+            primitive needed for a single-line, low-stakes piece of metadata.
+            `bottom-full` + `mb-dist-md` anchors it dist-md above the name
+            without shifting the name's own resting position (opacity, not
+            layout, is what's toggling). */}
+        <span className="absolute bottom-full left-0 mb-dist-md text-body-md-bold whitespace-nowrap text-text-inverse/80 opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100">
+          Created {formattedDate}
+        </span>
+
+        <p className="line-clamp-2 text-heading-sm font-display break-words text-text-inverse">
+          {name}
+        </p>
+      </div>
     </div>
   )
 }

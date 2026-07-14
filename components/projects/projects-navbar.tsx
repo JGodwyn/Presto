@@ -2,7 +2,7 @@
 
 import Image from "next/image"
 import Link from "next/link"
-import { Gear } from "@phosphor-icons/react"
+import { ArrowLeft, ArrowLeftIcon, Gear, GearFine } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
@@ -36,12 +36,16 @@ function PrestoLogoMono() {
 
 // settingsHref: the gear points at the user-level /settings stub by default;
 // inside a project the layout passes that project's settings path instead.
+// backHref: only set inside a project (by ProjectTopbar) — the picker itself
+// has nothing to go "back" to, so this navbar's /projects usage omits it.
 export function ProjectsNavbar({
   userName,
   settingsHref = "/settings",
+  backHref,
 }: {
   userName: string
   settingsHref?: string
+  backHref?: string
 }) {
   const { ref: chipRef, style: chipStyle } =
     useSquircleClipPath<HTMLDivElement>({
@@ -51,7 +55,19 @@ export function ProjectsNavbar({
 
   return (
     <header className="flex items-center justify-between">
-      <PrestoLogoMono />
+      <div className="flex items-center gap-dist-md">
+        {backHref && (
+          <Button
+            variant="brand-secondary"
+            size="icon-md"
+            nativeButton={false}
+            render={<Link href={backHref} aria-label="Back to projects" />}
+          >
+            <ArrowLeftIcon weight="bold" />
+          </Button>
+        )}
+        <PrestoLogoMono />
+      </div>
 
       <div className="flex items-center gap-dist-md">
         <div
@@ -71,14 +87,14 @@ export function ProjectsNavbar({
         </div>
 
         <Button
-          variant="brand"
+          variant="brand-secondary"
           size="icon-md"
           // Base UI requires this when `render` swaps the underlying element
           // to a non-<button> (here a Link) — silences its semantics warning.
           nativeButton={false}
           render={<Link href={settingsHref} aria-label="Settings" />}
         >
-          <Gear weight="fill" />
+          <GearFine weight="bold" />
         </Button>
       </div>
     </header>
