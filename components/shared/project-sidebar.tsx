@@ -129,13 +129,19 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
       {/* The 384×930 pixel-gradient artwork scaled to card width (the Figma
           frame shows it exactly this way: full image, natural aspect — white
           staircase in, deep violet at the foot). No crop; the card's clip
-          rounds its bottom corners. */}
+          rounds its bottom corners. loading="eager": this sidebar renders on
+          every in-project page, so the image is always above the fold —
+          Next was flagging it as the LCP element and asking for eager
+          loading (this Next version deprecated `priority` in favor of
+          `preload`, but its own docs say `loading="eager"` is what to reach
+          for in the common case, which this is). */}
       <Image
         src="/images/dashboard/sidebar-gradient.webp"
         alt=""
         aria-hidden
         width={384}
         height={930}
+        loading="eager"
         className="pointer-events-none absolute inset-x-0 bottom-0 h-auto w-full"
       />
 

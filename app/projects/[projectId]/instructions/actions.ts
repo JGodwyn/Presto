@@ -14,6 +14,7 @@ const saveInstructionsSchema = z.object({
   contentRules: z.string().max(5000),
   postStructure: z.string().max(5000),
   whatToAvoid: z.string().max(5000),
+  topics: z.array(z.string().trim().min(1).max(80)).max(100),
 })
 
 export type SaveInstructionsInput = z.infer<typeof saveInstructionsSchema>
@@ -52,6 +53,7 @@ export async function saveInstructions(
     content_rules: fields.contentRules,
     post_structure: fields.postStructure,
     what_to_avoid: fields.whatToAvoid,
+    topics: fields.topics,
     updated_at: new Date().toISOString(),
   })
 

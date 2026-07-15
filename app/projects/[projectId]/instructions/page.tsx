@@ -26,17 +26,21 @@ export default async function InstructionsPage({
   const instructions = await fetchInstructions(supabase, projectId)
 
   return (
+    // xl:min-w-0 overrides flexbox's default min-width:auto on each column —
+    // without it, an unbreakable long chip/word can force that column past
+    // its flex-basis share, shrinking the other two. xl:max-w-md caps how
+    // wide any one column can grow on top of that.
     <div className="flex flex-1 flex-col items-start gap-dist-md transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px] xl:flex-row">
       <MyVoiceCard
         projectId={projectId}
         initial={instructions}
-        className="xl:flex-1"
+        className="xl:min-w-0 xl:max-w-md xl:flex-1"
       />
 
       <InstructionsCard
         title="My writing style"
         description="Show Presto real examples of writing you want your posts to sound like."
-        className="xl:flex-1"
+        className="xl:min-w-0 xl:max-w-md xl:flex-1"
       >
         <DottedDivider />
         <WritingStyleModal />
@@ -45,7 +49,7 @@ export default async function InstructionsPage({
       <InstructionsCard
         title="References"
         description="Give Presto material to draw ideas and context from when generating posts."
-        className="xl:flex-1"
+        className="xl:min-w-0 xl:max-w-md xl:flex-1"
       >
         <DottedDivider />
         <Button variant="brand" size="sm" className="self-start">

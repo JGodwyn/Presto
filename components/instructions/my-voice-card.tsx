@@ -3,15 +3,15 @@
 import * as React from "react"
 import { useForm } from "react-hook-form"
 import type { UseFormRegisterReturn } from "react-hook-form"
-import { Eye, EyeClosed, Info, MagnifyingGlass } from "@phosphor-icons/react"
+import { Eye, EyeClosed, Info } from "@phosphor-icons/react"
 
 import { saveInstructions } from "@/app/projects/[projectId]/instructions/actions"
-import { PillInput } from "@/components/ui/pill-input"
 import { PillTextarea } from "@/components/ui/pill-textarea"
 import { Switch } from "@/components/ui/switch"
 import { Toast } from "@/components/ui/toast"
 import { DottedDivider } from "@/components/instructions/dotted-divider"
 import { InstructionsCard } from "@/components/instructions/instructions-card"
+import { TopicPicker } from "@/components/instructions/topic-picker"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import type { Instructions } from "@/types/instructions"
 
@@ -82,6 +82,7 @@ function MyVoiceCard({
   const [singlePrompt, setSinglePrompt] = React.useState(
     initial?.singlePrompt ?? false
   )
+  const [topics, setTopics] = React.useState<string[]>(initial?.topics ?? [])
   const [saveFailed, setSaveFailed] = React.useState(false)
   const switchId = React.useId()
   const { register, getValues } = useForm<VoiceFormValues>({
@@ -98,12 +99,13 @@ function MyVoiceCard({
       cornerRadius: TOGGLE_ROW_CORNER_RADIUS,
     })
 
-  // The toggle passes its next value explicitly — setState hasn't committed
-  // yet when its save fires.
-  const save = async (next?: { singlePrompt: boolean }) => {
+  // The toggle and the topic picker pass their next value explicitly —
+  // setState hasn't committed yet when their save fires.
+  const save = async (next?: { singlePrompt?: boolean; topics?: string[] }) => {
     const result = await saveInstructions({
       projectId,
       singlePrompt: next?.singlePrompt ?? singlePrompt,
+      topics: next?.topics ?? topics,
       ...getValues(),
     })
     if ("error" in result) setSaveFailed(true)
@@ -114,6 +116,18 @@ function MyVoiceCard({
   const handleToggle = (next: boolean) => {
     setSinglePrompt(next)
     void save({ singlePrompt: next })
+  }
+
+  const addTopic = (topic: string) => {
+    const next = [...topics, topic]
+    setTopics(next)
+    void save({ topics: next })
+  }
+
+  const removeTopic = (topic: string) => {
+    const next = topics.filter((t) => t !== topic)
+    setTopics(next)
+    void save({ topics: next })
   }
 
   return (
@@ -183,14 +197,11 @@ function MyVoiceCard({
                 <h3 className="text-body-lg-bold text-text-bold">
                   Topic covered
                 </h3>
-                <PillInput
-                  fieldSize="md"
-                  icon={<MagnifyingGlass weight="bold" />}
-                  placeholder="Search topics to add"
+                <TopicPicker
+                  topics={topics}
+                  onAdd={addTopic}
+                  onRemove={removeTopic}
                 />
-                <p className="text-body-lg text-text-minimal">
-                  No topics added
-                </p>
               </div>
 
               {VOICE_FIELDS.map((field) => (
@@ -232,23 +243,30 @@ function VoiceField({
 
   return (
     <div className="flex flex-col gap-dist-md">
-      <div className="flex items-center gap-dist-md">
-        <h3 className="flex-1 text-body-lg-bold text-text-bold">{label}</h3>
+      {/* The whole row toggles, not just the eye — one button spanning label
+          and icon (valid inside h3: buttons are phrasing content), so it's a
+          bigger target and a single tab stop. Only the icon shifts color on
+          hover; recoloring the label read as a state change, not a hint. */}
+      <h3>
         <button
           type="button"
           aria-expanded={visible}
-          aria-label={visible ? `Hide ${label}` : `Show ${label}`}
           onClick={() => setVisible((v) => !v)}
-          // Hover color change → `ease` per the standards' easing table.
-          className="cursor-pointer rounded-rad-sm text-text-bold transition-colors duration-150 ease outline-none hover:text-text-subtle focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="group/field-toggle flex w-full cursor-pointer items-center gap-dist-md rounded-rad-sm text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
-          {visible ? (
-            <EyeClosed className="size-5" weight="bold" />
-          ) : (
-            <Eye className="size-5" weight="bold" />
-          )}
+          <span className="flex-1 text-body-lg-bold text-text-bold">
+            {label}
+          </span>
+          {/* Hover color change → `ease` per the standards' easing table. */}
+          <span className="text-text-bold transition-colors duration-150 ease group-hover/field-toggle:text-text-subtle">
+            {visible ? (
+              <EyeClosed className="size-5" weight="bold" />
+            ) : (
+              <Eye className="size-5" weight="bold" />
+            )}
+          </span>
         </button>
-      </div>
+      </h3>
       {visible ? (
         <div className="transition-[opacity,translate] duration-200 ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0">
           <PillTextarea placeholder={placeholder} {...registration} />
