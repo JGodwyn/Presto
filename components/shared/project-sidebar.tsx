@@ -99,8 +99,38 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
     <aside
       ref={cardRef}
       style={cardStyle}
-      className="relative flex w-64 shrink-0 flex-col overflow-hidden rounded-rad-lg bg-surface-4 p-pad-md"
+      // min-h-max: the card's own natural (max-content) height is nav's
+      // height + the spacer's minimum + the folder-name block's own height +
+      // card padding — all three are real in-flow content now (see below),
+      // so max-content adds them up correctly on its own. Below that natural
+      // height the card stops shrinking with the viewport and holds this
+      // size instead.
+      className="relative flex w-64 min-h-max shrink-0 flex-col overflow-hidden rounded-rad-lg bg-surface-4 p-pad-md"
     >
+      {/* The 384×930 pixel-gradient artwork scaled to card width (the Figma
+          frame shows it exactly this way: full image, natural aspect — white
+          staircase in, deep violet at the foot). No crop; the card's clip
+          rounds its bottom corners. loading="eager": this sidebar renders on
+          every in-project page, so the image is always above the fold —
+          Next was flagging it as the LCP element and asking for eager
+          loading (this Next version deprecated `priority` in favor of
+          `preload`, but its own docs say `loading="eager"` is what to reach
+          for in the common case, which this is).
+          Rendered first (before nav) so it always paints *behind* nav —
+          both are positioned elements with the default stacking order, so
+          DOM order alone keeps the image from ever visually covering the
+          tabs at short viewport heights, without needing to resize, clip,
+          or offset the image itself. */}
+      <Image
+        src="/images/dashboard/sidebar-gradient.webp"
+        alt=""
+        aria-hidden
+        width={384}
+        height={930}
+        loading="eager"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-auto w-full"
+      />
+
       <nav className="relative flex flex-col gap-dist-md">
         {NAV_ITEMS.map(({ path, label, icon }) => {
           const href = `/projects/${projectId}/${path}`
@@ -126,26 +156,26 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
         })}
       </nav>
 
-      {/* The 384×930 pixel-gradient artwork scaled to card width (the Figma
-          frame shows it exactly this way: full image, natural aspect — white
-          staircase in, deep violet at the foot). No crop; the card's clip
-          rounds its bottom corners. loading="eager": this sidebar renders on
-          every in-project page, so the image is always above the fold —
-          Next was flagging it as the LCP element and asking for eager
-          loading (this Next version deprecated `priority` in favor of
-          `preload`, but its own docs say `loading="eager"` is what to reach
-          for in the common case, which this is). */}
-      <Image
-        src="/images/dashboard/sidebar-gradient.webp"
-        alt=""
-        aria-hidden
-        width={384}
-        height={930}
-        loading="eager"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-auto w-full"
-      />
+      {/* Hardcoded (not a design token — an explicit call, not a guess): at
+          least 80px between the tabs and the folder name below. flex-1 so it
+          also soaks up any *extra* room in a tall viewport — pushing the
+          folder-name block down to the card's true bottom edge, same as
+          when that block was bottom-pinned directly — but min-h-20 stops it
+          shrinking past 80px, which is also what stops the card's own
+          min-h-max collapsing tighter than nav + this gap + the folder-name
+          block's own height. A fixed-height spacer alone isn't enough here:
+          the folder-name block can wrap to 3 lines (line-clamp-3) and grow
+          taller than 80px on its own, which ate into a fixed gap entirely at
+          the card's minimum height — this way its real height is always
+          counted, not assumed away. */}
+      <div aria-hidden className="min-h-20 flex-1" />
 
-      <div className="absolute inset-x-0 bottom-0 flex flex-col gap-dist-md p-pad-lg">
+      {/* relative (not just in-flow): a static element paints *behind*
+          positioned ones regardless of DOM order, so without this the
+          (still-absolute) image above painted over it entirely — same
+          stacking rule that keeps nav above the image, just the inverse
+          failure mode. */}
+      <div className="relative flex flex-col gap-dist-md p-pad-lg">
         <FolderSimple weight="bold" className="size-6 text-text-inverse" />
         <p className="line-clamp-3 text-title-lg font-display break-words text-text-inverse">
           {projectName}

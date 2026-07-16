@@ -12,6 +12,9 @@ const CORNER_SMOOTHING = 1
 interface InstructionsCardProps {
   title: string
   description: string
+  // Rendered beside the title (e.g. the compact "+" trigger the writing-style
+  // card swaps in once it has entries) — omit for the plain title-only header.
+  headerAction?: React.ReactNode
   className?: string
   children?: React.ReactNode
 }
@@ -22,6 +25,7 @@ interface InstructionsCardProps {
 function InstructionsCard({
   title,
   description,
+  headerAction,
   className,
   children,
 }: InstructionsCardProps) {
@@ -41,7 +45,12 @@ function InstructionsCard({
         className
       )}
     >
-      <h2 className="text-heading-sm font-display text-text-bold">{title}</h2>
+      <div className="flex items-center justify-between gap-dist-md">
+        <h2 className="text-heading-sm font-display text-text-bold">
+          {title}
+        </h2>
+        {headerAction}
+      </div>
       <p className="text-body-lg text-text-subtle">{description}</p>
       {children}
     </section>

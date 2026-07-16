@@ -3,6 +3,11 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { ScrollbarThumb } from "@/components/ui/scrollbar-thumb"
+import {
+  HIDE_NATIVE_SCROLLBAR_CLASSNAME,
+  useScrollThumb,
+} from "@/hooks/use-scroll-thumb"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 
 // Figma "TextArea" (design-sync instructions export): the same pill surface
@@ -20,6 +25,8 @@ interface PillTextareaProps extends React.ComponentProps<"textarea"> {
 function PillTextarea({
   className,
   containerClassName,
+  ref,
+  onScroll,
   ...props
 }: PillTextareaProps) {
   const { ref: squircleRef, style: squircleStyle } =
@@ -27,6 +34,25 @@ function PillTextarea({
       cornerRadius: CONTAINER_CORNER_RADIUS,
       cornerSmoothing: CORNER_SMOOTHING,
     })
+  // Same app-wide custom scrollbar as everywhere else — see
+  // hooks/use-scroll-thumb.ts. The thumb renders as a sibling of the
+  // textarea inside this component's own `relative` wrapper, not inside the
+  // textarea itself (which would just scroll away with the content).
+  const {
+    ref: scrollThumbRef,
+    thumb,
+    visible,
+    onScroll: updateThumb,
+  } = useScrollThumb<HTMLTextAreaElement>()
+
+  const setTextareaRef = React.useCallback(
+    (node: HTMLTextAreaElement | null) => {
+      scrollThumbRef(node)
+      if (typeof ref === "function") ref(node)
+      else if (ref) ref.current = node
+    },
+    [scrollThumbRef, ref]
+  )
 
   return (
     <div
@@ -37,20 +63,27 @@ function PillTextarea({
         // transparent at rest, so the focus swap never shifts layout.
         // rounded-rad-lg is the fallback shape until the squircle clip-path
         // is measured on mount (see use-squircle-clip-path.ts).
-        "flex w-full rounded-rad-lg border-[length:var(--stroke-xl)] border-transparent bg-text-input-surface-rest px-pad-lg py-pad-sm transition-colors duration-150 ease focus-within:border-border-focused has-[textarea:disabled]:bg-surface-2",
+        "relative flex w-full rounded-rad-lg border-[length:var(--stroke-xl)] border-transparent bg-text-input-surface-rest px-pad-lg py-pad-sm transition-colors duration-150 ease focus-within:border-border-focused has-[textarea:disabled]:bg-surface-2",
         containerClassName
       )}
       style={squircleStyle}
     >
       <textarea
+        ref={setTextareaRef}
+        onScroll={(event) => {
+          updateThumb()
+          onScroll?.(event)
+        }}
         className={cn(
           // h-26 (104px) + the container's pad-sm padding = the Figma
           // TextArea's 120px overall height.
           "h-26 w-full resize-none bg-transparent text-body-lg text-text-bold outline-none placeholder:text-text-subtle disabled:text-text-subtle",
+          HIDE_NATIVE_SCROLLBAR_CLASSNAME,
           className
         )}
         {...props}
       />
+      <ScrollbarThumb thumb={thumb} visible={visible} className="right-1" />
     </div>
   )
 }

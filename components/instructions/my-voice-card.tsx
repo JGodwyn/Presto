@@ -258,7 +258,7 @@ function VoiceField({
             {label}
           </span>
           {/* Hover color change → `ease` per the standards' easing table. */}
-          <span className="text-text-bold transition-colors duration-150 ease group-hover/field-toggle:text-text-subtle">
+          <span className="text-icon-subtle transition-colors duration-150 ease group-hover/field-toggle:text-icon-bold">
             {visible ? (
               <EyeClosed className="size-5" weight="bold" />
             ) : (

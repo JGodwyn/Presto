@@ -4,16 +4,18 @@ import { Button } from "@/components/ui/button"
 import { DottedDivider } from "@/components/instructions/dotted-divider"
 import { InstructionsCard } from "@/components/instructions/instructions-card"
 import { MyVoiceCard } from "@/components/instructions/my-voice-card"
-import { WritingStyleModal } from "@/components/instructions/writing-style-modal"
+import { WritingStyleCard } from "@/components/instructions/writing-style-card"
 import { createClient } from "@/lib/supabase/server"
-import { fetchInstructions } from "@/lib/supabase/queries"
+import { fetchInstructions, fetchWritingStyles } from "@/lib/supabase/queries"
 
 // Instructions screen from the Figma "Instructions" export: three cards —
 // My voice (the instruction fields, auto-saved on blur and prefilled from
-// public.instructions here), My writing style (its "Add a style" CTA opens
-// the writing-style modal), and the References empty state, whose CTA isn't
-// wired yet. Same unified blur+opacity mount-in as the dashboard (see that
-// page for the @starting-style rationale).
+// public.instructions here), My writing style (entries from
+// public.writing_styles, added via the writing-style modal — see the "My
+// writing style (Content added)" export for its non-empty layout), and the
+// References empty state, whose CTA isn't wired yet. Same unified
+// blur+opacity mount-in as the dashboard (see that page for the
+// @starting-style rationale).
 export default async function InstructionsPage({
   params,
 }: {
@@ -23,7 +25,10 @@ export default async function InstructionsPage({
   const supabase = await createClient()
   // The layout already redirected if this project isn't the caller's; under
   // RLS a foreign id would come back null (same as no row yet) anyway.
-  const instructions = await fetchInstructions(supabase, projectId)
+  const [instructions, writingStyles] = await Promise.all([
+    fetchInstructions(supabase, projectId),
+    fetchWritingStyles(supabase, projectId),
+  ])
 
   return (
     // xl:min-w-0 overrides flexbox's default min-width:auto on each column —
@@ -37,14 +42,11 @@ export default async function InstructionsPage({
         className="xl:min-w-0 xl:max-w-md xl:flex-1"
       />
 
-      <InstructionsCard
-        title="My writing style"
-        description="Show Presto real examples of writing you want your posts to sound like."
+      <WritingStyleCard
+        projectId={projectId}
+        initial={writingStyles}
         className="xl:min-w-0 xl:max-w-md xl:flex-1"
-      >
-        <DottedDivider />
-        <WritingStyleModal />
-      </InstructionsCard>
+      />
 
       <InstructionsCard
         title="References"

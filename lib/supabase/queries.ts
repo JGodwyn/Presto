@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 
 import type { Instructions } from "@/types/instructions"
 import type { Project } from "@/types/project"
+import type { WritingStyle } from "@/types/writing-style"
 
 // RLS on public.projects already scopes every query to the signed-in user,
 // so these take whatever client the caller has (server or browser) and add
@@ -67,6 +68,32 @@ export async function fetchInstructions(
     topics: data.topics,
     updatedAt: data.updated_at,
   }
+}
+
+export async function fetchWritingStyles(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<WritingStyle[]> {
+  const { data, error } = await supabase
+    .from("writing_styles")
+    .select(
+      "id, project_id, kind, content, file_name, file_size, file_path, created_at"
+    )
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true })
+
+  if (error) throw error
+
+  return data.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    kind: row.kind,
+    content: row.content,
+    fileName: row.file_name,
+    fileSize: row.file_size,
+    filePath: row.file_path,
+    createdAt: row.created_at,
+  }))
 }
 
 export async function hasProjects(supabase: SupabaseClient): Promise<boolean> {
