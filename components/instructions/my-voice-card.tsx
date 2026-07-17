@@ -5,13 +5,17 @@ import { useForm } from "react-hook-form"
 import type { UseFormRegisterReturn } from "react-hook-form"
 import { Eye, EyeClosed, Info } from "@phosphor-icons/react"
 
-import { saveInstructions } from "@/app/projects/[projectId]/instructions/actions"
+import {
+  saveInstructions,
+  type SaveInstructionsInput,
+} from "@/app/projects/[projectId]/instructions/actions"
 import { PillTextarea } from "@/components/ui/pill-textarea"
 import { Switch } from "@/components/ui/switch"
 import { Toast } from "@/components/ui/toast"
 import { DottedDivider } from "@/components/instructions/dotted-divider"
 import { InstructionsCard } from "@/components/instructions/instructions-card"
 import { TopicPicker } from "@/components/instructions/topic-picker"
+import { useSaveQueue } from "@/hooks/use-save-queue"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import type { Instructions } from "@/types/instructions"
 
@@ -99,35 +103,46 @@ function MyVoiceCard({
       cornerRadius: TOGGLE_ROW_CORNER_RADIUS,
     })
 
+  // Coalesces bursts of autosaves (rapid topic add/remove, several field
+  // blurs in a row) into a strictly ordered request stream — see
+  // hooks/use-save-queue.ts. The callback below only closes over the
+  // stable `saveInstructions` import and the stable `setSaveFailed`
+  // setter, so it's safe to memoize once and never resync.
+  const queueSave = useSaveQueue(
+    React.useCallback(async (payload: SaveInstructionsInput) => {
+      const result = await saveInstructions(payload)
+      if ("error" in result) setSaveFailed(true)
+    }, [])
+  )
+
   // The toggle and the topic picker pass their next value explicitly —
   // setState hasn't committed yet when their save fires.
-  const save = async (next?: { singlePrompt?: boolean; topics?: string[] }) => {
-    const result = await saveInstructions({
+  const save = (next?: { singlePrompt?: boolean; topics?: string[] }) => {
+    queueSave({
       projectId,
       singlePrompt: next?.singlePrompt ?? singlePrompt,
       topics: next?.topics ?? topics,
       ...getValues(),
     })
-    if ("error" in result) setSaveFailed(true)
   }
 
-  const saveOnBlur = () => void save()
+  const saveOnBlur = () => save()
 
   const handleToggle = (next: boolean) => {
     setSinglePrompt(next)
-    void save({ singlePrompt: next })
+    save({ singlePrompt: next })
   }
 
   const addTopic = (topic: string) => {
     const next = [...topics, topic]
     setTopics(next)
-    void save({ topics: next })
+    save({ topics: next })
   }
 
   const removeTopic = (topic: string) => {
     const next = topics.filter((t) => t !== topic)
     setTopics(next)
-    void save({ topics: next })
+    save({ topics: next })
   }
 
   return (
