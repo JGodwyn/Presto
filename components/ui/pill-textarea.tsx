@@ -27,8 +27,13 @@ function PillTextarea({
   containerClassName,
   ref,
   onScroll,
+  "aria-invalid": ariaInvalid,
   ...props
 }: PillTextareaProps) {
+  // Same pattern as pill-input.tsx: aria-invalid, not a bespoke boolean prop,
+  // so this composes with react-hook-form's own aria-invalid wiring and any
+  // other caller that already treats aria-invalid as the source of truth.
+  const isInvalid = ariaInvalid === true || ariaInvalid === "true"
   const { ref: squircleRef, style: squircleStyle } =
     useSquircleClipPath<HTMLDivElement>({
       cornerRadius: CONTAINER_CORNER_RADIUS,
@@ -60,16 +65,24 @@ function PillTextarea({
       data-slot="pill-textarea"
       className={cn(
         // Same border strategy as pill-input: always present at full width,
-        // transparent at rest, so the focus swap never shifts layout.
+        // transparent at rest, so the focus/danger swap never shifts layout.
         // rounded-rad-lg is the fallback shape until the squircle clip-path
         // is measured on mount (see use-squircle-clip-path.ts).
-        "relative flex w-full rounded-rad-lg border-[length:var(--stroke-xl)] border-transparent bg-text-input-surface-rest px-pad-lg py-pad-sm transition-colors duration-150 ease focus-within:border-border-focused has-[textarea:disabled]:bg-surface-2",
+        "relative flex w-full rounded-rad-lg border-[length:var(--stroke-xl)] border-transparent bg-text-input-surface-rest px-pad-lg py-pad-sm transition-colors duration-150 ease has-[textarea:disabled]:bg-surface-2",
+        // Same if/else exclusion pill-input.tsx uses for danger vs. focus
+        // border color — including both risks the wrong one winning, since
+        // they're equal-specificity classes whose actual precedence depends
+        // on Tailwind's generated stylesheet order, not JSX order.
+        isInvalid
+          ? "border-border-danger"
+          : "focus-within:border-border-focused",
         containerClassName
       )}
       style={squircleStyle}
     >
       <textarea
         ref={setTextareaRef}
+        aria-invalid={ariaInvalid}
         onScroll={(event) => {
           updateThumb()
           onScroll?.(event)

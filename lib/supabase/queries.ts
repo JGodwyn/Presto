@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import type { ContentReference } from "@/types/content-reference"
 import type { Instructions } from "@/types/instructions"
 import type { Project } from "@/types/project"
 import type { WritingStyle } from "@/types/writing-style"
@@ -76,6 +77,32 @@ export async function fetchWritingStyles(
 ): Promise<WritingStyle[]> {
   const { data, error } = await supabase
     .from("writing_styles")
+    .select(
+      "id, project_id, kind, content, file_name, file_size, file_path, created_at"
+    )
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true })
+
+  if (error) throw error
+
+  return data.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    kind: row.kind,
+    content: row.content,
+    fileName: row.file_name,
+    fileSize: row.file_size,
+    filePath: row.file_path,
+    createdAt: row.created_at,
+  }))
+}
+
+export async function fetchContentReferences(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<ContentReference[]> {
+  const { data, error } = await supabase
+    .from("content_references")
     .select(
       "id, project_id, kind, content, file_name, file_size, file_path, created_at"
     )

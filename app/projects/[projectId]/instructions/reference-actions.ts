@@ -7,9 +7,12 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
-import type { WritingStyle, WritingStyleKind } from "@/types/writing-style"
+import type { ContentReference, ContentReferenceKind } from "@/types/content-reference"
 
-const BUCKET = "writing-style-files"
+// Mirrors writing-style-actions.ts exactly — References works the same way
+// My writing style does, just against public.content_references and its own
+// Storage bucket instead.
+const BUCKET = "content-reference-files"
 // Matches Next's own default Server Actions body-size limit (1024 * 1024) —
 // anything at or above this never even reaches this action, so this is a
 // defense-in-depth backstop, not the primary check (that's client-side, in
@@ -18,10 +21,10 @@ const BUCKET = "writing-style-files"
 const MAX_FILE_BYTES = 1024 * 1024
 const ALLOWED_FILE_EXTENSIONS = ["pdf", "doc", "docx", "txt"]
 
-type WritingStyleRow = {
+type ContentReferenceRow = {
   id: string
   project_id: string
-  kind: WritingStyleKind
+  kind: ContentReferenceKind
   content: string | null
   file_name: string | null
   file_size: number | null
@@ -29,7 +32,7 @@ type WritingStyleRow = {
   created_at: string
 }
 
-function mapRow(row: WritingStyleRow): WritingStyle {
+function mapRow(row: ContentReferenceRow): ContentReference {
   return {
     id: row.id,
     projectId: row.project_id,
@@ -51,20 +54,20 @@ async function requireUser(supabase: SupabaseClient) {
 
 // Shared by all three "add" actions below — the only thing that differs
 // between a text, url, and file entry is which fields are populated.
-async function insertWritingStyle(
+async function insertContentReference(
   supabase: SupabaseClient,
   userId: string,
   fields: {
     projectId: string
-    kind: WritingStyleKind
+    kind: ContentReferenceKind
     content?: string | null
     fileName?: string | null
     fileSize?: number | null
     filePath?: string | null
   }
-): Promise<{ error: string } | { ok: true; style: WritingStyle }> {
+): Promise<{ error: string } | { ok: true; reference: ContentReference }> {
   const { data, error } = await supabase
-    .from("writing_styles")
+    .from("content_references")
     .insert({
       project_id: fields.projectId,
       user_id: userId,
@@ -78,54 +81,55 @@ async function insertWritingStyle(
     .single()
 
   if (error || !data) {
-    return { error: "Couldn't save that writing style. Please try again." }
+    return { error: "Couldn't save that reference. Please try again." }
   }
 
   revalidatePath(`/projects/${fields.projectId}/instructions`)
 
-  return { ok: true, style: mapRow(data) }
+  return { ok: true, reference: mapRow(data) }
 }
 
-const textStyleSchema = z.object({
+const textReferenceSchema = z.object({
   projectId: z.string().uuid(),
   content: z.string().trim().min(1).max(20000),
 })
 
-export async function addTextWritingStyle(
-  input: z.infer<typeof textStyleSchema>
-): Promise<{ error: string } | { ok: true; style: WritingStyle }> {
-  const parsed = textStyleSchema.safeParse(input)
+export async function addTextReference(
+  input: z.infer<typeof textReferenceSchema>
+): Promise<{ error: string } | { ok: true; reference: ContentReference }> {
+  const parsed = textReferenceSchema.safeParse(input)
   if (!parsed.success) {
-    return { error: "Type out an example before saving." }
+    return { error: "Type out some reference material before saving." }
   }
 
   const supabase = await createClient()
   const user = await requireUser(supabase)
   if (!user) {
-    return { error: "You need to be signed in to add a writing style." }
+    return { error: "You need to be signed in to add a reference." }
   }
 
-  return insertWritingStyle(supabase, user.id, {
+  return insertContentReference(supabase, user.id, {
     projectId: parsed.data.projectId,
     kind: "text",
     content: parsed.data.content,
   })
 }
 
-const updateTextStyleSchema = z.object({
+const updateTextReferenceSchema = z.object({
   projectId: z.string().uuid(),
   id: z.string().uuid(),
   content: z.string().trim().min(1).max(20000),
 })
 
-// Text entries are the only editable kind — the writing-style card renders
-// them as a live textarea (matching My Voice's "Tone" field); URL and File
-// entries stay display-only. Scoped to kind = "text" in the query as a second
-// line of defense on top of the UI never offering this for other kinds.
-export async function updateTextWritingStyle(
-  input: z.infer<typeof updateTextStyleSchema>
+// Text entries are the only editable kind — the references card renders them
+// as a live textarea (matching My Voice's "Tone" field and writing-style's
+// text entries); URL and File entries stay display-only. Scoped to
+// kind = "text" in the query as a second line of defense on top of the UI
+// never offering this for other kinds.
+export async function updateTextReference(
+  input: z.infer<typeof updateTextReferenceSchema>
 ): Promise<{ error: string } | { ok: true }> {
-  const parsed = updateTextStyleSchema.safeParse(input)
+  const parsed = updateTextReferenceSchema.safeParse(input)
   if (!parsed.success) {
     return { error: "Couldn't save your changes." }
   }
@@ -133,11 +137,11 @@ export async function updateTextWritingStyle(
   const supabase = await createClient()
   const user = await requireUser(supabase)
   if (!user) {
-    return { error: "You need to be signed in to edit a writing style." }
+    return { error: "You need to be signed in to edit a reference." }
   }
 
   const { error } = await supabase
-    .from("writing_styles")
+    .from("content_references")
     .update({ content: parsed.data.content })
     .eq("id", parsed.data.id)
     .eq("kind", "text")
@@ -151,15 +155,15 @@ export async function updateTextWritingStyle(
   return { ok: true }
 }
 
-const urlStyleSchema = z.object({
+const urlReferenceSchema = z.object({
   projectId: z.string().uuid(),
   content: z.string().trim().min(1).url().max(2048),
 })
 
-export async function addUrlWritingStyle(
-  input: z.infer<typeof urlStyleSchema>
-): Promise<{ error: string } | { ok: true; style: WritingStyle }> {
-  const parsed = urlStyleSchema.safeParse(input)
+export async function addUrlReference(
+  input: z.infer<typeof urlReferenceSchema>
+): Promise<{ error: string } | { ok: true; reference: ContentReference }> {
+  const parsed = urlReferenceSchema.safeParse(input)
   if (!parsed.success) {
     return { error: "Enter a valid URL before saving." }
   }
@@ -167,24 +171,24 @@ export async function addUrlWritingStyle(
   const supabase = await createClient()
   const user = await requireUser(supabase)
   if (!user) {
-    return { error: "You need to be signed in to add a writing style." }
+    return { error: "You need to be signed in to add a reference." }
   }
 
-  return insertWritingStyle(supabase, user.id, {
+  return insertContentReference(supabase, user.id, {
     projectId: parsed.data.projectId,
     kind: "url",
     content: parsed.data.content,
   })
 }
 
-const fileStyleSchema = z.object({
+const fileReferenceSchema = z.object({
   projectId: z.string().uuid(),
 })
 
-export async function addFileWritingStyle(
+export async function addFileReference(
   formData: FormData
-): Promise<{ error: string } | { ok: true; style: WritingStyle }> {
-  const parsed = fileStyleSchema.safeParse({
+): Promise<{ error: string } | { ok: true; reference: ContentReference }> {
+  const parsed = fileReferenceSchema.safeParse({
     projectId: formData.get("projectId"),
   })
   const file = formData.get("file")
@@ -205,7 +209,7 @@ export async function addFileWritingStyle(
   const supabase = await createClient()
   const user = await requireUser(supabase)
   if (!user) {
-    return { error: "You need to be signed in to add a writing style." }
+    return { error: "You need to be signed in to add a reference." }
   }
 
   const path = `${user.id}/${parsed.data.projectId}/${randomUUID()}-${file.name}`
@@ -218,7 +222,7 @@ export async function addFileWritingStyle(
     return { error: "Couldn't upload that file. Please try again." }
   }
 
-  const result = await insertWritingStyle(supabase, user.id, {
+  const result = await insertContentReference(supabase, user.id, {
     projectId: parsed.data.projectId,
     kind: "file",
     fileName: file.name,
@@ -233,15 +237,15 @@ export async function addFileWritingStyle(
   return result
 }
 
-const deleteStyleSchema = z.object({
+const deleteReferenceSchema = z.object({
   projectId: z.string().uuid(),
   id: z.string().uuid(),
 })
 
-export async function deleteWritingStyle(
-  input: z.infer<typeof deleteStyleSchema>
+export async function deleteReference(
+  input: z.infer<typeof deleteReferenceSchema>
 ): Promise<{ error: string } | { ok: true }> {
-  const parsed = deleteStyleSchema.safeParse(input)
+  const parsed = deleteReferenceSchema.safeParse(input)
   if (!parsed.success) {
     return { error: "Couldn't delete that item." }
   }
@@ -255,13 +259,13 @@ export async function deleteWritingStyle(
   // RLS scopes both the read and the delete to rows this user owns — the
   // file_path lookup is just to know whether a Storage object needs cleanup.
   const { data: existing } = await supabase
-    .from("writing_styles")
+    .from("content_references")
     .select("file_path")
     .eq("id", parsed.data.id)
     .maybeSingle()
 
   const { error } = await supabase
-    .from("writing_styles")
+    .from("content_references")
     .delete()
     .eq("id", parsed.data.id)
 

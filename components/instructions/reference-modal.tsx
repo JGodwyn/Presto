@@ -4,10 +4,10 @@ import * as React from "react"
 import { Plus } from "@phosphor-icons/react"
 
 import {
-  addFileWritingStyle,
-  addTextWritingStyle,
-  addUrlWritingStyle,
-} from "@/app/projects/[projectId]/instructions/writing-style-actions"
+  addFileReference,
+  addTextReference,
+  addUrlReference,
+} from "@/app/projects/[projectId]/instructions/reference-actions"
 import { Button } from "@/components/ui/button"
 import { PillTextarea } from "@/components/ui/pill-textarea"
 import { SegmentedControl } from "@/components/ui/segmented-control"
@@ -20,37 +20,39 @@ import {
 } from "@/components/ui/dialog"
 import { FieldError } from "@/components/instructions/field-error"
 import { UploadDropzone } from "@/components/instructions/upload-dropzone"
-import type { WritingStyle } from "@/types/writing-style"
+import type { ContentReference } from "@/types/content-reference"
 
-type StyleTab = "type" | "url" | "upload"
+// Mirrors writing-style-modal.tsx exactly — References works the same way
+// My writing style does: same Type/URL/Upload tabs, same trigger-swap
+// behavior, same UploadDropzone. Only the copy and the target table differ.
+type ReferenceTab = "type" | "url" | "upload"
 
-const STYLE_TABS: { value: StyleTab; label: string }[] = [
+const REFERENCE_TABS: { value: ReferenceTab; label: string }[] = [
   { value: "type", label: "Type" },
   { value: "url", label: "URL" },
   { value: "upload", label: "Upload" },
 ]
 
-const TEXTAREA_PLACEHOLDERS: Record<Exclude<StyleTab, "upload">, string> = {
-  type: "Type out a real example of a post",
-  url: "Paste a post URL or a link with multiple posts for Presto to read.",
+const TEXTAREA_PLACEHOLDERS: Record<Exclude<ReferenceTab, "upload">, string> = {
+  type: "Type out reference material for Presto to draw from",
+  url: "Paste a link Presto can pull context from.",
 }
 
-// The "Add a style" modal from the Figma "Instruction Modal - Type/URL/Upload"
-// exports, persisting to public.writing_styles on Save. The trigger swaps
-// shape per the Figma "My writing style (Content added)" export: a full
-// labeled button for the empty state, an icon-only "+" once the card already
-// lists entries (compact) — see components/instructions/writing-style-card.tsx.
-function WritingStyleModal({
+// The "Add a reference" modal — trigger swaps shape per
+// components/instructions/reference-card.tsx: a full labeled button for the
+// empty state, an icon-only "+" once the card already lists entries
+// (compact).
+function ReferenceModal({
   projectId,
   onAdded,
   compact = false,
 }: {
   projectId: string
-  onAdded: (style: WritingStyle) => void
+  onAdded: (reference: ContentReference) => void
   compact?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
-  const [tab, setTab] = React.useState<StyleTab>("type")
+  const [tab, setTab] = React.useState<ReferenceTab>("type")
   const [typeValue, setTypeValue] = React.useState("")
   const [urlValue, setUrlValue] = React.useState("")
   const [file, setFile] = React.useState<File | null>(null)
@@ -71,9 +73,9 @@ function WritingStyleModal({
 
     const result =
       tab === "type"
-        ? await addTextWritingStyle({ projectId, content: typeValue })
+        ? await addTextReference({ projectId, content: typeValue })
         : tab === "url"
-          ? await addUrlWritingStyle({ projectId, content: urlValue })
+          ? await addUrlReference({ projectId, content: urlValue })
           : await saveFile(projectId, file)
 
     setSaving(false)
@@ -83,7 +85,7 @@ function WritingStyleModal({
       return
     }
 
-    onAdded(result.style)
+    onAdded(result.reference)
     setOpen(false)
     reset()
   }
@@ -106,25 +108,29 @@ function WritingStyleModal({
         }
       >
         <Plus weight="bold" />
-        {compact ? <span className="sr-only">Add a style</span> : "Add a style"}
+        {compact ? (
+          <span className="sr-only">Add a reference</span>
+        ) : (
+          "Add a reference"
+        )}
       </DialogTrigger>
 
       <DialogContent popupClassName="w-90">
-        <DialogTitle>Writing style</DialogTitle>
+        <DialogTitle>Reference</DialogTitle>
         <DialogDescription>
-          Show Presto real examples of writing you want your posts to sound
-          like.
+          Give Presto material to draw ideas and context from when generating
+          posts.
         </DialogDescription>
 
         <SegmentedControl
-          items={STYLE_TABS}
+          items={REFERENCE_TABS}
           value={tab}
           // Clears any leftover error from a failed save on the tab being
           // left — otherwise it can still be showing (e.g. "Enter a valid
           // URL") after switching to Upload, on top of that tab's own
           // rejection message.
           onValueChange={(value) => {
-            setTab(value as StyleTab)
+            setTab(value as ReferenceTab)
             setError(null)
           }}
         />
@@ -189,7 +195,7 @@ async function saveFile(projectId: string, file: File | null) {
   const formData = new FormData()
   formData.set("projectId", projectId)
   formData.set("file", file)
-  return addFileWritingStyle(formData)
+  return addFileReference(formData)
 }
 
-export { WritingStyleModal }
+export { ReferenceModal }
