@@ -1,10 +1,13 @@
+import { GenerateCard } from "@/components/generate/generate-card"
+import { GeneratePanel } from "@/components/generate/generate-panel"
+
+// Built from the Figma "Generate (Number based)" export
+// (design-sync/generate-number-based). UI only — generation itself, the real
+// model/account lists, and the calendar-based mode's design come later.
 export default function GeneratePage() {
   return (
-    <div>
-      <h1 className="text-2xl font-semibold">Generate</h1>
-      <p className="mt-2 text-muted-foreground">
-        Two-panel generation flow (settings left, streaming preview right) will live here.
-      </p>
-    </div>
+    <GeneratePanel>
+      <GenerateCard />
+    </GeneratePanel>
   )
 }
