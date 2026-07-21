@@ -129,7 +129,7 @@ function MonthGrid({
         <YearNavButton label="Previous year" onClick={() => onYearChange(year - 1)}>
           <CaretLeft className="size-4" weight="bold" />
         </YearNavButton>
-        <span className="text-title-lg font-bold text-text-bold">{year}</span>
+        <span className="text-heading-sm font-display text-text-bold">{year}</span>
         <YearNavButton label="Next year" onClick={() => onYearChange(year + 1)}>
           <CaretRight className="size-4" weight="bold" />
         </YearNavButton>

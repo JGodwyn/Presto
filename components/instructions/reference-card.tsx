@@ -99,14 +99,24 @@ function ReferenceCard({
       >
         {hasReferences ? (
           references.map((reference) => (
-            <React.Fragment key={reference.id}>
+            // Enter-only mount-in (CSS @starting-style, no JS) — removal is
+            // instant, on purpose: see writing-style-card.tsx's identical
+            // comment (same fix, same root cause as the topic chips).
+            <div
+              key={reference.id}
+              // flex flex-col gap-dist-lg: matches InstructionsCard's own
+              // gap so the divider-to-entry spacing inside this wrapper is
+              // identical to the old Fragment version — see
+              // writing-style-card.tsx's identical comment.
+              className="flex flex-col gap-dist-lg transition-[opacity,filter,scale] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-90 starting:opacity-0 starting:blur-[8px]"
+            >
               <DottedDivider />
               <ReferenceEntry
                 reference={reference}
                 onDelete={() => handleDelete(reference)}
                 onSaveFailed={handleSaveFailed}
               />
-            </React.Fragment>
+            </div>
           ))
         ) : (
           <>

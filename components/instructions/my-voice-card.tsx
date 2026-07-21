@@ -17,6 +17,7 @@ import { InstructionsCard } from "@/components/instructions/instructions-card"
 import { TopicPicker } from "@/components/instructions/topic-picker"
 import { useSaveQueue } from "@/hooks/use-save-queue"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { cn } from "@/lib/utils"
 import type { Instructions } from "@/types/instructions"
 
 interface VoiceFormValues {
@@ -257,7 +258,7 @@ function VoiceField({
   const [visible, setVisible] = React.useState(defaultVisible)
 
   return (
-    <div className="flex flex-col gap-dist-md">
+    <div className="flex flex-col">
       {/* The whole row toggles, not just the eye — one button spanning label
           and icon (valid inside h3: buttons are phrasing content), so it's a
           bigger target and a single tab stop. Only the icon shifts color on
@@ -282,11 +283,32 @@ function VoiceField({
           </span>
         </button>
       </h3>
-      {visible ? (
-        <div className="transition-[opacity,translate] duration-200 ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0">
+      {/* The field now stays mounted either way (react-hook-form's value
+          persists trivially since nothing ever unmounts) and animates both
+          open and closed via the CSS grid-rows 0fr/1fr trick: a grid track
+          sized in `fr` can be transitioned, and paired with overflow-hidden
+          on the child it collapses that child's rendered height smoothly —
+          the one common way to animate to/from a height nothing has to
+          measure. The old version only animated the open direction (a
+          plain mount-in fade+lift); closing just unmounted instantly. */}
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-200 ease-out",
+          visible ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        )}
+      >
+        <div
+          inert={!visible}
+          className={cn(
+            "overflow-hidden pt-dist-md transition-[opacity,translate] duration-200 ease-out",
+            visible
+              ? "translate-y-0 opacity-100"
+              : "-translate-y-1 opacity-0 motion-reduce:translate-y-0"
+          )}
+        >
           <PillTextarea placeholder={placeholder} {...registration} />
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }

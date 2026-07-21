@@ -18,6 +18,17 @@ const DAY_CELL_CORNER_RADIUS = 8
 const LIST_ITEM_CORNER_RADIUS = 8
 const NAV_BUTTON_CORNER_RADIUS = 8
 
+// "default" matches the Figma export's own shadow exactly — change it here
+// if the export's spec ever changes. "sm" is a lighter, tighter-blurred
+// alternative for contexts that don't have much room for the shadow to
+// bleed into before something clips it (e.g. the Monthly skip-dates
+// carousel, whose row can only spare so much padding) — tweak its numbers
+// here too if it's still too strong/weak wherever it's used.
+const SHADOW_CLASSNAMES = {
+  default: "drop-shadow-[0px_2px_16px_rgba(0,0,0,0.2)]",
+  sm: "drop-shadow-[0px_1px_6px_rgba(0,0,0,0.16)]",
+} as const satisfies Record<string, string>
+
 const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"] as const
 const MONTH_LABELS = [
   "January",
@@ -151,6 +162,16 @@ type CalendarProps = (
   // Caller-supplied — e.g. blocking past dates. Outside-month cells are
   // always disabled regardless of this.
   disabled?: (date: Date) => boolean
+  // Drops the month dropdown and prev/next chevrons, leaving only a plain
+  // "{Month}. {Year}" label — for calendars whose displayed month is
+  // dictated by something else (e.g. the Monthly skip-dates carousel).
+  // Day-cell selection still works; there's just no way to navigate away
+  // from the month it mounted showing.
+  disableNavigation?: boolean
+  // "default" (unset) matches the Figma export. "sm" is a lighter shadow
+  // for contexts with little room for it to bleed into — see
+  // SHADOW_CLASSNAMES above to adjust either.
+  shadow?: keyof typeof SHADOW_CLASSNAMES
 }
 
 // Bigger hit target than the 16px glyph alone (per direct feedback) — the
@@ -186,6 +207,11 @@ function CalendarNavButton({
 // Title bar: "Day" view shows the "{Month}. {Year} ⌄" dropdown + prev/next;
 // "Month"/"Year" views show a plain centered header, no chevrons — matches
 // design-sync/calendar-title-bar's three View= variants exactly.
+// `disableNavigation` drops the dropdown and prev/next entirely, leaving a
+// plain "{Month}. {Year}" label — for embeddings where the displayed month
+// is fixed by something outside the calendar (the Monthly skip-dates
+// carousel, one calendar per month already chosen up in the month grid)
+// and the only action left is toggling individual days.
 function CalendarTitleBar({
   view,
   monthLabel,
@@ -193,6 +219,7 @@ function CalendarTitleBar({
   onOpenMonthPicker,
   onPrev,
   onNext,
+  disableNavigation,
 }: {
   view: "day" | "month" | "year"
   monthLabel: string
@@ -200,12 +227,24 @@ function CalendarTitleBar({
   onOpenMonthPicker: () => void
   onPrev: () => void
   onNext: () => void
+  disableNavigation: boolean
 }) {
   if (view !== "day") {
     return (
       <div className="flex h-10 w-full shrink-0 items-center justify-center border-b-[length:var(--stroke-md)] border-border-subtle bg-surface-4 px-pad-md py-pad-sm">
         <span className="text-body-lg text-text-bold">
           {view === "month" ? "Select Month" : "Select Year"}
+        </span>
+      </div>
+    )
+  }
+
+  if (disableNavigation) {
+    return (
+      <div className="flex h-10 w-full shrink-0 items-center border-b-[length:var(--stroke-md)] border-border-subtle bg-surface-4 px-pad-md py-pad-sm">
+        <span className="flex items-center gap-dist-sm">
+          <span className="text-body-lg-bold text-text-bold">{monthLabel}.</span>
+          <span className="text-body-lg text-text-bold">{year}</span>
         </span>
       </div>
     )
@@ -354,7 +393,13 @@ function CalendarListItem({
 // separate piece composed in by whatever feature embeds this (e.g. the
 // eventual Daily range picker), not part of the calendar itself.
 function Calendar(props: CalendarProps) {
-  const { size = "lg", className, disabled } = props
+  const {
+    size = "lg",
+    className,
+    disabled,
+    disableNavigation = false,
+    shadow = "default",
+  } = props
   const today = React.useMemo(() => startOfDay(new Date()), [])
   const initialMonth =
     props.mode === "range"
@@ -468,7 +513,14 @@ function Calendar(props: CalendarProps) {
   return (
     <div
       className={cn(
-        "relative drop-shadow-[0px_2px_16px_rgba(0,0,0,0.2)]",
+        // Variable/hugging height, by design — each calendar (e.g. one per
+        // month in the Monthly skip-dates carousel) sizes to its own
+        // content rather than stretching to match a taller sibling. The
+        // carousel row is responsible for not stretching cross-axis
+        // (items-start, not the flex default of stretch); this component
+        // just needs to not fight that with a height of its own.
+        "relative",
+        SHADOW_CLASSNAMES[shadow],
         CALENDAR_SIZE[size].card,
         className
       )}
@@ -485,6 +537,7 @@ function Calendar(props: CalendarProps) {
         onOpenMonthPicker={() => setView("month")}
         onPrev={() => setDisplayMonth((d) => addMonths(d, -1))}
         onNext={() => setDisplayMonth((d) => addMonths(d, 1))}
+        disableNavigation={disableNavigation}
       />
 
       {view === "day" ? (

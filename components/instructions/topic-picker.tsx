@@ -80,7 +80,6 @@ export function TopicPicker({
     left: number
     width: number
   } | null>(null)
-
   const trimmed = query.trim()
   const added = new Set(topics.map((t) => t.toLowerCase()))
   const suggestions = COMMON_TOPICS.filter(
@@ -242,9 +241,21 @@ export function TopicPicker({
       {topics.length > 0 ? (
         <div className="flex flex-wrap gap-dist-md">
           {topics.map((topic) => (
-            <Chip key={topic} title={topic} onRemove={() => onRemove(topic)}>
-              {truncateTopic(topic)}
-            </Chip>
+            // Enter-only mount-in (CSS @starting-style, no JS) — removal is
+            // instant, on purpose: an exit fade was tried here repeatedly
+            // and never stopped reading as "a delay before it goes away" no
+            // matter how early the transition started, since the chip is
+            // still visibly on screen, fading, for the whole duration
+            // either way. Tapping now removes the chip on the very same
+            // frame.
+            <div
+              key={topic}
+              className="transition-[opacity,filter,scale] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-90 starting:opacity-0 starting:blur-[8px]"
+            >
+              <Chip title={topic} onRemove={() => onRemove(topic)}>
+                {truncateTopic(topic)}
+              </Chip>
+            </div>
           ))}
         </div>
       ) : (

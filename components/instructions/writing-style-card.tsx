@@ -99,14 +99,30 @@ function WritingStyleCard({
       >
         {hasStyles ? (
           styles.map((style) => (
-            <React.Fragment key={style.id}>
+            // Enter-only mount-in (CSS @starting-style, no JS) — removal is
+            // instant, on purpose: an exit fade was tried here too and hit
+            // the same issue it did on the topic chips (see topic-picker.tsx)
+            // — the item stays on screen, and the column stays open around
+            // it, for the whole fade, which reads as a delay before the gap
+            // closes no matter how promptly the fade itself starts. Deleting
+            // now closes the gap on the same frame as the tap.
+            <div
+              key={style.id}
+              // flex flex-col gap-dist-lg: matches InstructionsCard's own
+              // gap so the divider-to-entry spacing inside this wrapper is
+              // identical to the old Fragment version, where both were
+              // flattened as direct flex children of the card sharing its
+              // gap — wrapping them in a div would otherwise flush the
+              // divider straight against the entry with no gap of its own.
+              className="flex flex-col gap-dist-lg transition-[opacity,filter,scale] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-90 starting:opacity-0 starting:blur-[8px]"
+            >
               <DottedDivider />
               <WritingStyleEntry
                 style={style}
                 onDelete={() => handleDelete(style)}
                 onSaveFailed={handleSaveFailed}
               />
-            </React.Fragment>
+            </div>
           ))
         ) : (
           <>

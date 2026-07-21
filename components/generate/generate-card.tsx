@@ -81,6 +81,14 @@ function countDaysInclusive(from: Date, to: Date) {
   return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1
 }
 
+export interface GenerateCardHandle {
+  // Resets only the calendar-based selection state — cadence, date
+  // selection, skip-dates — not mode/count/model/account, since the
+  // trigger for this (a button in GeneratePanel, above GenerateCard) is
+  // scoped to "reset the calendar selection," not "reset the whole form."
+  resetCalendar: () => void
+}
+
 // Built from the Figma "Generate (Number based)" export and the corrected
 // "Generate (Calendar based) / layout" export (design-sync/
 // genrate-calendar-based-layout — the first calendar-based pass had the
@@ -94,7 +102,15 @@ function countDaysInclusive(from: Date, to: Date) {
 // Model/account and the Generate button/plug footer are identical in both
 // modes' exports, so `modelAccountAndActions` below renders once and both
 // branches place it.
-export function GenerateCard() {
+//
+// forwardRef + useImperativeHandle: the reset button that triggers
+// `resetCalendar` lives in GeneratePanel, which wraps this component as
+// `children` — a parent has no other way to reach into a self-contained
+// child's internal state without either lifting all of it up (a much
+// bigger change to how this component owns its own state) or exposing a
+// narrow imperative method like this one.
+export const GenerateCard = React.forwardRef<GenerateCardHandle>(
+  function GenerateCard(_props, ref) {
   const [mode, setMode] = React.useState("number")
   const [count, setCount] = React.useState(MIN_POSTS)
   const [model, setModel] = React.useState(MODEL_OPTIONS[0].value)
@@ -153,13 +169,21 @@ export function GenerateCard() {
           }, 0)
 
   const handleToggleMonth = (selection: MonthSelection) => {
-    setSelectedMonths((prev) =>
-      prev.some((s) => s.year === selection.year && s.month === selection.month)
+    setSelectedMonths((prev) => {
+      const isSelected = prev.some(
+        (s) => s.year === selection.year && s.month === selection.month
+      )
+      const next = isSelected
         ? prev.filter(
             (s) => !(s.year === selection.year && s.month === selection.month)
           )
         : [...prev, selection]
-    )
+      // Kept chronological regardless of click order — appending on select
+      // meant the skip-dates carousel (and anything else reading this list)
+      // showed calendars in whatever order the user happened to click them
+      // in, not calendar order.
+      return next.sort((a, b) => a.year - b.year || a.month - b.month)
+    })
   }
 
   const handleToggleSkipDate = (date: Date, skip: boolean) => {
@@ -169,6 +193,20 @@ export function GenerateCard() {
         : prev.filter((d) => !isSameDay(d, date))
     )
   }
+
+  React.useImperativeHandle(ref, () => ({
+    resetCalendar: () => {
+      setCadence("daily")
+      setDateSelectMethod("pick")
+      setDailyRange({ from: undefined, to: undefined })
+      setDailyDates([])
+      setMonthYear(new Date().getFullYear())
+      setSelectedMonths([])
+      setSkipDatesEnabled(false)
+      setSkippedDates([])
+      setShowError(false)
+    },
+  }))
 
   const handleGenerateClick = () => {
     if (mode === "calendar" && !hasCalendarSelection) {
@@ -338,4 +376,5 @@ export function GenerateCard() {
       )}
     </div>
   )
-}
+  }
+)
