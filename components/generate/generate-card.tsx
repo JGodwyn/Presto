@@ -5,7 +5,6 @@ import Image from "next/image"
 import {
   CaretDown,
   Equals,
-  Info,
   MagicWand,
   PlugCharging,
   XLogo,
@@ -82,10 +81,12 @@ function countDaysInclusive(from: Date, to: Date) {
 }
 
 export interface GenerateCardHandle {
-  // Resets only the calendar-based selection state — cadence, date
-  // selection, skip-dates — not mode/count/model/account, since the
-  // trigger for this (a button in GeneratePanel, above GenerateCard) is
-  // scoped to "reset the calendar selection," not "reset the whole form."
+  // Resets whichever mode's selection is active: the number stepper back
+  // to MIN_POSTS (1) for number-based, and the calendar back to an empty
+  // selection (0 scheduled posts) for calendar-based — not
+  // mode/model/account, since the trigger for this (a button in
+  // GeneratePanel, above GenerateCard) is scoped to "reset the selection,"
+  // not "reset the whole form."
   resetCalendar: () => void
 }
 
@@ -111,55 +112,55 @@ export interface GenerateCardHandle {
 // narrow imperative method like this one.
 export const GenerateCard = React.forwardRef<GenerateCardHandle>(
   function GenerateCard(_props, ref) {
-  const [mode, setMode] = React.useState("number")
-  const [count, setCount] = React.useState(MIN_POSTS)
-  const [model, setModel] = React.useState(MODEL_OPTIONS[0].value)
-  const [account, setAccount] = React.useState(ACCOUNT_OPTIONS[0].value)
+    const [mode, setMode] = React.useState("number")
+    const [count, setCount] = React.useState(MIN_POSTS)
+    const [model, setModel] = React.useState(MODEL_OPTIONS[0].value)
+    const [account, setAccount] = React.useState(ACCOUNT_OPTIONS[0].value)
 
-  const [cadence, setCadence] = React.useState<"daily" | "monthly">("daily")
-  const [dateSelectMethod, setDateSelectMethod] = React.useState<
-    "range" | "pick"
-  >("pick")
-  const [dailyRange, setDailyRange] = React.useState<DateRange>({
-    from: undefined,
-    to: undefined,
-  })
-  const [dailyDates, setDailyDates] = React.useState<Date[]>([])
-  const [monthYear, setMonthYear] = React.useState(() => new Date().getFullYear())
-  const [selectedMonths, setSelectedMonths] = React.useState<MonthSelection[]>(
-    []
-  )
-  const [skipDatesEnabled, setSkipDatesEnabled] = React.useState(false)
-  const [skippedDates, setSkippedDates] = React.useState<Date[]>([])
-  const [showError, setShowError] = React.useState(false)
+    const [cadence, setCadence] = React.useState<"daily" | "monthly">("daily")
+    const [dateSelectMethod, setDateSelectMethod] = React.useState<
+      "range" | "pick"
+    >("pick")
+    const [dailyRange, setDailyRange] = React.useState<DateRange>({
+      from: undefined,
+      to: undefined,
+    })
+    const [dailyDates, setDailyDates] = React.useState<Date[]>([])
+    const [monthYear, setMonthYear] = React.useState(() => new Date().getFullYear())
+    const [selectedMonths, setSelectedMonths] = React.useState<MonthSelection[]>(
+      []
+    )
+    const [skipDatesEnabled, setSkipDatesEnabled] = React.useState(false)
+    const [skippedDates, setSkippedDates] = React.useState<Date[]>([])
+    const [showError, setShowError] = React.useState(false)
 
-  const { ref: boxRef, style: boxStyle } = useSquircleClipPath<HTMLDivElement>(
-    { cornerRadius: STEPPER_BOX_CORNER_RADIUS }
-  )
-  const { ref: tagRef, style: tagStyle } = useSquircleClipPath<HTMLDivElement>(
-    { cornerRadius: PLUGGED_TAG_CORNER_RADIUS }
-  )
+    const { ref: boxRef, style: boxStyle } = useSquircleClipPath<HTMLDivElement>(
+      { cornerRadius: STEPPER_BOX_CORNER_RADIUS }
+    )
+    const { ref: tagRef, style: tagStyle } = useSquircleClipPath<HTMLDivElement>(
+      { cornerRadius: PLUGGED_TAG_CORNER_RADIUS }
+    )
 
-  const selectedModel = MODEL_OPTIONS.find((o) => o.value === model)!
-  const selectedAccount = ACCOUNT_OPTIONS.find((o) => o.value === account)!
+    const selectedModel = MODEL_OPTIONS.find((o) => o.value === model)!
+    const selectedAccount = ACCOUNT_OPTIONS.find((o) => o.value === account)!
 
-  const hasCalendarSelection =
-    cadence === "daily"
-      ? dateSelectMethod === "range"
-        ? !!dailyRange.from && !!dailyRange.to
-        : dailyDates.length > 0
-      : selectedMonths.length > 0
-
-  const scheduledCount =
-    mode === "number"
-      ? count
-      : cadence === "daily"
+    const hasCalendarSelection =
+      cadence === "daily"
         ? dateSelectMethod === "range"
-          ? dailyRange.from && dailyRange.to
-            ? countDaysInclusive(dailyRange.from, dailyRange.to)
-            : 0
-          : dailyDates.length
-        : selectedMonths.reduce((sum, { year, month }) => {
+          ? !!dailyRange.from && !!dailyRange.to
+          : dailyDates.length > 0
+        : selectedMonths.length > 0
+
+    const scheduledCount =
+      mode === "number"
+        ? count
+        : cadence === "daily"
+          ? dateSelectMethod === "range"
+            ? dailyRange.from && dailyRange.to
+              ? countDaysInclusive(dailyRange.from, dailyRange.to)
+              : 0
+            : dailyDates.length
+          : selectedMonths.reduce((sum, { year, month }) => {
             const total = daysInMonth(year, month)
             if (!skipDatesEnabled) return sum + total
             const skipped = skippedDates.filter(
@@ -168,56 +169,61 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
             return sum + (total - skipped)
           }, 0)
 
-  const handleToggleMonth = (selection: MonthSelection) => {
-    setSelectedMonths((prev) => {
-      const isSelected = prev.some(
-        (s) => s.year === selection.year && s.month === selection.month
-      )
-      const next = isSelected
-        ? prev.filter(
+    const handleToggleMonth = (selection: MonthSelection) => {
+      setSelectedMonths((prev) => {
+        const isSelected = prev.some(
+          (s) => s.year === selection.year && s.month === selection.month
+        )
+        const next = isSelected
+          ? prev.filter(
             (s) => !(s.year === selection.year && s.month === selection.month)
           )
-        : [...prev, selection]
-      // Kept chronological regardless of click order — appending on select
-      // meant the skip-dates carousel (and anything else reading this list)
-      // showed calendars in whatever order the user happened to click them
-      // in, not calendar order.
-      return next.sort((a, b) => a.year - b.year || a.month - b.month)
-    })
-  }
-
-  const handleToggleSkipDate = (date: Date, skip: boolean) => {
-    setSkippedDates((prev) =>
-      skip
-        ? [...prev, date]
-        : prev.filter((d) => !isSameDay(d, date))
-    )
-  }
-
-  React.useImperativeHandle(ref, () => ({
-    resetCalendar: () => {
-      setCadence("daily")
-      setDateSelectMethod("pick")
-      setDailyRange({ from: undefined, to: undefined })
-      setDailyDates([])
-      setMonthYear(new Date().getFullYear())
-      setSelectedMonths([])
-      setSkipDatesEnabled(false)
-      setSkippedDates([])
-      setShowError(false)
-    },
-  }))
-
-  const handleGenerateClick = () => {
-    if (mode === "calendar" && !hasCalendarSelection) {
-      setShowError(true)
-      return
+          : [...prev, selection]
+        // Kept chronological regardless of click order — appending on select
+        // meant the skip-dates carousel (and anything else reading this list)
+        // showed calendars in whatever order the user happened to click them
+        // in, not calendar order.
+        return next.sort((a, b) => a.year - b.year || a.month - b.month)
+      })
     }
-    // Generation itself isn't wired up yet.
-  }
 
-  const modelAccountAndActions = (
-    <>
+    const handleToggleSkipDate = (date: Date, skip: boolean) => {
+      setSkippedDates((prev) =>
+        skip
+          ? [...prev, date]
+          : prev.filter((d) => !isSameDay(d, date))
+      )
+    }
+
+    React.useImperativeHandle(ref, () => ({
+      resetCalendar: () => {
+        setCount(MIN_POSTS)
+        setCadence("daily")
+        setDateSelectMethod("pick")
+        setDailyRange({ from: undefined, to: undefined })
+        // Calendar-based has no MIN_POSTS floor — an empty selection is a
+        // valid, expected post-reset state, so scheduled posts reads 0.
+        setDailyDates([])
+        setMonthYear(new Date().getFullYear())
+        setSelectedMonths([])
+        setSkipDatesEnabled(false)
+        setSkippedDates([])
+        setShowError(false)
+      },
+    }))
+
+    const handleGenerateClick = () => {
+      if (mode === "calendar" && !hasCalendarSelection) {
+        setShowError(true)
+        return
+      }
+      // Generation itself isn't wired up yet.
+    }
+
+    // Split so calendar-based can slot the "="/ScheduledPostsBar between the
+    // pills and the button (per the corrected export) while number-based
+    // keeps rendering both pieces back to back, unchanged.
+    const modelPills = (
       <div className="flex items-center gap-dist-md">
         <SelectPill
           options={MODEL_OPTIONS}
@@ -228,8 +234,8 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
           <span className="text-text-subtle">Using</span>
           <span className="text-text-bold">{selectedModel.label}</span>
           {/* Same rotate-on-open caret as the account pill, per direct
-              feedback — was a pencil, which read as "edit" rather than
-              "open this dropdown". */}
+            feedback — was a pencil, which read as "edit" rather than
+            "open this dropdown". */}
           <CaretDown className="size-4 text-icon-subtle transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180" />
         </SelectPill>
         <SelectPill
@@ -241,24 +247,31 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
           {selectedAccount.icon}
           <span className="text-text-bold">{selectedAccount.label}</span>
           {/* Points up while the menu is open — rotated rather than
-              icon-swapped so the flip animates. */}
+            icon-swapped so the flip animates. */}
           <CaretDown className="size-4 text-icon-subtle transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180" />
         </SelectPill>
       </div>
+    )
 
+    // Split so calendar-based can pair the button tightly with the
+    // ScheduledPostsBar (dist-sm, per the "Layout change" export) while the
+    // footer stays on the outer dist-xl rhythm in both modes.
+    const generateButton = (
       <Button variant="brand" size="xl" className="w-full" onClick={handleGenerateClick}>
         <MagicWand weight="fill" />
         {/* Both singular and plural literally appear across the Figma
-            exports at different counts, inconsistently — plain English
-            pluralization is the more defensible rule to code to. */}
+          exports at different counts, inconsistently — plain English
+          pluralization is the more defensible rule to code to. */}
         Generate {scheduledCount === 1 ? "Post" : "Posts"}
       </Button>
+    )
 
+    const pluggedInFooter = (
       <div className="flex flex-col items-center">
         <PlugCharging className="size-5 text-icon-subtle" />
         {/* The negative margin tucks the line under the plug glyph's
-            built-in inset so the two visually connect; bg-icon-subtle is
-            the same value the icon renders in, so they can't drift. */}
+          built-in inset so the two visually connect; bg-icon-subtle is
+          the same value the icon renders in, so they can't drift. */}
         <span
           aria-hidden
           className="-mt-dist-xs h-4 w-[length:var(--stroke-md)] bg-icon-subtle"
@@ -271,110 +284,131 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
           Instructions plugged in
         </div>
       </div>
-    </>
-  )
+    )
 
-  return (
-    <div className="mx-auto flex w-230 max-w-full flex-col items-center gap-dist-xl p-pad-2xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
-      <h1 className="text-heading-md font-display text-text-bold">Generate</h1>
+    return (
+      <div className="mx-auto flex w-230 max-w-full flex-col items-center gap-dist-xl p-pad-2xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
+        <h1 className="text-heading-md font-display text-text-bold">Generate</h1>
 
-      <div className="flex w-full flex-col items-center gap-dist-md">
-        <SegmentedControl
-          className="w-82"
-          value={mode}
-          onValueChange={(value) => setMode(value as string)}
-          items={[
-            { label: "Number-based", value: "number" },
-            { label: "Calendar-based", value: "calendar" },
-          ]}
-        />
-        <p className="flex items-center gap-dist-md text-body-md text-text-subtle">
-          <Info className="size-5 text-icon-minimal" />
-          {mode === "number"
-            ? "Generate posts by setting an amount"
-            : "Set dates you want to post on a calendar"}
-        </p>
-      </div>
-
-      {mode === "number" ? (
-        <div className="flex w-110 max-w-full flex-col items-center gap-dist-xl">
-          <p className="text-center text-body-lg-bold text-text-bold">
-            How many posts do you want to generate?
-          </p>
-
-          <div
-            ref={boxRef}
-            style={boxStyle}
-            className="flex w-full flex-col items-center gap-dist-md rounded-rad-lg bg-surface-3 py-pad-md"
-          >
-            <NumberStepper
-              value={count}
-              onChange={setCount}
-              min={MIN_POSTS}
-              max={MAX_POSTS}
-            />
-          </div>
-
-          {modelAccountAndActions}
-        </div>
-      ) : (
-        <div className="flex w-full items-start gap-dist-5xl">
-          <div className="flex w-110 max-w-full shrink-0 flex-col items-center gap-dist-xl">
-            <RadioCardGroup
-              label="Posting cadence"
-              options={CADENCE_OPTIONS}
-              value={cadence}
-              onValueChange={(value) =>
-                setCadence(value as "daily" | "monthly")
-              }
-            />
-            {cadence === "daily" ? (
-              <RadioCardGroup
-                label="How do you want to select dates?"
-                options={DATE_SELECT_OPTIONS}
-                value={dateSelectMethod}
-                onValueChange={(value) =>
-                  setDateSelectMethod(value as "range" | "pick")
-                }
-              />
-            ) : null}
-
-            <Equals className="size-5 text-icon-minimal" weight="bold" />
-
-            <ScheduledPostsBar count={scheduledCount} />
-
-            {modelAccountAndActions}
-          </div>
-
-          <GenerateCalendarColumn
-            cadence={cadence}
-            dateSelectMethod={dateSelectMethod}
-            dailyRange={dailyRange}
-            onDailyRangeChange={(range) => {
-              setDailyRange(range)
-              setShowError(false)
-            }}
-            dailyDates={dailyDates}
-            onDailyDatesChange={(dates) => {
-              setDailyDates(dates)
-              setShowError(false)
-            }}
-            monthYear={monthYear}
-            onMonthYearChange={setMonthYear}
-            selectedMonths={selectedMonths}
-            onToggleMonth={(selection) => {
-              handleToggleMonth(selection)
-              setShowError(false)
-            }}
-            skipDatesEnabled={skipDatesEnabled}
-            onSkipDatesEnabledChange={setSkipDatesEnabled}
-            skippedDates={skippedDates}
-            onToggleSkipDate={handleToggleSkipDate}
-            showError={showError && !hasCalendarSelection}
+        <div className="flex w-full flex-col items-center gap-dist-md">
+          <SegmentedControl
+            className="w-82"
+            value={mode}
+            onValueChange={(value) => setMode(value as string)}
+            items={[
+              { label: "Number-based", value: "number" },
+              { label: "Calendar-based", value: "calendar" },
+            ]}
           />
+          <p className="flex items-center gap-dist-md text-body-md text-text-subtle">
+            {mode === "number"
+              ? "Generate posts by setting an amount"
+              : "Set dates you want to post on a calendar"}
+          </p>
         </div>
-      )}
-    </div>
-  )
+
+        {mode === "number" ? (
+          <div className="flex w-110 max-w-full flex-col items-center gap-dist-xl">
+            <p className="text-center text-body-lg-bold text-text-bold">
+              How many posts do you want to generate?
+            </p>
+
+            <div
+              ref={boxRef}
+              style={boxStyle}
+              className="flex w-full flex-col items-center gap-dist-md rounded-rad-lg bg-surface-3 py-pad-md"
+            >
+              <NumberStepper
+                value={count}
+                onChange={setCount}
+                min={MIN_POSTS}
+                max={MAX_POSTS}
+              />
+            </div>
+
+            {modelPills}
+            {generateButton}
+            {pluggedInFooter}
+          </div>
+        ) : (
+          <div className="flex w-full items-start gap-dist-5xl">
+            <div className="flex w-110 max-w-full shrink-0 flex-col items-center gap-dist-xl">
+              {/* dist-lg — this trio (cadence, date-select, model/account
+                pills) groups tighter than the outer dist-xl rhythm, per the
+                "Layout change" export (design-sync/genrate-calendar-based-
+                layout-layout-change): Frame 2147239403 nests all three at
+                gap 16, distinct from the 24px gap around it. */}
+              <div className="flex w-full flex-col items-center gap-dist-lg">
+                <RadioCardGroup
+                  label="Posting cadence"
+                  options={CADENCE_OPTIONS}
+                  value={cadence}
+                  onValueChange={(value) =>
+                    setCadence(value as "daily" | "monthly")
+                  }
+                />
+                {cadence === "daily" ? (
+                  <RadioCardGroup
+                    label="How do you want to select dates?"
+                    options={DATE_SELECT_OPTIONS}
+                    value={dateSelectMethod}
+                    onValueChange={(value) =>
+                      setDateSelectMethod(value as "range" | "pick")
+                    }
+                  />
+                ) : null}
+
+                {/* self-start: the group above centers via items-center (for
+                  the two full-width cards, which stretch edge to edge
+                  regardless), but the pills row is intrinsically sized —
+                  left it centered instead of flush with the cards' left
+                  edge, per the "Layout change" export (Frame 2147239357
+                  sits at the same x as the cards, x=0 within their shared
+                  parent, not centered). */}
+                <div className="self-start">{modelPills}</div>
+              </div>
+
+              <Equals className="size-5 text-icon-minimal" weight="bold" />
+
+              {/* dist-sm — the count bar and button pair tightly (Frame
+                2147239404, gap 8), also distinct from the outer dist-xl. */}
+              <div className="flex w-full flex-col items-center gap-dist-lg">
+                <ScheduledPostsBar count={scheduledCount} />
+                {generateButton}
+              </div>
+
+              {pluggedInFooter}
+            </div>
+
+            <GenerateCalendarColumn
+              cadence={cadence}
+              dateSelectMethod={dateSelectMethod}
+              dailyRange={dailyRange}
+              onDailyRangeChange={(range) => {
+                setDailyRange(range)
+                setShowError(false)
+              }}
+              dailyDates={dailyDates}
+              onDailyDatesChange={(dates) => {
+                setDailyDates(dates)
+                setShowError(false)
+              }}
+              monthYear={monthYear}
+              onMonthYearChange={setMonthYear}
+              selectedMonths={selectedMonths}
+              onToggleMonth={(selection) => {
+                handleToggleMonth(selection)
+                setShowError(false)
+              }}
+              skipDatesEnabled={skipDatesEnabled}
+              onSkipDatesEnabledChange={setSkipDatesEnabled}
+              skippedDates={skippedDates}
+              onToggleSkipDate={handleToggleSkipDate}
+              showError={showError && !hasCalendarSelection}
+            />
+          </div>
+        )}
+      </div>
+    )
   }
 )

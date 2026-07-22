@@ -4,6 +4,11 @@ import * as React from "react"
 import Image from "next/image"
 import { Info, PaintBrushHousehold } from "@phosphor-icons/react"
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 
 // Figma --rad-lg as px for the squircle path math (the panel) and --rad-md
@@ -72,25 +77,41 @@ export function GeneratePanel({
         className="pointer-events-none absolute bottom-0 left-1/2 w-[calc(100%*1157/920)] max-w-none -translate-x-1/2 translate-y-1/8"
       />
 
-      <div className="absolute top-pad-lg right-pad-lg flex items-center gap-dist-sm">
+      {/* z-10: without an explicit stack order this sits behind the content
+          column below (also `position: relative`, and later in the DOM —
+          two positioned siblings at the same implicit z-index stack in DOM
+          order, later wins) even though the content column paints nothing
+          visible over this corner. The overlap silently ate every real
+          pointer event aimed at these buttons — clicks landed on empty
+          space in the content column instead of the button underneath it. */}
+      <div className="absolute top-pad-lg right-pad-lg z-10 flex items-center gap-dist-md">
         {onResetCalendar ? (
-          <button
-            ref={resetRef}
-            style={resetStyle}
-            type="button"
-            aria-label="Reset calendar selection"
-            onClick={onResetCalendar}
-            className="flex size-8 cursor-pointer items-center justify-center rounded-rad-md bg-surface-3 text-icon-subtle outline-none transition-colors duration-150 ease-out hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
-            <PaintBrushHousehold className="size-6" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  ref={resetRef}
+                  style={resetStyle}
+                  type="button"
+                  aria-label="Reset calendar selection"
+                  onClick={onResetCalendar}
+                  className="flex size-8 cursor-pointer items-center justify-center rounded-rad-md bg-surface-3 text-icon-subtle outline-none transition-[color,background-color,scale] duration-150 ease-out hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
+                >
+                  <PaintBrushHousehold className="size-6" />
+                </button>
+              }
+            />
+            <TooltipContent>Reset changes</TooltipContent>
+          </Tooltip>
         ) : null}
         {/* Static marker in the export — no defined behavior yet, so it
-            stays a plain element rather than a do-nothing button. */}
+            stays a plain element rather than a do-nothing button. Still gets
+            the same tap-scale feedback as the reset button per direct
+            feedback, even with nothing wired to the press. */}
         <div
           ref={infoRef}
           style={infoStyle}
-          className="flex size-8 items-center justify-center rounded-rad-md bg-surface-3"
+          className="flex size-8 items-center justify-center rounded-rad-md bg-surface-3 transition-transform duration-150 ease-out active:scale-[0.97]"
         >
           <Info className="size-6 text-icon-subtle" />
         </div>

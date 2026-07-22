@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist_Mono, Phudu } from "next/font/google";
 import localFont from "next/font/local";
 import { Agentation } from "agentation";
+import { DialRoot } from "dialkit";
+import "dialkit/styles.css";
 import "./globals.css";
 
 const openRunde = localFont({
@@ -53,6 +55,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         {children}
+        <DialRoot />
         {process.env.NODE_ENV === "development" && (
           // Without `endpoint`, the toolbar silently falls back to
           // browser-local storage and never syncs to agentation-mcp — the

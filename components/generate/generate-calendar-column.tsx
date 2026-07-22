@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Info, WarningCircle } from "@phosphor-icons/react"
+import { Info, Warning } from "@phosphor-icons/react"
 
 import { Calendar, type DateRange } from "@/components/ui/calendar"
 import { Switch } from "@/components/ui/switch"
@@ -675,7 +675,7 @@ function GenerateCalendarColumn({
 
       {showError ? (
         <p className="flex items-center gap-dist-md text-body-lg text-text-danger">
-          <WarningCircle className="size-5" weight="fill" />
+          <Warning className="size-5" weight="bold" />
           Select dates here first
         </p>
       ) : null}
