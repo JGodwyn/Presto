@@ -36,16 +36,23 @@ function ScheduledPostsBar({ count }: { count: number }) {
       {borderPathD ? (
         <svg
           aria-hidden
-          className="pointer-events-none absolute inset-0 size-full"
+          // overflow-visible: an SVG stroke is always centered on its path
+          // (no border-box equivalent) and clips at the svg's own viewport
+          // edge by default — since this svg is sized exactly to the bar's
+          // border-box, the stroke's outer half was getting clipped off,
+          // reading as an inset border rather than a centered one.
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
         >
           {/* strokeWidth 2 is --stroke-lg as a literal px number — same
               convention as the corner-radius constant above, since SVG
-              geometry attributes need a real number, not a CSS var. */}
+              geometry attributes need a real number, not a CSS var.
+              Round cap on every dashed border in the app, this one included. */}
           <path
             d={borderPathD}
             fill="none"
             strokeWidth={2}
             strokeDasharray="4 4"
+            strokeLinecap="round"
             className="stroke-border-bold"
           />
         </svg>
