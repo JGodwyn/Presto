@@ -115,6 +115,22 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
   function GenerateCard(_props, ref) {
     const router = useRouter()
     const { projectId } = useParams<{ projectId: string }>()
+    // router.push doesn't resolve the instant it's called — the target
+    // route's own code/data still has to load first, which is where the
+    // reported click-to-navigate delay lives. Wrapping it in a transition
+    // gives isPending as a signal for that exact gap, so the button can read
+    // "Generating" instead of sitting there looking unclicked.
+    const [isNavigatingToGenerating, startNavigateToGenerating] =
+      React.useTransition()
+
+    // Warms the /generating route's own JS chunk ahead of the click —
+    // clicking a plain Button (unlike <Link>, which Next prefetches
+    // automatically on viewport visibility/hover) gave this route no chance
+    // to prefetch beforehand, which is most of where the reported delay
+    // between click and the new screen actually was coming from.
+    React.useEffect(() => {
+      router.prefetch(`/projects/${projectId}/generate/generating`)
+    }, [router, projectId])
 
     const [mode, setMode] = React.useState("number")
     const [count, setCount] = React.useState(MIN_POSTS)
@@ -224,9 +240,11 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       // Generation itself isn't wired up yet — this just transitions to the
       // "Generating…" screen (design-sync/generate-generating-template) so
       // its animations can be built out against the real navigation flow.
-      router.push(
-        `/projects/${projectId}/generate/generating?count=${scheduledCount}`
-      )
+      startNavigateToGenerating(() => {
+        router.push(
+          `/projects/${projectId}/generate/generating?count=${scheduledCount}`
+        )
+      })
     }
 
     // Split so calendar-based can slot the "="/ScheduledPostsBar between the
@@ -266,15 +284,27 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     // ScheduledPostsBar (dist-sm, per the "Layout change" export) while the
     // footer stays on the outer dist-xl rhythm in both modes.
     const generateButton = (
-      <Button variant="brand" size="xl" className="w-full" onClick={handleGenerateClick}>
+      <Button
+        variant="brand"
+        size="xl"
+        className="w-full"
+        onClick={handleGenerateClick}
+        disabled={isNavigatingToGenerating}
+      >
         <MagicWand weight="fill" />
         {/* Both singular and plural literally appear across the Figma
           exports at different counts, inconsistently — plain English
           pluralization is the more defensible rule to code to. One string
           (not two adjacent children) so Button's flex gap doesn't insert a
           space of its own between "Generate" and "Post"/"Posts", and so the
-          two render as a single TextMorph unit — only the "s" diffs. */}
-        {`Generate ${scheduledCount > 1 ? "posts" : "post"}`}
+          two render as a single TextMorph unit — only the "s" diffs.
+          isNavigatingToGenerating (true for however long the /generating
+          route takes to actually load, per the useTransition above) swaps
+          this to "Generating" so the button doesn't just sit there looking
+          unclicked for that gap. */}
+        {isNavigatingToGenerating
+          ? "Generating..."
+          : `Generate ${scheduledCount > 1 ? "posts" : "post"}`}
       </Button>
     )
 

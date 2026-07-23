@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { ViewTransition } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 
 import { GeneratingView } from "@/components/generate/generating-view"
@@ -13,10 +14,17 @@ function GeneratingPageContent({ projectId }: { projectId: string }) {
   const count = Math.max(1, Number(searchParams.get("count")) || 1)
 
   return (
-    <GeneratingView
-      backHref={`/projects/${projectId}/generate`}
-      count={count}
-    />
+    // enter="blur-in" pairs with generate/page.tsx's exit="blur-out" (see
+    // app/globals.css) — the other half of the blur handoff arriving from
+    // the Generate page. default="none" for the same reason as that side:
+    // this page has its own useTransition (the Close button below), which
+    // shouldn't also replay this animation.
+    <ViewTransition enter="blur-in" default="none">
+      <GeneratingView
+        backHref={`/projects/${projectId}/generate`}
+        count={count}
+      />
+    </ViewTransition>
   )
 }
 

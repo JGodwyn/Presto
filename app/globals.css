@@ -778,6 +778,35 @@
   }
 }
 
+/* Blur transition between the Generate page and its Generating page — React
+   ViewTransition (generate/page.tsx's exit="blur-out", generate/generating/
+   page.tsx's enter="blur-in"), gated by next.config.ts's
+   experimental.viewTransition. Same blur+opacity values as the app's own
+   mount-in convention (starting:opacity-0 starting:blur-[8px]), split into
+   an asymmetric exit/enter pair per the Next.js view-transitions guide's own
+   convention: the leaving page fades out fast so it doesn't linger, the
+   arriving page fades in over the app's usual 300ms once the old one is
+   mostly gone. */
+::view-transition-old(.blur-out) {
+  animation: 150ms ease-in both blur-out;
+}
+::view-transition-new(.blur-in) {
+  animation: 300ms cubic-bezier(0.23, 1, 0.32, 1) 100ms both blur-in;
+}
+
+@keyframes blur-out {
+  to {
+    opacity: 0;
+    filter: blur(8px);
+  }
+}
+@keyframes blur-in {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

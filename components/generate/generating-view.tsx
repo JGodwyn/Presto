@@ -3,7 +3,14 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { useDialKit } from "dialkit"
-import { ArrowClockwise, Info, Play, StopCircle, X } from "@phosphor-icons/react"
+import {
+  ArrowClockwise,
+  Info,
+  Play,
+  SpinnerGap,
+  StopCircle,
+  X,
+} from "@phosphor-icons/react"
 
 import { AnimateText } from "@/components/ui/animated-text"
 import { Button } from "@/components/ui/button"
@@ -80,7 +87,21 @@ export function GeneratingView({
     setGeneratedCount(0)
     setStatus("generating")
   }
-  const goBack = () => router.push(backHref)
+  // Same reasoning as the Generate button's own useTransition
+  // (generate-card.tsx): router.push doesn't resolve instantly, so isPending
+  // is the signal for that gap — Close swaps to a spinner (the app's
+  // standard SpinnerGap-bold-animate-spin loading treatment, e.g.
+  // logout-button.tsx) rather than sitting there unresponsive.
+  const [isNavigatingBack, startNavigateBack] = React.useTransition()
+  const goBack = () => startNavigateBack(() => router.push(backHref))
+
+  // Warms backHref's route ahead of the click, same reasoning as
+  // generate-card.tsx's own prefetch of this page — arriving here via a
+  // plain Button click (not <Link>) meant the Generate page never got a
+  // chance to prefetch ahead of time either.
+  React.useEffect(() => {
+    router.prefetch(backHref)
+  }, [router, backHref])
 
   // Live-tunable via the DialKit panel (top-right, dev only) instead of
   // hand-editing values and reloading — same pattern as the calendar's
@@ -169,8 +190,13 @@ export function GeneratingView({
                 size="icon-sm"
                 aria-label="Close"
                 onClick={goBack}
+                disabled={isNavigatingBack}
               >
-                <X weight="bold" />
+                {isNavigatingBack ? (
+                  <SpinnerGap weight="bold" className="animate-spin" />
+                ) : (
+                  <X weight="bold" />
+                )}
               </Button>
             )}
           </div>
@@ -191,13 +217,15 @@ export function GeneratingView({
         single generating card) still lands left-aligned instead of
         stretching alone to fill the whole row. */}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(17.5rem,1fr))] content-start gap-dist-md p-pad-xs">
-        {/* Each card mounts with the same blur+opacity entrance used
-          elsewhere in the app (e.g. this page's own outer wrapper above)
-          rather than just popping in. */}
+        {/* Each finished card mounts with the app's usual blur+opacity
+          entrance, plus a subtle scale-in (0.9 → 1, the same mount-in floor
+          used elsewhere — e.g. the skip-dates carousel's per-item enter in
+          generate-calendar-column.tsx) rather than just popping in at full
+          size. */}
         {Array.from({ length: generatedCount }, (_, i) => (
           <div
             key={i}
-            className="transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]"
+            className="transition-[opacity,filter,scale] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-90 starting:opacity-0 starting:blur-[8px]"
           >
             <GeneratedPostCard />
           </div>
