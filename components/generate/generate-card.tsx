@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Image from "next/image"
+import { useParams, useRouter } from "next/navigation"
 import {
   CaretDown,
   Equals,
@@ -112,6 +113,9 @@ export interface GenerateCardHandle {
 // narrow imperative method like this one.
 export const GenerateCard = React.forwardRef<GenerateCardHandle>(
   function GenerateCard(_props, ref) {
+    const router = useRouter()
+    const { projectId } = useParams<{ projectId: string }>()
+
     const [mode, setMode] = React.useState("number")
     const [count, setCount] = React.useState(MIN_POSTS)
     const [model, setModel] = React.useState(MODEL_OPTIONS[0].value)
@@ -217,7 +221,12 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
         setShowError(true)
         return
       }
-      // Generation itself isn't wired up yet.
+      // Generation itself isn't wired up yet — this just transitions to the
+      // "Generating…" screen (design-sync/generate-generating-template) so
+      // its animations can be built out against the real navigation flow.
+      router.push(
+        `/projects/${projectId}/generate/generating?count=${scheduledCount}`
+      )
     }
 
     // Split so calendar-based can slot the "="/ScheduledPostsBar between the
@@ -261,8 +270,11 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
         <MagicWand weight="fill" />
         {/* Both singular and plural literally appear across the Figma
           exports at different counts, inconsistently — plain English
-          pluralization is the more defensible rule to code to. */}
-        Generate {scheduledCount === 1 ? "Post" : "Posts"}
+          pluralization is the more defensible rule to code to. One string
+          (not two adjacent children) so Button's flex gap doesn't insert a
+          space of its own between "Generate" and "Post"/"Posts", and so the
+          two render as a single TextMorph unit — only the "s" diffs. */}
+        {`Generate ${scheduledCount > 1 ? "posts" : "post"}`}
       </Button>
     )
 

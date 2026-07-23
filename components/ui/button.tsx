@@ -1,10 +1,41 @@
 "use client"
 
+import * as React from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
+import { TextMorph } from "torph/react"
 
 import { cn } from "@/lib/utils"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+
+// STANDARDS.md: entering/exiting content animates ease-out, and this codebase's
+// one strong-ease-out curve (cubic-bezier(0.23,1,0.32,1), used everywhere else
+// starting:-style content appears — see onboarding-cover.tsx, project-folder.tsx,
+// etc.) is reused here rather than introducing a second curve for the same job.
+// Duration matches buttonVariants' own duration-150 below, which already sits
+// inside STANDARDS.md's "button press feedback" band (100-160ms) — the label
+// text should read as part of the same motion as the button itself, not a
+// separately-timed effect layered on top.
+const BUTTON_TEXT_MORPH_DURATION = 150
+const BUTTON_TEXT_MORPH_EASE = "cubic-bezier(0.23,1,0.32,1)"
+
+// Button children are commonly `[icon, label]` (e.g. a spinner + "Logging
+// in..."). TextMorph only accepts text content — handing it a React element
+// throws — so only string/number children (the label) get wrapped; icons and
+// other elements pass through untouched. This makes text-change animation the
+// default for every Button call site rather than something each one has to
+// opt into by hand.
+function withTextMorph(children: React.ReactNode) {
+  return React.Children.map(children, (child) =>
+    typeof child === "string" || typeof child === "number" ? (
+      <TextMorph duration={BUTTON_TEXT_MORPH_DURATION} ease={BUTTON_TEXT_MORPH_EASE}>
+        {child}
+      </TextMorph>
+    ) : (
+      child
+    )
+  )
+}
 
 const buttonVariants = cva(
   // transition-all animates every property (including layout ones) whenever
@@ -103,6 +134,7 @@ function Button({
   cornerRadius,
   cornerSmoothing = 1,
   style,
+  children,
   ...props
 }: ButtonProps) {
   const resolvedCornerRadius =
@@ -124,7 +156,9 @@ function Button({
           : style
       }
       {...props}
-    />
+    >
+      {withTextMorph(children)}
+    </ButtonPrimitive>
   )
 }
 

@@ -101,14 +101,8 @@ function LoginScreen({ onForgotPassword }: LoginScreenProps) {
           className="flex-1"
           disabled={isLoggingIn}
         >
-          {isLoggingIn ? (
-            <>
-              <SpinnerGap weight="bold" className="animate-spin" />
-              Logging in...
-            </>
-          ) : (
-            "Login"
-          )}
+          {isLoggingIn && <SpinnerGap weight="bold" className="animate-spin" />}
+          {isLoggingIn ? "Logging in..." : "Login"}
         </Button>
         <Button
           type="button"
