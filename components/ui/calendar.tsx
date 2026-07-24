@@ -9,7 +9,19 @@ import {
   HIDE_NATIVE_SCROLLBAR_CLASSNAME,
   useScrollThumb,
 } from "@/hooks/use-scroll-thumb"
+import { Button } from "@/components/ui/button"
 import { ScrollbarThumb } from "@/components/ui/scrollbar-thumb"
+
+// design-sync/calendar-action-bar's own "Size=lg" variant uses Buttton
+// Kind=basic/Size=md (h-40), which matches Button's "xl" size (h-[--pad-3xl]
+// = 40px) exactly — there's no literal "md" in Button's own scale. The
+// action-bar export only defines two sizes total (sm/lg), so "sm" and "md"
+// calendars share the smaller one.
+const ACTION_BAR_BUTTON_SIZE: Record<CalendarSize, "sm" | "xl"> = {
+  sm: "sm",
+  md: "sm",
+  lg: "xl",
+}
 
 // Figma radii (design-sync/calendar, design-sync/calendar-item) as px for
 // the squircle path math — see hooks/use-squircle-clip-path.ts.
@@ -172,6 +184,16 @@ type CalendarProps = (
   // for contexts with little room for it to bleed into — see
   // SHADOW_CLASSNAMES above to adjust either.
   shadow?: keyof typeof SHADOW_CLASSNAMES
+  // Built-in Apply/Cancel footer (design-sync/calendarwithactionbar) — off
+  // by default, matching design-sync/calendar's own plain export. Calendar
+  // stays fully controlled either way (selected/onSelect still fire
+  // immediately on every day click); Apply/Cancel are just callbacks for
+  // whatever "commit" or "discard" means to the caller — e.g. a caller
+  // staging picks in its own local state until Apply, the way
+  // GeneratedPostCard's "Add to calendar" dialog does.
+  showActionBar?: boolean
+  onApply?: () => void
+  onCancel?: () => void
 }
 
 // Bigger hit target than the 16px glyph alone (per direct feedback) — the
@@ -399,6 +421,9 @@ function Calendar(props: CalendarProps) {
     disabled,
     disableNavigation = false,
     shadow = "default",
+    showActionBar = false,
+    onApply,
+    onCancel,
   } = props
   const today = React.useMemo(() => startOfDay(new Date()), [])
   const initialMonth =
@@ -638,6 +663,32 @@ function Calendar(props: CalendarProps) {
             visible={yearThumbVisible}
             className="right-1"
           />
+        </div>
+      ) : null}
+
+      {/* design-sync/calendarwithactionbar — plain, no divider (per direct
+          feedback removing that export's own top border), sized off
+          size-appropriate padding (see the tokens on that export's own
+          "_action-bar" component) rather than the surrounding card's own
+          p-pad-md, which the buttons already sit inside of. */}
+      {showActionBar ? (
+        <div className="flex items-center gap-dist-sm px-pad-sm pt-pad-md pb-pad-xs">
+          <Button
+            variant="brand"
+            size={ACTION_BAR_BUTTON_SIZE[size]}
+            className="flex-1"
+            onClick={onApply}
+          >
+            Apply
+          </Button>
+          <Button
+            variant="brand-secondary"
+            size={ACTION_BAR_BUTTON_SIZE[size]}
+            className="flex-1"
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
         </div>
       ) : null}
     </div>

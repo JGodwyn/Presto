@@ -7,6 +7,7 @@ import { useDialKit } from "dialkit"
 import { Calendar, type DateRange } from "@/components/ui/calendar"
 import { Switch } from "@/components/ui/switch"
 import { MonthGrid, type MonthSelection } from "@/components/generate/month-grid"
+import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
@@ -323,95 +324,6 @@ function useCarouselPresence(selectedMonths: MonthSelection[]) {
   }, [])
 
   return { items, settle }
-}
-
-// Matches the segmented control indicator's own move-on-screen timing — the
-// "quick move" curve reserved for existing elements repositioning, distinct
-// from the mount-in curve the enter/exit fade above uses. Kept quick per
-// direct feedback (dropped from 200ms — still comfortably inside the
-// review-animations "moving/morphing on screen" range, just at the fast end).
-const REORDER_DURATION_MS = 150
-const REORDER_EASING = "cubic-bezier(0.77,0,0.175,1)"
-
-// FLIP (First-Last-Invert-Play): when a calendar leaves the carousel, the
-// remaining ones snap to their new flex position the instant the DOM
-// updates — flex reflow isn't something CSS can transition on its own.
-// This measures each surviving item's position before and after a reflow,
-// then plays a translateX from the old delta down to zero. Freshly-arriving
-// items are skipped (no prior position to invert from); they already get
-// their own enter animation from the caller.
-//
-// Runs the move via the Web Animations API rather than a CSS `transition`
-// written through inline style — that was the original implementation, and
-// it had a real bug: `node.style.transition = "transform 150ms ..."` sets
-// the *shorthand* `transition` property, which fully replaces (not merges
-// with) this same wrapper's class-driven
-// `transition-[opacity,filter,scale] duration-200` used for its own
-// exit/enter fade below, since inline style always wins over a class for
-// the same property. Once an item had been through even one reorder, its
-// wrapper's `transition` stayed permanently pinned to `transform` only —
-// silently disabling that item's *own* future exit fade, which is exactly
-// why removing the last remaining item still snapped instead of fading
-// whenever it had previously been shifted by an earlier removal.
-// `element.animate()` is entirely independent of the CSS `transition`
-// property, so a reorder and a fade on the same element can never collide.
-// Cancelling any still-in-flight reorder animation on a node before
-// starting a new one also prevents two reorders landing close together
-// from fighting over the same transform — without that, the next
-// measurement below would read a mid-flight position instead of the
-// settled one, producing the "moves forward, then back" jitter.
-function useFlipReorder(keys: string[]) {
-  const nodes = React.useRef(new Map<string, HTMLElement>())
-  const refCache = React.useRef(new Map<string, (node: HTMLElement | null) => void>())
-  const prevLefts = React.useRef(new Map<string, number>())
-  const activeAnimations = React.useRef(new Map<string, Animation>())
-
-  const register = React.useCallback((key: string) => {
-    let cached = refCache.current.get(key)
-    if (!cached) {
-      cached = (node) => {
-        if (node) nodes.current.set(key, node)
-        else nodes.current.delete(key)
-      }
-      refCache.current.set(key, cached)
-    }
-    return cached
-  }, [])
-
-  React.useLayoutEffect(() => {
-    const newLefts = new Map<string, number>()
-    nodes.current.forEach((node, key) => {
-      newLefts.set(key, node.getBoundingClientRect().left)
-    })
-
-    nodes.current.forEach((node, key) => {
-      const oldLeft = prevLefts.current.get(key)
-      const newLeft = newLefts.get(key)
-      if (oldLeft === undefined || newLeft === undefined) return
-      const delta = oldLeft - newLeft
-      if (delta === 0) return
-
-      activeAnimations.current.get(key)?.cancel()
-      const animation = node.animate(
-        [{ transform: `translateX(${delta}px)` }, { transform: "none" }],
-        { duration: REORDER_DURATION_MS, easing: REORDER_EASING }
-      )
-      activeAnimations.current.set(key, animation)
-      animation.finished.catch(() => { }).finally(() => {
-        if (activeAnimations.current.get(key) === animation) {
-          activeAnimations.current.delete(key)
-        }
-      })
-    })
-
-    prevLefts.current = newLefts
-    // Re-run whenever the actual sequence of rendered keys changes (an
-    // item joining or leaving) — that's the only time a reflow this hook
-    // needs to correct for can happen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keys.join(",")])
-
-  return { register }
 }
 
 // One calendar per month selected for skipping. "Selected" here is

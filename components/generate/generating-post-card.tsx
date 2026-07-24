@@ -120,39 +120,50 @@ export function GeneratingPostCard({
     // paint its stroke's outer bleed freely instead of having it cut off
     // at the fill's own edge.
     <div className="relative h-92 w-full min-w-70">
-      <div
-        ref={ref}
-        style={style}
-        className="absolute inset-0 flex flex-col gap-dist-md rounded-rad-lg bg-surface-3 p-pad-lg"
-      >
-        <span ref={textRef} className="text-body-lg-bold text-text-subtle">
-          Generating…
-        </span>
-      </div>
+      {/* inset-0.5 (2px = half the border's own 4px strokeWidth): the fill
+          and border below are measured/drawn against this slightly smaller
+          box, not the full h-92/w-full one, so the border's centered stroke
+          — which bleeds 2px outside whatever path it's drawn on — lands its
+          outer edge exactly on the true h-92/w-full boundary instead of 2px
+          past it. Without this inset, this card's actual visual footprint
+          was 4px taller/wider than GeneratedPostCard's (whose border is a
+          plain CSS border, contained within its box by definition), even
+          though both divs declare the same h-92/w-full size. */}
+      <div className="absolute inset-0.5">
+        <div
+          ref={ref}
+          style={style}
+          className="absolute inset-0 flex flex-col gap-dist-md rounded-rad-lg bg-surface-3 p-pad-lg"
+        >
+          <span ref={textRef} className="text-body-lg-bold text-text-subtle">
+            Generating…
+          </span>
+        </div>
 
-      {/* Always mounted, even before borderPathD resolves (empty `d` draws
-          nothing) — rather than conditionally rendering the whole <path>,
-          which would start its WAAPI animations from whatever moment the
-          clip-path measurement happens to finish, not from the same paint
-          as the text's own. */}
-      <svg
-        aria-hidden
-        // overflow-visible: SVG clips at its own viewport edge by default
-        // — on top of no longer sharing the fill's clip-path (see above),
-        // the svg's own viewport would otherwise still clip the centered
-        // stroke's outer half at its exact border-box edge.
-        className="pointer-events-none absolute inset-0 size-full overflow-visible"
-      >
-        <path
-          ref={pathRef}
-          d={borderPathD ?? ""}
-          fill="none"
-          strokeWidth={4}
-          strokeDasharray={`${DASH} ${GAP}`}
-          strokeLinecap="round"
-          className="stroke-border-bold"
-        />
-      </svg>
+        {/* Always mounted, even before borderPathD resolves (empty `d` draws
+            nothing) — rather than conditionally rendering the whole <path>,
+            which would start its WAAPI animations from whatever moment the
+            clip-path measurement happens to finish, not from the same paint
+            as the text's own. */}
+        <svg
+          aria-hidden
+          // overflow-visible: SVG clips at its own viewport edge by default
+          // — on top of no longer sharing the fill's clip-path (see above),
+          // the svg's own viewport would otherwise still clip the centered
+          // stroke's outer half at its exact border-box edge.
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+        >
+          <path
+            ref={pathRef}
+            d={borderPathD ?? ""}
+            fill="none"
+            strokeWidth={4}
+            strokeDasharray={`${DASH} ${GAP}`}
+            strokeLinecap="round"
+            className="stroke-border-bold"
+          />
+        </svg>
+      </div>
     </div>
   )
 }

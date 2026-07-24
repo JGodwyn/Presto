@@ -2,16 +2,25 @@
 
 import * as React from "react"
 import Image from "next/image"
-import { ArrowClockwise, CalendarDots, Trash } from "@phosphor-icons/react"
+import { ArrowClockwise, CalendarDots, Scribble, Trash } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
 import { Chip } from "@/components/ui/chip"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { GeneratingPostCard } from "@/components/generate/generating-post-card"
+import { PostActionsMenu } from "@/components/generate/post-actions-menu"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 
 const CARD_CORNER_RADIUS = 16 // rad-lg
 const PILL_CORNER_RADIUS = 8 // rad-md — same as Chip's own corner radius
+
+// Same pace as GeneratingView's own CARD_REVEAL_MS — regenerating a single
+// card is standing in for the same "one post takes about this long" placeholder
+// timing, just scoped to one card instead of the whole batch.
+const REGENERATE_MS = 1200
 
 // How wide a fade-to-transparent runs in from each side of the topics row —
 // same masking technique as the calendar's skip-dates carousel
@@ -26,18 +35,62 @@ const EDGE_FADE_MASK = `linear-gradient(to right, transparent, black ${EDGE_FADE
 
 // Placeholder content — real generation isn't wired up yet, so every card
 // shows the same mock post, matching the Figma export literally (same
-// convention as GeneratingPostCard's fixed "Generating…" placeholder).
-const PLACEHOLDER_DATE = "July 5, 2026"
+// convention as GeneratingPostCard's fixed "Generating…" placeholder). Only
+// the date is real (GeneratingView owns it, updated via "Add to calendar"
+// below) — content/topics stay fixed until generation is wired up.
 const PLACEHOLDER_CONTENT =
   "What a book it was. Very practical with lots of steps you can take for your current or next project. It is one of those books you keep by your side. You might need answers to something bothering you on a project. The book can provide just that answer."
 const PLACEHOLDER_TOPICS = ["Product design", "UI design", "UX design"]
 
+function formatDate(date: Date) {
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  })
+}
+
+interface GeneratedPostCardProps {
+  // undefined = draft (design-sync/ChangesToGenerateCard's "Draft" state) —
+  // not yet scheduled for a specific date. Set once "Add to calendar" (draft)
+  // or "Change date" (scheduled) applies a pick.
+  date: Date | undefined
+  onDateChange: (date: Date) => void
+  // Exit animation (reversing the entrance) plays on the wrapper GeneratingView
+  // renders around this card — Delete here just reports the click upward,
+  // it doesn't own the timing.
+  onDelete: () => void
+  // Scheduled-only (the draft state has no scheduling to undo) — sends the
+  // post back to date: undefined.
+  onTurnToDraft: () => void
+  // Forwarded straight through to the GeneratingPostCard this renders in
+  // place of itself while regenerating — same live DialKit values
+  // GeneratingView already threads into the "real" active generating card.
+  textOpacityMin: number
+  textOpacityDuration: number
+  rotationEnabled: boolean
+  rotationDuration: number
+  borderOpacityMin: number
+  borderOpacityDuration: number
+}
+
 // What a GeneratingPostCard turns into once its post finishes — from the
 // Figma "Generated post card" export (design-sync/generated-post-card).
-// Delete/Add to calendar/Regenerate render but aren't wired to anything
-// yet, the same "UI only for now" state several other buttons in this app
-// are already in.
-export function GeneratedPostCard() {
+// Add to calendar opens a date-picker dialog; Delete/Regenerate are wired to
+// GeneratingView's per-post state (delete/date) or fully local (regenerate,
+// a transient visual toggle with nothing to persist).
+export function GeneratedPostCard({
+  date,
+  onDateChange,
+  onDelete,
+  onTurnToDraft,
+  textOpacityMin,
+  textOpacityDuration,
+  rotationEnabled,
+  rotationDuration,
+  borderOpacityMin,
+  borderOpacityDuration,
+}: GeneratedPostCardProps) {
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({
     cornerRadius: CARD_CORNER_RADIUS,
   })
@@ -47,6 +100,26 @@ export function GeneratedPostCard() {
   // design-tokens rule.
   const { ref: socialRef, style: socialStyle } =
     useSquircleClipPath<HTMLDivElement>({ cornerRadius: PILL_CORNER_RADIUS })
+
+  // Regenerate is purely a local visual toggle — nothing about the post
+  // actually changes (no real generation to re-run yet), it just shows the
+  // generating placeholder again for a beat and flips back, standing in for
+  // "this post is being redone."
+  const [isRegenerating, setIsRegenerating] = React.useState(false)
+  React.useEffect(() => {
+    if (!isRegenerating) return
+    const id = setTimeout(() => setIsRegenerating(false), REGENERATE_MS)
+    return () => clearTimeout(id)
+  }, [isRegenerating])
+
+  // Add to calendar: a staged pick (Apply/Cancel, per the calendar's own
+  // design-sync/calendar-action-bar export — its Apply=brand/Cancel=
+  // brand-secondary sizing maps straight onto Button's existing variants) —
+  // pendingDate is scratch state local to the dialog, seeded from the real
+  // `date` prop each time it opens, and only committed to the card via
+  // onDateChange when Apply is pressed.
+  const [pickerOpen, setPickerOpen] = React.useState(false)
+  const [pendingDate, setPendingDate] = React.useState<Date | undefined>(date)
 
   // Measures the content paragraph's actual flex-allotted height (while it's
   // still a plain flex-1 box, pre-clamp) and derives how many whole lines of
@@ -85,8 +158,33 @@ export function GeneratedPostCard() {
     [clamp]
   )
 
+  // Regenerating swaps this component's entire output for GeneratingPostCard
+  // — same footprint (that card is already h-92 w-full min-w-70 on its own),
+  // just a different key so React genuinely remounts rather than diffing two
+  // unrelated trees in place, which is what gives each swap its own quick
+  // starting: fade below (a bare prop/className update wouldn't retrigger
+  // starting-style at all).
+  if (isRegenerating) {
+    return (
+      <div
+        key="regenerating"
+        className="transition-[opacity,filter] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]"
+      >
+        <GeneratingPostCard
+          textOpacityMin={textOpacityMin}
+          textOpacityDuration={textOpacityDuration}
+          rotationEnabled={rotationEnabled}
+          rotationDuration={rotationDuration}
+          borderOpacityMin={borderOpacityMin}
+          borderOpacityDuration={borderOpacityDuration}
+        />
+      </div>
+    )
+  }
+
   return (
     <div
+      key="generated"
       ref={ref}
       style={style}
       // h-92 — fixed to match GeneratingPostCard exactly, so a card doesn't
@@ -101,19 +199,37 @@ export function GeneratedPostCard() {
       // render, rather than a hand-computed pixel budget (tried first — came
       // out a few px short, and a flex-col with everything free to shrink
       // quietly compressed *every* row to compensate, including the
-      // paragraph, cutting its last line off mid-descender).
-      className="flex h-92 w-full min-w-70 flex-col gap-dist-md rounded-rad-lg border-[length:var(--stroke-xl)] border-border-subtle bg-surface-4 p-pad-lg"
+      // paragraph, cutting its last line off mid-descender). The same quick
+      // starting: fade as the regenerating branch above plays every time
+      // this key remounts (including back from a regenerate) — it also
+      // plays on the very first real reveal, nested inside GeneratingView's
+      // own entrance fade on the wrapping div, which is harmless (same curve,
+      // same 0→1 bounds).
+      className="flex h-92 w-full min-w-70 flex-col gap-dist-md rounded-rad-lg border-[length:var(--stroke-xl)] border-border-subtle bg-surface-4 p-pad-lg transition-[opacity,filter] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]"
     >
       <div className="flex shrink-0 items-center justify-between">
         <div className="flex items-center gap-dist-sm">
-          <CalendarDots className="size-5 text-icon-subtle" weight="bold" />
+          {date ? (
+            <CalendarDots className="size-5 text-icon-subtle" weight="bold" />
+          ) : (
+            <Scribble className="size-5 text-icon-subtle" weight="bold" />
+          )}
           <span className="text-body-lg-bold text-text-bold">
-            {PLACEHOLDER_DATE}
+            {date ? formatDate(date) : "Draft"}
           </span>
         </div>
-        <Button variant="danger" size="icon-sm" aria-label="Delete post">
-          <Trash weight="bold" />
-        </Button>
+        {date ? (
+          <PostActionsMenu onTurnToDraft={onTurnToDraft} onDelete={onDelete} />
+        ) : (
+          <Button
+            variant="danger"
+            size="icon-sm"
+            aria-label="Delete post"
+            onClick={onDelete}
+          >
+            <Trash weight="bold" />
+          </Button>
+        )}
       </div>
 
       {/* min-h-0 overrides the flex default of min-height:auto, which would
@@ -180,17 +296,63 @@ export function GeneratedPostCard() {
       </div>
 
       <div className="flex shrink-0 items-center gap-dist-sm">
-        <Button variant="success" size="sm" className="flex-1">
-          Add to calendar
+        <Button
+          variant={date ? "brand" : "success"}
+          size="sm"
+          className="flex-1"
+          onClick={() => {
+            setPendingDate(date)
+            setPickerOpen(true)
+          }}
+        >
+          {date ? "Change date" : "Add to calendar"}
         </Button>
         <Button
           variant="brand-secondary"
           size="icon-sm"
           aria-label="Regenerate post"
+          onClick={() => setIsRegenerating(true)}
         >
           <ArrowClockwise weight="bold" />
         </Button>
       </div>
+
+      {/* Just the calendar (design-sync/calendarwithactionbar) — no extra
+        title/padding/card wrapper of this dialog's own, so Calendar's own
+        card (border, shadow, p-pad-md) reads as the only chrome instead of
+        nesting inside a second one. showCloseButton is off since the design
+        has no X (Cancel already closes it); popupClassName clears the
+        default w-80/padding/background so the Popup just hugs Calendar's own
+        size="lg" footprint (320px, matching the export exactly — no longer
+        needing the smaller "md" workaround from when this dialog had its
+        own 32px of padding eating into the available width). clipContent is
+        off too — DialogContent's own clip-path (still applied even with the
+        className overrides above, since it's a style prop, not a class) was
+        clipping Calendar's own drop shadow at almost the same boundary it
+        was supposed to soften, reading as an abrupt cutoff rather than a
+        shadow. Calendar already draws its own card/shadow, so this wrapper
+        doesn't need to shape anything. */}
+      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DialogContent
+          showCloseButton={false}
+          clipContent={false}
+          popupClassName="w-fit"
+          className="gap-0 rounded-none bg-transparent p-0"
+        >
+          <Calendar
+            mode="single"
+            selected={pendingDate}
+            onSelect={setPendingDate}
+            size="lg"
+            showActionBar
+            onApply={() => {
+              if (pendingDate) onDateChange(pendingDate)
+              setPickerOpen(false)
+            }}
+            onCancel={() => setPickerOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

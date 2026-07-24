@@ -51,6 +51,7 @@ function DialogContent({
   popupClassName,
   children,
   showCloseButton = true,
+  clipContent = true,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
@@ -58,6 +59,16 @@ function DialogContent({
   // `className` styles the inner card div, which is the wrong layer for
   // width — the Popup owns it.
   popupClassName?: string
+  // Skips this wrapper's own squircle clip-path — for content that already
+  // renders its own complete card (e.g. Calendar's showActionBar mode via
+  // GeneratedPostCard's "Add to calendar" dialog). A clip-path on this
+  // wrapper clips everything inside it to that exact shape, including
+  // anything a child needs to bleed past its own edges — the child's own
+  // drop shadow ends up hard-cut at almost the same boundary it's supposed
+  // to soften, reading as an abrupt clip rather than a shadow. Leave this on
+  // (default) for ordinary modals, where this wrapper *is* the visible card
+  // and its own clip-path is exactly what gives it squircle corners.
+  clipContent?: boolean
 }) {
   // The squircle clip-path has to live on a plain div we own, not on
   // Popup itself — Popup writes its own `style` attribute directly to the
@@ -81,14 +92,14 @@ function DialogContent({
         {...props}
       >
         <div
-          ref={squircleRef}
+          ref={clipContent ? squircleRef : undefined}
           className={cn(
             // rounded-rad-lg is the fallback shape until the squircle
             // clip-path is measured on mount (see use-squircle-clip-path.ts).
             "relative flex flex-col gap-dist-lg rounded-rad-lg bg-surface-4 px-pad-lg py-pad-xl",
             className
           )}
-          style={squircleStyle}
+          style={clipContent ? squircleStyle : undefined}
         >
           {children}
           {showCloseButton && (
