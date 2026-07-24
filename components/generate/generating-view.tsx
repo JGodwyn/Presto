@@ -19,6 +19,7 @@ import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { readScheduledDates } from "@/lib/generate-schedule"
 import { cn } from "@/lib/utils"
 
 // Figma --rad-md as px for the squircle path math (the status pill).
@@ -86,6 +87,15 @@ export function GeneratingView({
   // keying list items on id rather than index).
   const [posts, setPosts] = React.useState<GeneratedPost[]>([])
   const nextPostId = React.useRef(0)
+  // The calendar-based tab's actual per-post dates, handed off from
+  // GenerateCard via sessionStorage (see lib/generate-schedule.ts) — null
+  // for a number-based batch, which has no dates to assign at all. Read
+  // once, lazily, rather than in an effect: an effect would leave a window
+  // (however brief) where the reveal effect below could fire before this
+  // resolves, and — since Restart reuses the same array to replay the same
+  // schedule — this only ever needs to be read the one time this component
+  // mounts, not on every render.
+  const [scheduledDates] = React.useState(() => readScheduledDates())
   // Delete plays an exit animation (reversing the card's own entrance)
   // before actually leaving `posts` — this tracks which ids are mid-exit, so
   // the header's own count (below) can drop the instant delete is clicked
@@ -155,16 +165,21 @@ export function GeneratingView({
   React.useEffect(() => {
     if (status !== "generating" || generatedSoFar >= count) return
     const id = setTimeout(() => {
-      // Starts as a draft (no date) — "Add to calendar" is what actually
-      // schedules it.
+      // A calendar-based batch assigns this post its actual date (in
+      // order, matching whatever the user picked); a number-based one has
+      // no dates array at all and every post starts a draft — "Add to
+      // calendar" is what schedules it from there.
       setPosts((prev) => [
         ...prev,
-        { id: nextPostId.current++, date: undefined },
+        { id: nextPostId.current++, date: scheduledDates?.[generatedSoFar] },
       ])
       setGeneratedSoFar((c) => c + 1)
     }, CARD_REVEAL_MS)
     return () => clearTimeout(id)
-  }, [status, generatedSoFar, count])
+    // scheduledDates never changes after mount (see its own comment above),
+    // but is listed here anyway to keep the dependency array honest about
+    // everything the effect reads.
+  }, [status, generatedSoFar, count, scheduledDates])
 
   // Separate from the effect above: once every post has finished, the batch
   // is done — this is the other place real generation completion should

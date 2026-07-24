@@ -184,15 +184,17 @@ type CalendarProps = (
   // for contexts with little room for it to bleed into — see
   // SHADOW_CLASSNAMES above to adjust either.
   shadow?: keyof typeof SHADOW_CLASSNAMES
-  // Built-in Apply/Cancel footer (design-sync/calendarwithactionbar) — off
-  // by default, matching design-sync/calendar's own plain export. Calendar
-  // stays fully controlled either way (selected/onSelect still fire
-  // immediately on every day click); Apply/Cancel are just callbacks for
-  // whatever "commit" or "discard" means to the caller — e.g. a caller
-  // staging picks in its own local state until Apply, the way
-  // GeneratedPostCard's "Add to calendar" dialog does.
+  // Built-in Cancel footer (design-sync/calendarwithactionbar, minus its
+  // Apply button per direct feedback) — off by default, matching
+  // design-sync/calendar's own plain export. Calendar stays fully controlled
+  // either way (selected/onSelect still fire immediately on every day
+  // click) — for a picker that's meant to close and commit on the same
+  // click (a better fit than a separate Apply when a caller expects several
+  // date clicks in a row), the caller's own onSelect is where that commit +
+  // close belongs, the way GeneratedPostCard's "Add to calendar"/"Change
+  // date" dialog does it. onCancel is the only callback left, for
+  // whatever "discard and close" means to the caller.
   showActionBar?: boolean
-  onApply?: () => void
   onCancel?: () => void
 }
 
@@ -422,7 +424,6 @@ function Calendar(props: CalendarProps) {
     disableNavigation = false,
     shadow = "default",
     showActionBar = false,
-    onApply,
     onCancel,
   } = props
   const today = React.useMemo(() => startOfDay(new Date()), [])
@@ -666,25 +667,24 @@ function Calendar(props: CalendarProps) {
         </div>
       ) : null}
 
-      {/* design-sync/calendarwithactionbar — plain, no divider (per direct
-          feedback removing that export's own top border), sized off
-          size-appropriate padding (see the tokens on that export's own
-          "_action-bar" component) rather than the surrounding card's own
-          p-pad-md, which the buttons already sit inside of. */}
+      {/* design-sync/calendarwithactionbar, minus its Apply button — per
+          direct feedback, committing on every date click reads better than
+          a separate Apply for a picker where clicking several dates in a
+          row is the common case (the caller's own onSelect is where that
+          commit-and-close now lives, e.g. GeneratedPostCard's "Add to
+          calendar"/"Change date"). Cancel takes the full row width alone
+          rather than sharing it 50/50 the way it did next to Apply. Plain,
+          no divider (per direct feedback removing that export's own top
+          border), sized off size-appropriate padding (see the tokens on
+          that export's own "_action-bar" component) rather than the
+          surrounding card's own p-pad-md, which the button already sits
+          inside of. */}
       {showActionBar ? (
-        <div className="flex items-center gap-dist-sm px-pad-sm pt-pad-md pb-pad-xs">
-          <Button
-            variant="brand"
-            size={ACTION_BAR_BUTTON_SIZE[size]}
-            className="flex-1"
-            onClick={onApply}
-          >
-            Apply
-          </Button>
+        <div className="flex items-center px-pad-sm pt-pad-md pb-pad-xs">
           <Button
             variant="brand-secondary"
             size={ACTION_BAR_BUTTON_SIZE[size]}
-            className="flex-1"
+            className="w-full"
             onClick={onCancel}
           >
             Cancel

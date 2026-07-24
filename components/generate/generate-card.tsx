@@ -24,6 +24,10 @@ import {
   type SelectPillOption,
 } from "@/components/generate/select-pill"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import {
+  clearScheduledDates,
+  writeScheduledDates,
+} from "@/lib/generate-schedule"
 
 // Figma radii as px for the squircle path math: the surface-3 stepper box
 // (--rad-lg) and the "Instructions plugged in" tag (--rad-md).
@@ -189,6 +193,59 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
             return sum + (total - skipped)
           }, 0)
 
+    // Same shape as scheduledCount above, just the actual dates instead of
+    // a length — this is what lets a calendar-based batch's posts land
+    // scheduled (design-sync/ChangesToGenerateCard) instead of every post
+    // defaulting to a draft. null for number-based, which has no dates to
+    // assign at all.
+    const scheduledDates = React.useMemo(() => {
+      if (mode !== "calendar") return null
+      if (cadence === "daily") {
+        if (dateSelectMethod === "range") {
+          if (!dailyRange.from || !dailyRange.to) return []
+          const dates: Date[] = []
+          const cursor = new Date(
+            dailyRange.from.getFullYear(),
+            dailyRange.from.getMonth(),
+            dailyRange.from.getDate()
+          )
+          const end = dailyRange.to
+          while (cursor <= end) {
+            dates.push(new Date(cursor))
+            cursor.setDate(cursor.getDate() + 1)
+          }
+          return dates
+        }
+        return [...dailyDates].sort((a, b) => a.getTime() - b.getTime())
+      }
+      // Monthly — selectedMonths is already kept chronological (see
+      // handleToggleMonth below), so every day this appends stays ordered.
+      const dates: Date[] = []
+      for (const { year, month } of selectedMonths) {
+        const total = daysInMonth(year, month)
+        for (let day = 1; day <= total; day++) {
+          const date = new Date(year, month, day)
+          if (
+            skipDatesEnabled &&
+            skippedDates.some((skipped) => isSameDay(skipped, date))
+          ) {
+            continue
+          }
+          dates.push(date)
+        }
+      }
+      return dates
+    }, [
+      mode,
+      cadence,
+      dateSelectMethod,
+      dailyRange,
+      dailyDates,
+      selectedMonths,
+      skipDatesEnabled,
+      skippedDates,
+    ])
+
     const handleToggleMonth = (selection: MonthSelection) => {
       setSelectedMonths((prev) => {
         const isSelected = prev.some(
@@ -236,6 +293,15 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       if (mode === "calendar" && !hasCalendarSelection) {
         setShowError(true)
         return
+      }
+      // Handed off via sessionStorage (see lib/generate-schedule.ts), not
+      // the URL — a calendar-based batch can run to hundreds of dates.
+      // Written/cleared unconditionally on every click so a later
+      // number-based generate can never pick up a stale calendar selection.
+      if (scheduledDates) {
+        writeScheduledDates(scheduledDates)
+      } else {
+        clearScheduledDates()
       }
       // Generation itself isn't wired up yet — this just transitions to the
       // "Generating…" screen (design-sync/generate-generating-template) so

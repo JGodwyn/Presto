@@ -112,14 +112,13 @@ export function GeneratedPostCard({
     return () => clearTimeout(id)
   }, [isRegenerating])
 
-  // Add to calendar: a staged pick (Apply/Cancel, per the calendar's own
-  // design-sync/calendar-action-bar export — its Apply=brand/Cancel=
-  // brand-secondary sizing maps straight onto Button's existing variants) —
-  // pendingDate is scratch state local to the dialog, seeded from the real
-  // `date` prop each time it opens, and only committed to the card via
-  // onDateChange when Apply is pressed.
+  // Add to calendar / Change date: commits immediately on every date click
+  // (per direct feedback — better for clicking through several dates in a
+  // row than a separate Apply step) and closes right after, so there's no
+  // pending/staged selection to track here at all — Calendar's own
+  // `selected` is just the real `date` prop, and onSelect writes straight
+  // through to onDateChange.
   const [pickerOpen, setPickerOpen] = React.useState(false)
-  const [pendingDate, setPendingDate] = React.useState<Date | undefined>(date)
 
   // Measures the content paragraph's actual flex-allotted height (while it's
   // still a plain flex-1 box, pre-clamp) and derives how many whole lines of
@@ -300,10 +299,7 @@ export function GeneratedPostCard({
           variant={date ? "brand" : "success"}
           size="sm"
           className="flex-1"
-          onClick={() => {
-            setPendingDate(date)
-            setPickerOpen(true)
-          }}
+          onClick={() => setPickerOpen(true)}
         >
           {date ? "Change date" : "Add to calendar"}
         </Button>
@@ -331,7 +327,11 @@ export function GeneratedPostCard({
         clipping Calendar's own drop shadow at almost the same boundary it
         was supposed to soften, reading as an abrupt cutoff rather than a
         shadow. Calendar already draws its own card/shadow, so this wrapper
-        doesn't need to shape anything. */}
+        doesn't need to shape anything.
+        onSelect commits straight to onDateChange and closes the dialog in
+        the same click — no Apply step (per direct feedback: better UX when
+        clicking through several dates is the common case), so `selected`
+        is just the real `date` prop rather than a staged local copy. */}
       <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
         <DialogContent
           showCloseButton={false}
@@ -341,14 +341,13 @@ export function GeneratedPostCard({
         >
           <Calendar
             mode="single"
-            selected={pendingDate}
-            onSelect={setPendingDate}
-            size="lg"
-            showActionBar
-            onApply={() => {
-              if (pendingDate) onDateChange(pendingDate)
+            selected={date}
+            onSelect={(newDate) => {
+              if (newDate) onDateChange(newDate)
               setPickerOpen(false)
             }}
+            size="lg"
+            showActionBar
             onCancel={() => setPickerOpen(false)}
           />
         </DialogContent>
