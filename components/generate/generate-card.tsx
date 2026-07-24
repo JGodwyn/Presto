@@ -1,14 +1,12 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import { useParams, useRouter } from "next/navigation"
 import {
   CaretDown,
   Equals,
   MagicWand,
   PlugCharging,
-  XLogo,
 } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
@@ -23,6 +21,7 @@ import {
   SelectPill,
   type SelectPillOption,
 } from "@/components/generate/select-pill"
+import { SOCIAL_PLATFORM_OPTIONS } from "@/components/generate/social-platform-options"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import {
   clearScheduledDates,
@@ -48,14 +47,12 @@ const MODEL_OPTIONS: SelectPillOption[] = [
   { value: "claude-haiku", label: "Claude Haiku" },
 ]
 
-const LINKEDIN_ICON = (
-  <Image src="/images/generate/linkedin.svg" alt="" width={16} height={16} />
-)
-
-const ACCOUNT_OPTIONS: SelectPillOption[] = [
-  { value: "linkedin", label: "LinkedIn", icon: LINKEDIN_ICON },
-  { value: "x", label: "X", icon: <XLogo className="size-4" /> },
-]
+// SOCIAL_PLATFORM_OPTIONS already matches SelectPillOption's shape
+// (value/label/icon) — reused as-is rather than a second, parallel list, so
+// GeneratedPostCard's own social pill (components/generate/
+// social-platform-options.tsx) can never drift out of sync with what's
+// selectable here.
+const ACCOUNT_OPTIONS: SelectPillOption[] = SOCIAL_PLATFORM_OPTIONS
 
 const CADENCE_OPTIONS = [
   { value: "daily", label: "Daily" },
@@ -306,9 +303,11 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       // Generation itself isn't wired up yet — this just transitions to the
       // "Generating…" screen (design-sync/generate-generating-template) so
       // its animations can be built out against the real navigation flow.
+      // account rides in the URL (unlike the dates above) — it's a single
+      // short value, nowhere near query-string length concerns.
       startNavigateToGenerating(() => {
         router.push(
-          `/projects/${projectId}/generate/generating?count=${scheduledCount}`
+          `/projects/${projectId}/generate/generating?count=${scheduledCount}&account=${account}`
         )
       })
     }

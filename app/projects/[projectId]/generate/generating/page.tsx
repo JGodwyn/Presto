@@ -5,6 +5,7 @@ import { ViewTransition } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 
 import { GeneratingView } from "@/components/generate/generating-view"
+import type { SocialPlatform } from "@/components/generate/social-platform-options"
 
 // Suspense boundary: useSearchParams opts the tree below it out of static
 // prerendering (see next/docs use-search-params.md) — scoping that to just
@@ -12,6 +13,12 @@ import { GeneratingView } from "@/components/generate/generating-view"
 function GeneratingPageContent({ projectId }: { projectId: string }) {
   const searchParams = useSearchParams()
   const count = Math.max(1, Number(searchParams.get("count")) || 1)
+  // Whichever account GenerateCard's SelectPill had selected — every card
+  // in the batch starts posting to this one (still individually
+  // changeable by tapping its own social pill). Falls back to "linkedin"
+  // for any URL that doesn't carry a recognized value.
+  const accountParam = searchParams.get("account")
+  const account: SocialPlatform = accountParam === "x" ? "x" : "linkedin"
 
   return (
     // enter="blur-in" pairs with generate/page.tsx's exit="blur-out" (see
@@ -23,6 +30,7 @@ function GeneratingPageContent({ projectId }: { projectId: string }) {
       <GeneratingView
         backHref={`/projects/${projectId}/generate`}
         count={count}
+        account={account}
       />
     </ViewTransition>
   )

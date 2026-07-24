@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import { ArrowClockwise, CalendarDots, Scribble, Trash } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
@@ -10,6 +9,10 @@ import { Chip } from "@/components/ui/chip"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
 import { PostActionsMenu } from "@/components/generate/post-actions-menu"
+import {
+  SOCIAL_PLATFORM_OPTIONS,
+  type SocialPlatform,
+} from "@/components/generate/social-platform-options"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
@@ -63,6 +66,10 @@ interface GeneratedPostCardProps {
   // Scheduled-only (the draft state has no scheduling to undo) — sends the
   // post back to date: undefined.
   onTurnToDraft: () => void
+  // Seeded from whichever account was selected on the Generate page;
+  // tapping the pill below cycles it independently per card from there.
+  social: SocialPlatform
+  onSocialChange: (social: SocialPlatform) => void
   // Forwarded straight through to the GeneratingPostCard this renders in
   // place of itself while regenerating — same live DialKit values
   // GeneratingView already threads into the "real" active generating card.
@@ -84,6 +91,8 @@ export function GeneratedPostCard({
   onDateChange,
   onDelete,
   onTurnToDraft,
+  social,
+  onSocialChange,
   textOpacityMin,
   textOpacityDuration,
   rotationEnabled,
@@ -94,12 +103,24 @@ export function GeneratedPostCard({
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({
     cornerRadius: CARD_CORNER_RADIUS,
   })
+  // Falls back to the first option if `social` somehow doesn't match any of
+  // them (shouldn't happen, but findIndex returning -1 would otherwise wrap
+  // "cycle to next" around to the *last* option instead of the first).
+  const socialIndex = Math.max(
+    0,
+    SOCIAL_PLATFORM_OPTIONS.findIndex((option) => option.value === social)
+  )
+  const currentSocial = SOCIAL_PLATFORM_OPTIONS[socialIndex]
+  const handleCycleSocial = () => {
+    const nextIndex = (socialIndex + 1) % SOCIAL_PLATFORM_OPTIONS.length
+    onSocialChange(SOCIAL_PLATFORM_OPTIONS[nextIndex].value)
+  }
   // Same pill shape as Chip (rad-md, border-subtle, surface-3) but with its
   // own icon + bold-text content rather than Chip's built-in label styling
   // — a squircle of its own since it has its own corner radius, per the
-  // design-tokens rule.
+  // design-tokens rule. A real button now (tap-to-cycle), not a plain div.
   const { ref: socialRef, style: socialStyle } =
-    useSquircleClipPath<HTMLDivElement>({ cornerRadius: PILL_CORNER_RADIUS })
+    useSquircleClipPath<HTMLButtonElement>({ cornerRadius: PILL_CORNER_RADIUS })
 
   // Regenerate is purely a local visual toggle — nothing about the post
   // actually changes (no real generation to re-run yet), it just shows the
@@ -256,19 +277,23 @@ export function GeneratedPostCard({
         {PLACEHOLDER_CONTENT}
       </p>
 
-      <div
+      {/* Tap-to-cycle (per direct feedback) — each tap advances to the next
+          platform in SOCIAL_PLATFORM_OPTIONS and wraps back to the first,
+          same hover tint recipe as SelectPill's own capsule trigger since
+          this is now the same kind of "click to change" pill. */}
+      <button
         ref={socialRef}
         style={socialStyle}
-        className="flex h-7 w-fit shrink-0 items-center gap-dist-sm rounded-rad-md border-[length:var(--stroke-lg)] border-border-subtle bg-surface-3 px-pad-sm"
+        type="button"
+        onClick={handleCycleSocial}
+        aria-label={`Change social platform (currently ${currentSocial.label})`}
+        className="flex h-7 w-fit shrink-0 cursor-pointer items-center gap-dist-sm rounded-rad-md border-[length:var(--stroke-lg)] border-border-subtle bg-surface-3 px-pad-sm transition-colors duration-150 ease-out hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)]"
       >
-        <Image
-          src="/images/generate/linkedin.svg"
-          alt=""
-          width={16}
-          height={16}
-        />
-        <span className="text-body-md-bold text-text-bold">LinkedIn</span>
-      </div>
+        {currentSocial.icon}
+        <span className="text-body-md-bold text-text-bold">
+          {currentSocial.label}
+        </span>
+      </button>
 
       {/* Horizontally scrolling, not wrapping — a wider topics list no
           longer grows the row's height, keeping every card's height

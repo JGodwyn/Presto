@@ -17,6 +17,7 @@ import { AnimateText } from "@/components/ui/animated-text"
 import { Button } from "@/components/ui/button"
 import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
+import type { SocialPlatform } from "@/components/generate/social-platform-options"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { readScheduledDates } from "@/lib/generate-schedule"
@@ -48,6 +49,10 @@ const DELETE_FALLBACK_BUFFER_MS = 50
 interface GeneratedPost {
   id: number
   date: Date | undefined
+  // Seeded from whichever account GenerateCard's SelectPill had selected
+  // (the `account` prop below); tapping the card's own social pill cycles
+  // it independently from there.
+  social: SocialPlatform
 }
 
 // Built from the Figma "Generate / Generating template" export
@@ -61,9 +66,11 @@ interface GeneratedPost {
 export function GeneratingView({
   backHref,
   count,
+  account,
 }: {
   backHref: string
   count: number
+  account: SocialPlatform
 }) {
   const router = useRouter()
   // The heading loops and cards keep revealing only while status is
@@ -149,6 +156,12 @@ export function GeneratingView({
     )
   }
 
+  const handleSocialChange = (id: number, social: SocialPlatform) => {
+    setPosts((prev) =>
+      prev.map((post) => (post.id === id ? { ...post, social } : post))
+    )
+  }
+
   React.useEffect(() => {
     const timeouts = deleteFallbackTimeouts.current
     return () => {
@@ -171,7 +184,11 @@ export function GeneratingView({
       // calendar" is what schedules it from there.
       setPosts((prev) => [
         ...prev,
-        { id: nextPostId.current++, date: scheduledDates?.[generatedSoFar] },
+        {
+          id: nextPostId.current++,
+          date: scheduledDates?.[generatedSoFar],
+          social: account,
+        },
       ])
       setGeneratedSoFar((c) => c + 1)
     }, CARD_REVEAL_MS)
@@ -179,7 +196,7 @@ export function GeneratingView({
     // scheduledDates never changes after mount (see its own comment above),
     // but is listed here anyway to keep the dependency array honest about
     // everything the effect reads.
-  }, [status, generatedSoFar, count, scheduledDates])
+  }, [status, generatedSoFar, count, scheduledDates, account])
 
   // Separate from the effect above: once every post has finished, the batch
   // is done — this is the other place real generation completion should
@@ -429,6 +446,8 @@ export function GeneratingView({
                 onDateChange={(date) => handlePostDateChange(post.id, date)}
                 onDelete={() => handleDeletePost(post.id)}
                 onTurnToDraft={() => handleTurnToDraft(post.id)}
+                social={post.social}
+                onSocialChange={(social) => handleSocialChange(post.id, social)}
                 textOpacityMin={cardDial.text.opacityMin}
                 textOpacityDuration={cardDial.text.opacityDuration}
                 rotationEnabled={cardDial.border.rotationEnabled}

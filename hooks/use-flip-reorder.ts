@@ -19,6 +19,20 @@ const REORDER_EASING = "cubic-bezier(0.77,0,0.175,1)"
 // grid reflowing vertically after a delete shifts a later row up, not just
 // sideways).
 //
+// Measures via offsetLeft/offsetTop, not getBoundingClientRect() — this was
+// the real cause of the skip-dates carousel's occasional jitter (usually
+// only after having scrolled or mid-drag): getBoundingClientRect() is
+// viewport-relative, so it also reflects that row's own scrollLeft and its
+// elastic-drag translateX at the moment of measurement. A scroll position
+// (or an in-flight drag transform) changing between the "before" and
+// "after" measurement — nothing to do with a real layout reflow — still
+// produced a nonzero delta, so this hook "corrected" a shift that was never
+// really there, which reads as an unwanted jump. offsetLeft/offsetTop are
+// pure CSS-layout measurements: unaffected by an ancestor's scroll position
+// or transform, so they only change when the element's actual box position
+// in the document changes — precisely the FLIP-worthy case, no more, no
+// less.
+//
 // Runs the move via the Web Animations API rather than a CSS `transition`
 // written through inline style: an inline `element.style.transition` sets
 // the *shorthand* `transition` property, which fully replaces (not merges
@@ -73,8 +87,7 @@ function useFlipReorder(
   React.useLayoutEffect(() => {
     const newRects = new Map<string, { left: number; top: number }>()
     nodes.current.forEach((node, key) => {
-      const rect = node.getBoundingClientRect()
-      newRects.set(key, { left: rect.left, top: rect.top })
+      newRects.set(key, { left: node.offsetLeft, top: node.offsetTop })
     })
 
     // Growth-only means every previously-tracked key is still present —
