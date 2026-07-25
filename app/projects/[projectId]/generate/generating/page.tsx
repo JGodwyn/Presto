@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation"
 
 import { GeneratingView } from "@/components/generate/generating-view"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
+import { GENERATION_MODELS, type GenerationModel } from "@/lib/ai/generate"
 
 // Suspense boundary: useSearchParams opts the tree below it out of static
 // prerendering (see next/docs use-search-params.md) — scoping that to just
@@ -19,6 +20,12 @@ function GeneratingPageContent({ projectId }: { projectId: string }) {
   // for any URL that doesn't carry a recognized value.
   const accountParam = searchParams.get("account")
   const account: SocialPlatform = accountParam === "x" ? "x" : "linkedin"
+  // Same fallback pattern as account — defaults to the real model for any
+  // URL that doesn't carry a recognized value.
+  const modelParam = searchParams.get("model")
+  const model: GenerationModel = GENERATION_MODELS.includes(modelParam as GenerationModel)
+    ? (modelParam as GenerationModel)
+    : "gemini-3.6-flash"
 
   return (
     // enter="blur-in" pairs with generate/page.tsx's exit="blur-out" (see
@@ -29,8 +36,10 @@ function GeneratingPageContent({ projectId }: { projectId: string }) {
     <ViewTransition enter="blur-in" default="none">
       <GeneratingView
         backHref={`/projects/${projectId}/generate`}
+        projectId={projectId}
         count={count}
         account={account}
+        model={model}
       />
     </ViewTransition>
   )

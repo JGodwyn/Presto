@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 
 import type { ContentReference } from "@/types/content-reference"
 import type { Instructions } from "@/types/instructions"
+import type { Post } from "@/types/post"
 import type { Project } from "@/types/project"
 import type { WritingStyle } from "@/types/writing-style"
 
@@ -119,6 +120,30 @@ export async function fetchContentReferences(
     fileName: row.file_name,
     fileSize: row.file_size,
     filePath: row.file_path,
+    createdAt: row.created_at,
+  }))
+}
+
+export async function fetchPosts(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<Post[]> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true })
+
+  if (error) throw error
+
+  return data.map((row) => ({
+    id: row.id,
+    projectId: row.project_id,
+    platform: row.platform,
+    status: row.status,
+    content: row.content,
+    topics: row.topics,
+    scheduledFor: row.scheduled_for,
     createdAt: row.created_at,
   }))
 }

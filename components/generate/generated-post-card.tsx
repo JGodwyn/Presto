@@ -36,15 +36,6 @@ const REGENERATE_MS = 1200
 const EDGE_FADE_PX = 16
 const EDGE_FADE_MASK = `linear-gradient(to right, transparent, black ${EDGE_FADE_PX}px, black calc(100% - ${EDGE_FADE_PX}px), transparent)`
 
-// Placeholder content — real generation isn't wired up yet, so every card
-// shows the same mock post, matching the Figma export literally (same
-// convention as GeneratingPostCard's fixed "Generating…" placeholder). Only
-// the date is real (GeneratingView owns it, updated via "Add to calendar"
-// below) — content/topics stay fixed until generation is wired up.
-const PLACEHOLDER_CONTENT =
-  "What a book it was. Very practical with lots of steps you can take for your current or next project. It is one of those books you keep by your side. You might need answers to something bothering you on a project. The book can provide just that answer."
-const PLACEHOLDER_TOPICS = ["Product design", "UI design", "UX design"]
-
 function formatDate(date: Date) {
   return date.toLocaleDateString("en-US", {
     month: "long",
@@ -54,6 +45,8 @@ function formatDate(date: Date) {
 }
 
 interface GeneratedPostCardProps {
+  content: string
+  topics: string[]
   // undefined = draft (design-sync/ChangesToGenerateCard's "Draft" state) —
   // not yet scheduled for a specific date. Set once "Add to calendar" (draft)
   // or "Change date" (scheduled) applies a pick.
@@ -87,6 +80,8 @@ interface GeneratedPostCardProps {
 // GeneratingView's per-post state (delete/date) or fully local (regenerate,
 // a transient visual toggle with nothing to persist).
 export function GeneratedPostCard({
+  content,
+  topics,
   date,
   onDateChange,
   onDelete,
@@ -274,7 +269,7 @@ export function GeneratedPostCard({
         }
         className="min-h-0 flex-1 overflow-hidden text-body-lg text-text-bold"
       >
-        {PLACEHOLDER_CONTENT}
+        {content}
       </p>
 
       {/* Tap-to-cycle (per direct feedback) — each tap advances to the next
@@ -312,7 +307,7 @@ export function GeneratedPostCard({
           HIDE_NATIVE_SCROLLBAR_CLASSNAME
         )}
       >
-        {PLACEHOLDER_TOPICS.map((topic) => (
+        {topics.map((topic) => (
           <Chip key={topic} size="md" selected={false} className="shrink-0">
             {topic}
           </Chip>

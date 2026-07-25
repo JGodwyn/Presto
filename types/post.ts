@@ -8,10 +8,11 @@ export type PostStatus = "draft" | "scheduled" | "published"
 
 export interface Post {
   id: string
+  projectId: string
   platform: PostPlatform
   status: PostStatus
   content: string
+  topics: string[]
   scheduledFor: string | null
   createdAt: string
-  updatedAt: string
 }

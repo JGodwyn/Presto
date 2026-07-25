@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "figma:bridge": "node figma-bridge/server.mjs",
     "figma:plugin": "tsc -p figma-bridge/plugin/tsconfig.json"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.24",
     "@base-ui/react": "^1.6.0",
     "@hookform/resolvers": "^5.4.0",
     "@number-flow/react": "^0.6.1",
@@ -41,9 +43,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

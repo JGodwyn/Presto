@@ -38,13 +38,16 @@ const PLUGGED_TAG_CORNER_RADIUS = 8
 const MIN_POSTS = 1
 const MAX_POSTS = 31
 
-// Placeholder lists until generation settings are wired up — the real model
-// list belongs to Settings and the account list to Connections.
+// Only one real model is wired up (lib/ai/generate.ts, via Gemini) — plus
+// TasteTest (lib/ai/taste-test.ts), a free stand-in that skips the real
+// model call and returns canned content instead, purely so the Generate
+// flow can be tested repeatedly without spending free-tier quota. Values
+// here are kept in sync by hand with lib/ai/generate.ts's GENERATION_MODELS.
+// The account list still belongs to Connections, which has no real data
+// model yet.
 const MODEL_OPTIONS: SelectPillOption[] = [
-  { value: "gpt-4o-mini", label: "GPT-4o mini" },
-  { value: "gpt-4o", label: "GPT-4o" },
-  { value: "claude-sonnet", label: "Claude Sonnet" },
-  { value: "claude-haiku", label: "Claude Haiku" },
+  { value: "gemini-3.6-flash", label: "Gemini 3.6 Flash" },
+  { value: "tastetest", label: "TasteTest" },
 ]
 
 // SOCIAL_PLATFORM_OPTIONS already matches SelectPillOption's shape
@@ -300,14 +303,11 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       } else {
         clearScheduledDates()
       }
-      // Generation itself isn't wired up yet — this just transitions to the
-      // "Generating…" screen (design-sync/generate-generating-template) so
-      // its animations can be built out against the real navigation flow.
-      // account rides in the URL (unlike the dates above) — it's a single
-      // short value, nowhere near query-string length concerns.
+      // account/model ride in the URL (unlike the dates above) — both are
+      // single short values, nowhere near query-string length concerns.
       startNavigateToGenerating(() => {
         router.push(
-          `/projects/${projectId}/generate/generating?count=${scheduledCount}&account=${account}`
+          `/projects/${projectId}/generate/generating?count=${scheduledCount}&account=${account}&model=${model}`
         )
       })
     }

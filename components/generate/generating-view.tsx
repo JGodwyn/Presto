@@ -13,22 +13,22 @@ import {
   X,
 } from "@phosphor-icons/react"
 
+import { generateAndSavePost, deletePost, updatePost } from "@/app/projects/[projectId]/generate/post-actions"
 import { AnimateText } from "@/components/ui/animated-text"
 import { Button } from "@/components/ui/button"
+import { Toast } from "@/components/ui/toast"
 import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import type { GenerationModel } from "@/lib/ai/generate"
 import { readScheduledDates } from "@/lib/generate-schedule"
 import { cn } from "@/lib/utils"
+import type { Post } from "@/types/post"
 
 // Figma --rad-md as px for the squircle path math (the status pill).
 const STATUS_PILL_CORNER_RADIUS = 8
-
-// Placeholder pace for finishing one post at a time (no real generation job
-// to time this against yet) — see the reveal effect below.
-const CARD_REVEAL_MS = 1200
 
 // Matches the delete exit animation's own duration-300 below (kept in sync
 // by hand, same convention as the skip-dates carousel's EXIT_ANIMATION_MS) —
@@ -38,21 +38,33 @@ const DELETE_EXIT_MS = 300
 const DELETE_FALLBACK_BUFFER_MS = 50
 
 // Every post that's finished generating and is still on screen (not
-// deleted). Content/topics are still placeholders (see GeneratedPostCard) —
-// date is the one real, per-post piece of state so "Add to calendar" has
-// somewhere to write its pick. undefined = draft (design-sync/
-// ChangesToGenerateCard) — every freshly-generated post starts here; a
-// number-based batch has no date to assign at all, and even a calendar-based
-// one isn't wired to hand specific per-post dates through to this page yet,
-// so both currently land the same way. "Add to calendar"/"Change date"
-// (GeneratedPostCard) is what turns a post scheduled.
+// deleted). id/content/topics come straight from the persisted Post row —
+// date/social are the two review-time-editable fields, kept as their own
+// client-friendly shapes (Date instead of an ISO string, undefined instead
+// of null) and pushed back to the server on every change (see
+// handlePostDateChange etc. below). undefined date = draft (design-sync/
+// ChangesToGenerateCard) — every freshly-generated post starts here unless
+// a calendar-based batch assigned it a real date. "Add to calendar"/"Change
+// date" (GeneratedPostCard) is what turns a post scheduled.
 interface GeneratedPost {
-  id: number
+  id: string
+  content: string
+  topics: string[]
   date: Date | undefined
   // Seeded from whichever account GenerateCard's SelectPill had selected
   // (the `account` prop below); tapping the card's own social pill cycles
   // it independently from there.
   social: SocialPlatform
+}
+
+function toGeneratedPost(post: Post): GeneratedPost {
+  return {
+    id: post.id,
+    content: post.content,
+    topics: post.topics,
+    date: post.scheduledFor ? new Date(post.scheduledFor) : undefined,
+    social: post.platform,
+  }
 }
 
 // Built from the Figma "Generate / Generating template" export
@@ -65,12 +77,16 @@ interface GeneratedPost {
 // iterated on independently.
 export function GeneratingView({
   backHref,
+  projectId,
   count,
   account,
+  model,
 }: {
   backHref: string
+  projectId: string
   count: number
   account: SocialPlatform
+  model: GenerationModel
 }) {
   const router = useRouter()
   // The heading loops and cards keep revealing only while status is
@@ -93,16 +109,50 @@ export function GeneratingView({
   // its position (posts never reorder, but this is the same reasoning as
   // keying list items on id rather than index).
   const [posts, setPosts] = React.useState<GeneratedPost[]>([])
-  const nextPostId = React.useRef(0)
+  // How many generation calls in this run have failed — surfaced as one
+  // summarizing Toast once the batch completes (see the completion effect
+  // below), rather than a per-card error state (none exists yet).
+  const [failedCount, setFailedCount] = React.useState(0)
+  const [toastOpen, setToastOpen] = React.useState(false)
+  const [toastMessage, setToastMessage] = React.useState("")
+  const showError = (message: string) => {
+    setToastMessage(message)
+    setToastOpen(true)
+  }
   // The calendar-based tab's actual per-post dates, handed off from
   // GenerateCard via sessionStorage (see lib/generate-schedule.ts) — null
   // for a number-based batch, which has no dates to assign at all. Read
   // once, lazily, rather than in an effect: an effect would leave a window
-  // (however brief) where the reveal effect below could fire before this
+  // (however brief) where the batch effect below could fire before this
   // resolves, and — since Restart reuses the same array to replay the same
   // schedule — this only ever needs to be read the one time this component
   // mounts, not on every render.
   const [scheduledDates] = React.useState(() => readScheduledDates())
+  // Bumped to (re)start the batch effect below — on mount (initial value),
+  // on Resume, and on Restart. Plain state changes (like generatedSoFar
+  // ticking up as the loop progresses) must NOT bump this, or every
+  // completed post would tear down and restart the whole loop.
+  const [runId, setRunId] = React.useState(0)
+  // The effect reads this instead of `status` directly so pausing doesn't
+  // require tearing down/recreating the effect (which would also reset
+  // wherever the loop currently is) — Stop just flips this ref, and the
+  // loop checks it once per iteration boundary, between generation calls
+  // (an in-flight network call itself can't be interrupted mid-request).
+  const statusRef = React.useRef(status)
+  React.useEffect(() => {
+    statusRef.current = status
+  }, [status])
+  // See the batch effect below for what these three are for and why plain
+  // effect-local state can't do this job under Strict Mode.
+  const startedForRunIdRef = React.useRef<number | null>(null)
+  const activeRunIdRef = React.useRef(runId)
+  const isUnmountedRef = React.useRef(false)
+  React.useEffect(() => {
+    isUnmountedRef.current = false
+    return () => {
+      isUnmountedRef.current = true
+    }
+  }, [])
   // Delete plays an exit animation (reversing the card's own entrance)
   // before actually leaving `posts` — this tracks which ids are mid-exit, so
   // the header's own count (below) can drop the instant delete is clicked
@@ -111,14 +161,14 @@ export function GeneratingView({
   // animate-before-remove shape as the skip-dates carousel's
   // useCarouselPresence (generate-calendar-column.tsx), scoped down to a
   // single Set since there's no reordering to also account for here.
-  const [exitingPostIds, setExitingPostIds] = React.useState<Set<number>>(
+  const [exitingPostIds, setExitingPostIds] = React.useState<Set<string>>(
     new Set()
   )
   const deleteFallbackTimeouts = React.useRef(
-    new Map<number, ReturnType<typeof setTimeout>>()
+    new Map<string, ReturnType<typeof setTimeout>>()
   )
 
-  const finishDeletePost = React.useCallback((id: number) => {
+  const finishDeletePost = React.useCallback((id: string) => {
     const timeout = deleteFallbackTimeouts.current.get(id)
     if (timeout) {
       clearTimeout(timeout)
@@ -132,34 +182,98 @@ export function GeneratingView({
     })
   }, [])
 
-  const handleDeletePost = (id: number) => {
-    setExitingPostIds((prev) => new Set(prev).add(id))
+  // Optimistic, same shape as writing-style-card.tsx's handleDelete: the
+  // exit animation starts immediately and the server call fires in
+  // parallel, rather than waiting for it — only a failure needs to undo
+  // anything, which can land either before or after the animation has
+  // already removed the card from `posts`, so both cases are handled below.
+  const handleDeletePost = (post: GeneratedPost) => {
+    setExitingPostIds((prev) => new Set(prev).add(post.id))
     // Fallback in case onTransitionEnd never fires (e.g. the tab is
     // backgrounded mid-fade, which suspends transitions and their events) —
     // same reasoning as the carousel's own fallback timer.
     const timeout = setTimeout(
-      () => finishDeletePost(id),
+      () => finishDeletePost(post.id),
       DELETE_EXIT_MS + DELETE_FALLBACK_BUFFER_MS
     )
-    deleteFallbackTimeouts.current.set(id, timeout)
+    deleteFallbackTimeouts.current.set(post.id, timeout)
+
+    void deletePost({ projectId, id: post.id }).then((result) => {
+      if ("error" in result) {
+        const pending = deleteFallbackTimeouts.current.get(post.id)
+        if (pending) {
+          clearTimeout(pending)
+          deleteFallbackTimeouts.current.delete(post.id)
+        }
+        setExitingPostIds((prev) => {
+          const next = new Set(prev)
+          next.delete(post.id)
+          return next
+        })
+        setPosts((prev) =>
+          prev.some((p) => p.id === post.id) ? prev : [...prev, post]
+        )
+        showError("Couldn't delete that post")
+      }
+    })
   }
 
-  const handlePostDateChange = (id: number, date: Date) => {
+  const handlePostDateChange = (post: GeneratedPost, date: Date) => {
+    const previousDate = post.date
     setPosts((prev) =>
-      prev.map((post) => (post.id === id ? { ...post, date } : post))
+      prev.map((p) => (p.id === post.id ? { ...p, date } : p))
     )
+    void updatePost({
+      projectId,
+      id: post.id,
+      patch: { scheduledFor: date.toISOString(), status: "scheduled" },
+    }).then((result) => {
+      if ("error" in result) {
+        setPosts((prev) =>
+          prev.map((p) => (p.id === post.id ? { ...p, date: previousDate } : p))
+        )
+        showError("Couldn't save that date")
+      }
+    })
   }
 
-  const handleTurnToDraft = (id: number) => {
+  const handleTurnToDraft = (post: GeneratedPost) => {
     setPosts((prev) =>
-      prev.map((post) => (post.id === id ? { ...post, date: undefined } : post))
+      prev.map((p) => (p.id === post.id ? { ...p, date: undefined } : p))
     )
+    void updatePost({
+      projectId,
+      id: post.id,
+      patch: { scheduledFor: null, status: "draft" },
+    }).then((result) => {
+      if ("error" in result) {
+        setPosts((prev) =>
+          prev.map((p) => (p.id === post.id ? { ...p, date: post.date } : p))
+        )
+        showError("Couldn't turn that post into a draft")
+      }
+    })
   }
 
-  const handleSocialChange = (id: number, social: SocialPlatform) => {
+  const handleSocialChange = (post: GeneratedPost, social: SocialPlatform) => {
+    const previousSocial = post.social
     setPosts((prev) =>
-      prev.map((post) => (post.id === id ? { ...post, social } : post))
+      prev.map((p) => (p.id === post.id ? { ...p, social } : p))
     )
+    void updatePost({
+      projectId,
+      id: post.id,
+      patch: { platform: social },
+    }).then((result) => {
+      if ("error" in result) {
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === post.id ? { ...p, social: previousSocial } : p
+          )
+        )
+        showError("Couldn't change that post's platform")
+      }
+    })
   }
 
   React.useEffect(() => {
@@ -170,37 +284,85 @@ export function GeneratingView({
     }
   }, [])
 
-  // Finishes the active card every CARD_REVEAL_MS while generating, pausing
-  // automatically whenever status leaves "generating" (Stop clears the
-  // scheduled completion via this effect's own cleanup — combined with the
-  // active card not rendering at all while stopped, below, this is what
-  // makes Stop read as "fully paused" rather than just visually frozen).
+  // Runs the actual batch: one real generateAndSavePost call at a time,
+  // sequential rather than concurrent (gentler on the free-tier model's
+  // rate limits, and it naturally matches the "one card reveals at a time"
+  // pacing the UI already had). Re-(started) whenever runId changes — see
+  // its own comment above for exactly when that happens.
+  //
+  // generateAndSavePost is a real, non-idempotent side effect (it spends a
+  // model call and inserts a DB row) — unlike a plain GET fetch, calling it
+  // twice for the same post isn't harmless. That rules out the common
+  // "let cancelled = false; ...; return () => { cancelled = true }" effect
+  // pattern here: React (Strict Mode, dev only) runs an effect's
+  // setup→cleanup→setup again on every mount specifically to surface
+  // exactly this kind of bug, and a plain local `cancelled` flag only
+  // stops the *first* setup's loop from applying its state updates — it
+  // does nothing to stop the *second* setup from independently starting
+  // its own loop and duplicating every call (confirmed empirically: two
+  // rows landed in Supabase for index 0 before this fix).
+  //
+  // The fix: startedForRunIdRef, a ref (refs survive Strict Mode's
+  // synchronous double-invoke, unlike a closure-local variable) that's
+  // checked and set atomically at the top of the effect, so only the
+  // first of the two setups for a given runId ever calls run() — the
+  // second sees its runId already claimed and returns immediately.
+  // activeRunIdRef lets an in-flight loop notice it's been superseded by a
+  // genuinely new run (Resume/Restart bumping runId again) even mid-await,
+  // and isUnmountedRef (below, its own effect) is what actually stops a
+  // loop on a real unmount — a plain boolean toggle is safe to double-set
+  // under Strict Mode in a way starting a new async operation is not.
   React.useEffect(() => {
-    if (status !== "generating" || generatedSoFar >= count) return
-    const id = setTimeout(() => {
-      // A calendar-based batch assigns this post its actual date (in
-      // order, matching whatever the user picked); a number-based one has
-      // no dates array at all and every post starts a draft — "Add to
-      // calendar" is what schedules it from there.
-      setPosts((prev) => [
-        ...prev,
-        {
-          id: nextPostId.current++,
-          date: scheduledDates?.[generatedSoFar],
-          social: account,
-        },
-      ])
-      setGeneratedSoFar((c) => c + 1)
-    }, CARD_REVEAL_MS)
-    return () => clearTimeout(id)
-    // scheduledDates never changes after mount (see its own comment above),
-    // but is listed here anyway to keep the dependency array honest about
-    // everything the effect reads.
-  }, [status, generatedSoFar, count, scheduledDates, account])
+    activeRunIdRef.current = runId
+
+    if (startedForRunIdRef.current === runId) return
+    startedForRunIdRef.current = runId
+
+    async function run() {
+      for (let i = generatedSoFar; i < count; i++) {
+        if (
+          isUnmountedRef.current ||
+          activeRunIdRef.current !== runId ||
+          statusRef.current !== "generating"
+        ) {
+          return
+        }
+
+        const scheduledFor = scheduledDates?.[i] ?? null
+        const result = await generateAndSavePost({
+          projectId,
+          platform: account,
+          model,
+          batchIndex: i,
+          batchTotal: count,
+          scheduledFor: scheduledFor ? scheduledFor.toISOString() : null,
+        })
+
+        if (isUnmountedRef.current || activeRunIdRef.current !== runId) return
+
+        if ("error" in result) {
+          setFailedCount((c) => c + 1)
+        } else {
+          setPosts((prev) => [...prev, toGeneratedPost(result.post)])
+        }
+        setGeneratedSoFar((c) => c + 1)
+      }
+    }
+
+    run()
+    // generatedSoFar is deliberately excluded — it's read once as this
+    // effect's starting point (correct: "carry on from wherever we are"),
+    // not a trigger to restart on every single increment, which would tear
+    // down and recreate the loop after every post. count/account/model/
+    // projectId/scheduledDates are all stable for the lifetime of this
+    // component (props from a URL that doesn't change, and scheduledDates
+    // per its own comment above), so including them here is safe and never
+    // causes an unwanted restart.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId, count, account, model, projectId, scheduledDates])
 
   // Separate from the effect above: once every post has finished, the batch
-  // is done — this is the other place real generation completion should
-  // hook in later, the same way handleStop already models "stopped".
+  // is done.
   React.useEffect(() => {
     if (
       status === "generating" &&
@@ -208,21 +370,32 @@ export function GeneratingView({
       generatedSoFar >= count
     ) {
       setStatus("completed")
+      if (failedCount > 0) {
+        showError(
+          `${failedCount} of ${count} posts couldn't be generated.`
+        )
+      }
     }
-  }, [status, generatedSoFar, count])
+  }, [status, generatedSoFar, count, failedCount])
 
   const handleStop = () => setStatus("stopped")
   // Resume (from "stopped") continues from wherever it left off; Restart
   // (from "completed") starts the whole batch over from zero — same status
-  // transition, different starting point for the count.
-  const handleResume = () => setStatus("generating")
+  // transition, different starting point for the count. Both bump runId to
+  // (re)start the batch effect.
+  const handleResume = () => {
+    setStatus("generating")
+    setRunId((id) => id + 1)
+  }
   const handleRestart = () => {
     deleteFallbackTimeouts.current.forEach(clearTimeout)
     deleteFallbackTimeouts.current.clear()
     setGeneratedSoFar(0)
     setPosts([])
     setExitingPostIds(new Set())
+    setFailedCount(0)
     setStatus("generating")
+    setRunId((id) => id + 1)
   }
   // Same reasoning as the Generate button's own useTransition
   // (generate-card.tsx): router.push doesn't resolve instantly, so isPending
@@ -301,7 +474,19 @@ export function GeneratingView({
     })
 
   return (
-    <div className="flex w-full flex-col gap-dist-xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
+    <>
+      <div className="pointer-events-none fixed inset-x-0 top-pad-2xl z-50 flex justify-center">
+        <Toast
+          open={toastOpen}
+          onOpenChange={setToastOpen}
+          variant="danger"
+          direction="top"
+        >
+          {toastMessage}
+        </Toast>
+      </div>
+
+      <div className="flex w-full flex-col gap-dist-xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
       <div className="flex w-full flex-col gap-dist-md">
         <div className="flex w-full items-center justify-between">
           {/* Trying out nyxui.com's "elastic" AnimateText effect
@@ -442,12 +627,14 @@ export function GeneratingView({
               }}
             >
               <GeneratedPostCard
+                content={post.content}
+                topics={post.topics}
                 date={post.date}
-                onDateChange={(date) => handlePostDateChange(post.id, date)}
-                onDelete={() => handleDeletePost(post.id)}
-                onTurnToDraft={() => handleTurnToDraft(post.id)}
+                onDateChange={(date) => handlePostDateChange(post, date)}
+                onDelete={() => handleDeletePost(post)}
+                onTurnToDraft={() => handleTurnToDraft(post)}
                 social={post.social}
-                onSocialChange={(social) => handleSocialChange(post.id, social)}
+                onSocialChange={(social) => handleSocialChange(post, social)}
                 textOpacityMin={cardDial.text.opacityMin}
                 textOpacityDuration={cardDial.text.opacityDuration}
                 rotationEnabled={cardDial.border.rotationEnabled}
@@ -482,6 +669,7 @@ export function GeneratingView({
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   )
 }

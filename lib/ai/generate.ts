@@ -1,9 +1,14 @@
+import { google } from "@ai-sdk/google"
+import { generateText } from "ai"
 import { z } from "zod"
 
-// TODO: wire up a real provider (e.g. @ai-sdk/openai or @ai-sdk/anthropic) once
-// the Generate page spec is available and a model choice is confirmed. This
-// file just defines the shape callers will use so the Generate page can be
-// built against a stable interface.
+// "tastetest" is the free, no-API-call stand-in (lib/ai/taste-test.ts) —
+// post-actions.ts branches on this instead of calling generatePost below.
+// Kept here (not a UI file) since this is the one list every layer of the
+// generate flow validates against — generate-card.tsx's MODEL_OPTIONS labels
+// are kept in sync with these values by hand.
+export const GENERATION_MODELS = ["gemini-3.6-flash", "tastetest"] as const
+export type GenerationModel = (typeof GENERATION_MODELS)[number]
 
 export const generatePostInputSchema = z.object({
   prompt: z.string().min(1),
@@ -11,6 +16,15 @@ export const generatePostInputSchema = z.object({
 
 export type GeneratePostInput = z.infer<typeof generatePostInputSchema>
 
-export async function generatePost(_input: GeneratePostInput): Promise<never> {
-  throw new Error("generatePost is not implemented yet")
+export interface GeneratePostResult {
+  content: string
+}
+
+export async function generatePost(input: GeneratePostInput): Promise<GeneratePostResult> {
+  const { text } = await generateText({
+    model: google("gemini-3.6-flash"),
+    prompt: input.prompt,
+  })
+
+  return { content: text }
 }
