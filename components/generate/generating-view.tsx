@@ -5,24 +5,28 @@ import { useRouter } from "next/navigation"
 import { useDialKit } from "dialkit"
 import {
   ArrowClockwise,
+  EyeClosed,
   Info,
   Pause,
   Play,
   SpinnerGap,
   StopCircle,
+  Warning,
   X,
 } from "@phosphor-icons/react"
 
 import { generateAndSavePost, deletePost, updatePost } from "@/app/projects/[projectId]/generate/post-actions"
 import { AnimateText } from "@/components/ui/animated-text"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Toast } from "@/components/ui/toast"
 import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
+import { useShake } from "@/hooks/use-shake"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
-import type { GenerationModel } from "@/lib/ai/generate"
+import type { GenerationFailureReason, GenerationModel } from "@/lib/ai/generate"
 import { readScheduledDates } from "@/lib/generate-schedule"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -36,6 +40,34 @@ const STATUS_PILL_CORNER_RADIUS = 8
 // animation.
 const DELETE_EXIT_MS = 300
 const DELETE_FALLBACK_BUFFER_MS = 50
+
+// How long the generation-failure message stays in place of "Double-tap to
+// edit posts" before reverting on its own (per direct request).
+const GENERATION_ERROR_DISPLAY_MS = 15_000
+
+// How long after the batch completes (in total failure) before the modal
+// appears — a deliberate pause so the failed state behind it (the red
+// header/message) registers first, rather than the modal covering it
+// immediately (per direct request).
+const TOTAL_FAILURE_MODAL_DELAY_MS = 1_000
+
+// One sentence per classifyGenerationError reason (lib/ai/generate.ts) plus
+// the two failure kinds that never reach it (missing_instructions/
+// not_signed_in) — picked from whichever the batch's last failure reported,
+// so "check your model or network" is only the fallback when nothing more
+// specific is known, not the default story.
+const TOTAL_FAILURE_MESSAGES: Record<GenerationFailureReason, string> = {
+  missing_instructions:
+    "This project doesn't have Instructions set up yet. Add some on the Instructions page, then try again.",
+  not_signed_in: "You've been signed out. Sign back in and try again.",
+  rate_limit:
+    "You've hit your model's rate limit or usage quota. Wait a bit and try again, or switch to TasteTest to keep testing for free.",
+  auth: "There's a problem with the model's API key. Check it's set up correctly and try again.",
+  server: "The model's service is having trouble right now. Try again in a bit.",
+  network: "We couldn't reach the model — check your network connection and try again.",
+  unknown:
+    "We couldn't generate a post. This could be due to your model or your network. Check both and try again.",
+}
 
 // Every post that's finished generating and is still on screen (not
 // deleted). id/content/topics come straight from the persisted Post row —
@@ -110,8 +142,9 @@ export function GeneratingView({
   // keying list items on id rather than index).
   const [posts, setPosts] = React.useState<GeneratedPost[]>([])
   // How many generation calls in this run have failed — surfaced as one
-  // summarizing Toast once the batch completes (see the completion effect
-  // below), rather than a per-card error state (none exists yet).
+  // summarizing inline error once the batch completes (see the completion
+  // effect below and generationErrorMessage), rather than a per-card error
+  // state (none exists yet).
   const [failedCount, setFailedCount] = React.useState(0)
   const [toastOpen, setToastOpen] = React.useState(false)
   const [toastMessage, setToastMessage] = React.useState("")
@@ -119,6 +152,40 @@ export function GeneratingView({
     setToastMessage(message)
     setToastOpen(true)
   }
+  // The "N of {count} posts couldn't be generated" message replaces the
+  // "Double-tap to edit posts" info line in place (per direct request) —
+  // rather than a Toast, since this describes the state of the whole batch,
+  // not a one-off action. Reverts back to the info line on its own after
+  // GENERATION_ERROR_DISPLAY_MS so it doesn't linger indefinitely once the
+  // user has seen it.
+  const [generationErrorMessage, setGenerationErrorMessage] = React.useState<string | null>(null)
+  const generationErrorTimeoutRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  const showGenerationError = (message: string) => {
+    clearTimeout(generationErrorTimeoutRef.current)
+    setGenerationErrorMessage(message)
+    generationErrorTimeoutRef.current = setTimeout(() => {
+      setGenerationErrorMessage(null)
+    }, GENERATION_ERROR_DISPLAY_MS)
+  }
+
+  // Whichever failure reason the batch's most recent failed attempt
+  // reported — read at completion to pick the total-failure modal's
+  // message.
+  const [lastFailureReason, setLastFailureReason] =
+    React.useState<GenerationFailureReason>("unknown")
+  // "Total failure" (every attempted post failed, none generated) gets its
+  // own modal on top of the inline message above — see the completion
+  // effect below for the delay before it appears.
+  const [showFailureModal, setShowFailureModal] = React.useState(false)
+  const failureModalTimeoutRef = React.useRef<ReturnType<typeof setTimeout>>(undefined)
+
+  React.useEffect(() => {
+    return () => {
+      clearTimeout(generationErrorTimeoutRef.current)
+      clearTimeout(failureModalTimeoutRef.current)
+    }
+  }, [])
   // The calendar-based tab's actual per-post dates, handed off from
   // GenerateCard via sessionStorage (see lib/generate-schedule.ts) — null
   // for a number-based batch, which has no dates to assign at all. Read
@@ -341,6 +408,7 @@ export function GeneratingView({
         if (isUnmountedRef.current || activeRunIdRef.current !== runId) return
 
         if ("error" in result) {
+          setLastFailureReason(result.reason)
           setFailedCount((c) => c + 1)
         } else {
           setPosts((prev) => [...prev, toGeneratedPost(result.post)])
@@ -371,9 +439,19 @@ export function GeneratingView({
     ) {
       setStatus("completed")
       if (failedCount > 0) {
-        showError(
+        showGenerationError(
           `${failedCount} of ${count} posts couldn't be generated.`
         )
+      }
+      // Total failure — failedCount reaching count means zero posts
+      // succeeded (every attempted slot is either a success, pushed to
+      // posts, or a failure, counted here — see the loop above). The modal
+      // waits a beat so the red header/message underneath registers first,
+      // rather than being covered immediately.
+      if (failedCount === count) {
+        failureModalTimeoutRef.current = setTimeout(() => {
+          setShowFailureModal(true)
+        }, TOTAL_FAILURE_MODAL_DELAY_MS)
       }
     }
   }, [status, generatedSoFar, count, failedCount])
@@ -390,10 +468,15 @@ export function GeneratingView({
   const handleRestart = () => {
     deleteFallbackTimeouts.current.forEach(clearTimeout)
     deleteFallbackTimeouts.current.clear()
+    clearTimeout(generationErrorTimeoutRef.current)
+    clearTimeout(failureModalTimeoutRef.current)
     setGeneratedSoFar(0)
     setPosts([])
     setExitingPostIds(new Set())
     setFailedCount(0)
+    setGenerationErrorMessage(null)
+    setShowFailureModal(false)
+    setLastFailureReason("unknown")
     setStatus("generating")
     setRunId((id) => id + 1)
   }
@@ -472,6 +555,9 @@ export function GeneratingView({
     useSquircleClipPath<HTMLDivElement>({
       cornerRadius: STATUS_PILL_CORNER_RADIUS,
     })
+  // Same shared shake as the calendar-based date-selection error
+  // (generate-calendar-column.tsx) — see hooks/use-shake.ts.
+  const generationErrorRef = useShake<HTMLParagraphElement>(generationErrorMessage !== null)
 
   return (
     <>
@@ -485,6 +571,48 @@ export function GeneratingView({
           {toastMessage}
         </Toast>
       </div>
+
+      {/* design-sync/model-variant-2 — the outer DialogContent card (320px,
+        bg-surface-4, rounded-rad-lg, px-pad-lg py-pad-xl, gap-dist-lg between
+        its 3 direct children) already matches the export's own frame styling
+        exactly, so only the children needed building. The icon/heading/body
+        group's own internal gap is exported as a flat 14px with no token
+        bound to it (unlike every other spacing value here) — closer to
+        dist-lg (16, off by 2px) than dist-md (8, off by 6px), so treated as
+        the same rhythm as the outer gap rather than inventing a value. */}
+      <Dialog open={showFailureModal} onOpenChange={setShowFailureModal}>
+        <DialogContent showCloseButton={false}>
+          <div className="flex flex-col items-center gap-dist-lg">
+            <EyeClosed className="size-12 text-icon-minimal" />
+            <DialogTitle className="text-center">Nothing to show</DialogTitle>
+            <DialogDescription className="text-center text-body-lg text-text-bold">
+              {TOTAL_FAILURE_MESSAGES[lastFailureReason]}
+            </DialogDescription>
+          </div>
+          <Button
+            variant="brand"
+            size="xl"
+            className="w-full"
+            onClick={() => {
+              setShowFailureModal(false)
+              handleRestart()
+            }}
+          >
+            Try again
+          </Button>
+          <Button
+            variant="brand-secondary"
+            size="xl"
+            className="w-full"
+            onClick={() => {
+              setShowFailureModal(false)
+              goBack()
+            }}
+          >
+            Go back
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex w-full flex-col gap-dist-xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
       <div className="flex w-full flex-col gap-dist-md">
@@ -501,7 +629,9 @@ export function GeneratingView({
           <AnimateText
             text={
               status === "completed"
-                ? `here's ${availablePostCount} ${availablePostCount === 1 ? "post" : "posts"} for you`
+                ? availablePostCount === 0
+                  ? "no post generated"
+                  : `here's ${availablePostCount} ${availablePostCount === 1 ? "post" : "posts"} for you`
                 : `generating ${count} ${count === 1 ? "post" : "posts"} . . .`
             }
             type="elastic"
@@ -584,10 +714,20 @@ export function GeneratingView({
           </div>
         </div>
 
-        <p className="flex items-center gap-dist-md text-body-md text-text-subtle">
-          <Info className="size-4 text-icon-subtle" />
-          Double-tap to edit posts
-        </p>
+        {generationErrorMessage ? (
+          <p
+            ref={generationErrorRef}
+            className="flex items-center gap-dist-md text-body-md text-text-danger"
+          >
+            <Warning className="size-4" weight="bold" />
+            {generationErrorMessage}
+          </p>
+        ) : (
+          <p className="flex items-center gap-dist-md text-body-md text-text-subtle">
+            <Info className="size-4 text-icon-subtle" />
+            Double-tap to edit posts
+          </p>
+        )}
       </div>
 
       {/* Fluid grid, same technique as the /projects folder grid

@@ -5,7 +5,12 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
 import { buildPostPrompt, pickTopicForIndex } from "@/lib/ai/build-prompt"
-import { generatePost, GENERATION_MODELS } from "@/lib/ai/generate"
+import {
+  classifyGenerationError,
+  generatePost,
+  GENERATION_MODELS,
+  type GenerationFailureReason,
+} from "@/lib/ai/generate"
 import { pickTasteTestContent } from "@/lib/ai/taste-test"
 import { fetchInstructions } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
@@ -53,21 +58,24 @@ const generateAndSavePostSchema = z.object({
 
 export async function generateAndSavePost(
   input: z.infer<typeof generateAndSavePostSchema>
-): Promise<{ error: string } | { ok: true; post: Post }> {
+): Promise<{ error: string; reason: GenerationFailureReason } | { ok: true; post: Post }> {
   const parsed = generateAndSavePostSchema.safeParse(input)
   if (!parsed.success) {
-    return { error: "Couldn't generate that post." }
+    return { error: "Couldn't generate that post.", reason: "unknown" }
   }
 
   const supabase = await createClient()
   const user = await requireUser(supabase)
   if (!user) {
-    return { error: "You need to be signed in to generate posts." }
+    return { error: "You need to be signed in to generate posts.", reason: "not_signed_in" }
   }
 
   const instructions = await fetchInstructions(supabase, parsed.data.projectId)
   if (!instructions) {
-    return { error: "Set up your project's Instructions before generating posts." }
+    return {
+      error: "Set up your project's Instructions before generating posts.",
+      reason: "missing_instructions",
+    }
   }
 
   const topic = pickTopicForIndex(instructions.topics, parsed.data.batchIndex)
@@ -89,8 +97,11 @@ export async function generateAndSavePost(
 
     try {
       content = (await generatePost({ prompt })).content
-    } catch {
-      return { error: "Couldn't generate that post. Please try again." }
+    } catch (error) {
+      return {
+        error: "Couldn't generate that post. Please try again.",
+        reason: classifyGenerationError(error),
+      }
     }
   }
 
@@ -109,7 +120,7 @@ export async function generateAndSavePost(
     .single()
 
   if (error || !data) {
-    return { error: "Couldn't save that post. Please try again." }
+    return { error: "Couldn't save that post. Please try again.", reason: "unknown" }
   }
 
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)

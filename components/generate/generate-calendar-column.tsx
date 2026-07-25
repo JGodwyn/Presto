@@ -2,12 +2,12 @@
 
 import * as React from "react"
 import { Info, Warning } from "@phosphor-icons/react"
-import { useDialKit } from "dialkit"
 
 import { Calendar, type DateRange } from "@/components/ui/calendar"
 import { Switch } from "@/components/ui/switch"
 import { MonthGrid, type MonthSelection } from "@/components/generate/month-grid"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
+import { useShake } from "@/hooks/use-shake"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
@@ -31,38 +31,6 @@ function isSameDay(a: Date, b: Date) {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   )
-}
-
-// Alternating, decaying translateX hops — amplitude is the first hop's
-// distance in px, decay (0-1) is how much each subsequent hop shrinks by,
-// hops is how many left/right swings happen before settling back to 0.
-// Regenerated on every trigger from the live DialKit values below rather
-// than a fixed keyframe array, so dragging a slider changes the actual
-// motion, not just its timing. Total duration is spread evenly across
-// hops+1 segments (WAAPI's default when keyframes carry no offsets), so
-// raising the hop count for the same duration shortens each individual
-// swing — that's the lever that actually changes "quick flick" vs.
-// "slow, deliberate wobble," independent of the total duration.
-function buildShakeKeyframes(amplitude: number, decay: number, hops: number): Keyframe[] {
-  const keyframes: Keyframe[] = [{ transform: "translateX(0)" }]
-  for (let i = 0; i < hops; i++) {
-    const sign = i % 2 === 0 ? -1 : 1
-    const px = amplitude * decay ** i
-    keyframes.push({ transform: `translateX(${sign * px}px)` })
-  }
-  keyframes.push({ transform: "translateX(0)" })
-  return keyframes
-}
-
-// Named curves worth comparing against the app's own strong ease-in-out —
-// a shake reads very differently under each: linear feels mechanical/even,
-// ease-in-out (generic) is much gentler than the app's own strong variant,
-// ease-out front-loads the motion.
-const SHAKE_EASING_OPTIONS: Record<string, string> = {
-  "strong-ease-in-out": "cubic-bezier(0.77,0,0.175,1)",
-  "ease-in-out": "ease-in-out",
-  "ease-out": "ease-out",
-  linear: "linear",
 }
 
 function getDaysInMonth(year: number, month: number): Date[] {
@@ -438,56 +406,9 @@ function GenerateCalendarColumn({
   onToggleSkipDate: (date: Date, skip: boolean) => void
   showError: boolean
 }) {
-  const errorRef = React.useRef<HTMLParagraphElement>(null)
-
-  // Live-tunable via the DialKit panel (top-right, dev only) instead of
-  // hand-editing values and reloading — drag a slider while the error is
-  // showing and the shake below replays immediately with the new numbers.
-  const shakeDial = useDialKit("Error shake", {
-    duration: [480, 100, 800, 10],
-    amplitude: [10, 0, 20],
-    decay: [0.7, 0.3, 1, 0.05],
-    hops: [5, 2, 12, 1],
-    easing: {
-      type: "select",
-      options: [
-        { value: "strong-ease-in-out", label: "Strong ease-in-out (app default)" },
-        { value: "ease-in-out", label: "Ease-in-out" },
-        { value: "ease-out", label: "Ease-out" },
-        { value: "linear", label: "Linear" },
-      ],
-      default: "ease-out",
-    },
-  })
-
-  // Fires whenever the error goes from hidden to shown, or (while it's
-  // already shown) whenever a DialKit value changes — the dependency array
-  // does double duty as "replay on trigger" and "replay on live tweak"
-  // without a separate preview button. WAAPI rather than a CSS
-  // keyframes/transition so a rapid re-trigger (error clears, then reappears
-  // right after, or a slider drag mid-shake) restarts cleanly instead of
-  // queuing. Skipped under prefers-reduced-motion per STANDARDS.md (drop
-  // transform-based motion, keep the text itself appearing).
-  React.useEffect(() => {
-    if (!showError) return
-    const element = errorRef.current
-    if (!element) return
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-    element.animate(
-      buildShakeKeyframes(shakeDial.amplitude, shakeDial.decay, shakeDial.hops),
-      {
-        duration: shakeDial.duration,
-        easing: SHAKE_EASING_OPTIONS[shakeDial.easing],
-      }
-    )
-  }, [
-    showError,
-    shakeDial.duration,
-    shakeDial.amplitude,
-    shakeDial.decay,
-    shakeDial.hops,
-    shakeDial.easing,
-  ])
+  // Shared with generating-view.tsx's generation-failure message —
+  // see hooks/use-shake.ts.
+  const errorRef = useShake<HTMLParagraphElement>(showError)
 
   const dragScroll = useCarouselScroll<HTMLDivElement>()
   // Empty (not `selectedMonths`) once the toggle itself is off, so turning
