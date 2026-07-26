@@ -343,6 +343,27 @@ export function GeneratingView({
     })
   }
 
+  const handleContentChange = (post: GeneratedPost, content: string) => {
+    const previousContent = post.content
+    setPosts((prev) =>
+      prev.map((p) => (p.id === post.id ? { ...p, content } : p))
+    )
+    void updatePost({
+      projectId,
+      id: post.id,
+      patch: { content },
+    }).then((result) => {
+      if ("error" in result) {
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.id === post.id ? { ...p, content: previousContent } : p
+          )
+        )
+        showError("Couldn't save your edit")
+      }
+    })
+  }
+
   React.useEffect(() => {
     const timeouts = deleteFallbackTimeouts.current
     return () => {
@@ -768,6 +789,7 @@ export function GeneratingView({
             >
               <GeneratedPostCard
                 content={post.content}
+                onContentChange={(content) => handleContentChange(post, content)}
                 topics={post.topics}
                 date={post.date}
                 onDateChange={(date) => handlePostDateChange(post, date)}

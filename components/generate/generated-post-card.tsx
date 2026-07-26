@@ -36,6 +36,42 @@ const REGENERATE_MS = 1200
 const EDGE_FADE_PX = 16
 const EDGE_FADE_MASK = `linear-gradient(to right, transparent, black ${EDGE_FADE_PX}px, black calc(100% - ${EDGE_FADE_PX}px), transparent)`
 
+// Same fade-instead-of-hard-cutoff idea as the topics row above, applied
+// vertically to the content box: it scrolls (mouse wheel/trackpad/drag) the
+// full post text rather than clamping it to a fixed number of lines with an
+// ellipsis. Unlike the topics row/calendar carousel's always-on mask, each
+// edge's fade is conditional on there actually being more content that way
+// (per direct feedback: a resting card showing a top fade with nothing
+// above it to scroll to was misleading, and a resting bottom fade is the
+// only signal that a card scrolls at all before you try it) — see
+// updateScrollFade below, which recomputes both edges on scroll/resize/
+// content-change.
+const CONTENT_FADE_PX = 20
+const CONTENT_TEXT_CLASSNAME = "text-body-lg text-text-bold whitespace-pre-wrap"
+
+function buildContentFadeMask(canScrollUp: boolean, canScrollDown: boolean): string | undefined {
+  if (!canScrollUp && !canScrollDown) return undefined
+  const topStop = canScrollUp ? `transparent, black ${CONTENT_FADE_PX}px` : "black 0"
+  const bottomStop = canScrollDown ? `black calc(100% - ${CONTENT_FADE_PX}px), transparent` : "black 100%"
+  return `linear-gradient(to bottom, ${topStop}, ${bottomStop})`
+}
+
+// Cross-browser: Chrome/Safari ship caretRangeFromPoint, Firefox ships the
+// newer caretPositionFromPoint — both resolve a screen point to a text
+// node + character offset, which is what places the cursor at the actual
+// double-click position rather than always at the start/end of the text.
+function getCaretOffsetFromPoint(x: number, y: number): { node: Node; offset: number } | null {
+  if (typeof document.caretPositionFromPoint === "function") {
+    const position = document.caretPositionFromPoint(x, y)
+    return position ? { node: position.offsetNode, offset: position.offset } : null
+  }
+  if (typeof document.caretRangeFromPoint === "function") {
+    const range = document.caretRangeFromPoint(x, y)
+    return range ? { node: range.startContainer, offset: range.startOffset } : null
+  }
+  return null
+}
+
 function formatDate(date: Date) {
   return date.toLocaleDateString("en-US", {
     month: "long",
@@ -46,6 +82,9 @@ function formatDate(date: Date) {
 
 interface GeneratedPostCardProps {
   content: string
+  // Double-tap/double-click anywhere on the card that isn't itself a button
+  // enters a quick-edit mode on this text in place — see handleCardDoubleClick.
+  onContentChange: (content: string) => void
   topics: string[]
   // undefined = draft (design-sync/ChangesToGenerateCard's "Draft" state) —
   // not yet scheduled for a specific date. Set once "Add to calendar" (draft)
@@ -81,6 +120,7 @@ interface GeneratedPostCardProps {
 // a transient visual toggle with nothing to persist).
 export function GeneratedPostCard({
   content,
+  onContentChange,
   topics,
   date,
   onDateChange,
@@ -136,42 +176,114 @@ export function GeneratedPostCard({
   // through to onDateChange.
   const [pickerOpen, setPickerOpen] = React.useState(false)
 
-  // Measures the content paragraph's actual flex-allotted height (while it's
-  // still a plain flex-1 box, pre-clamp) and derives how many whole lines of
-  // text fit in it, then pins the box to exactly lines*lineHeight and hands
-  // the line count to -webkit-line-clamp — a real "…" at a whole line
-  // boundary, instead of the previous plain overflow-hidden which cut
-  // straight through whatever line happened to sit at the edge.
-  //
-  // Pinning an explicit height (rather than leaving it flex-1 once clamped)
-  // matters: flex-1's leftover space (176px here) is rarely an exact
-  // multiple of the line height (24px → 7 lines is only 168px), and
-  // -webkit-line-clamp only clips the text — it doesn't shrink the box
-  // itself to match, so the leftover 8px of slack let an 8th line's
-  // ascenders start rendering into it before the box's own overflow-hidden
-  // finally cut it off. Setting `flex: 0 0 auto` overrides the flex-1 class
-  // (flex-basis 0% otherwise ignores an explicit height) so the box's real
-  // height becomes the exact clamp math, no slack left for a stray line to
-  // bleed into.
-  //
-  // A guarded one-time measurement (not a live ResizeObserver): this only
-  // needs to run once, against the pre-clamp flex-allocated height — once
-  // `clamp` is set, the paragraph's own box is no longer that reference
-  // height (it's now our pinned one), so re-observing it would be measuring
-  // itself. React re-invokes a ref callback whose identity changes (the
-  // `clamp` dependency below), which is what re-triggers this after the
-  // state update — the `if (clamp) return` guard is what stops it there.
-  const [clamp, setClamp] = React.useState<{ lines: number; lineHeightPx: number }>()
-  const paragraphRef = React.useCallback(
-    (node: HTMLParagraphElement | null) => {
-      if (!node || clamp) return
-      const lineHeightPx = parseFloat(getComputedStyle(node).lineHeight)
-      if (!lineHeightPx) return
-      const lines = Math.max(1, Math.floor(node.clientHeight / lineHeightPx))
-      setClamp({ lines, lineHeightPx })
-    },
-    [clamp]
-  )
+  // Quick-edit: double-clicking anywhere on the card that isn't a button
+  // (handleCardDoubleClick) swaps the content box for a plain-styled
+  // textarea in place. `draft` is a local scratch copy — only committed via
+  // onContentChange on blur/Enter, so keystrokes don't fire a save each
+  // time. caretOffsetRef carries the click's resolved text-offset from the
+  // double-click handler to the focus effect below (a ref, not state — it's
+  // read exactly once per edit session, right after the textarea mounts).
+  const [isEditing, setIsEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(content)
+  // Shared between the view div and the edit textarea (only one is ever
+  // mounted at a time) — both scroll-fade tracking and the double-click
+  // caret math need whichever one is currently rendered.
+  const contentRef = React.useRef<HTMLDivElement | HTMLTextAreaElement | null>(null)
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+  const caretOffsetRef = React.useRef(0)
+  // Captured from the view div at double-click time so the textarea that
+  // replaces it (a fresh element, native scrollTop 0) opens at the same
+  // scroll position instead of jumping to the top — see
+  // handleCardDoubleClick and the focus effect below.
+  const pendingScrollTopRef = React.useRef(0)
+
+  const [canScrollUp, setCanScrollUp] = React.useState(false)
+  const [canScrollDown, setCanScrollDown] = React.useState(false)
+  const updateScrollFade = React.useCallback(() => {
+    const el = contentRef.current
+    if (!el) return
+    setCanScrollUp(el.scrollTop > 1)
+    setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 1)
+  }, [])
+
+  // Recomputes on mount/edit-mode-swap and whenever the text itself changes
+  // (either can flip whether the box overflows at all) — useLayoutEffect so
+  // this lands before paint, not after, which is what keeps a freshly
+  // mounted card from ever flashing the wrong fade state for a frame.
+  React.useLayoutEffect(() => {
+    updateScrollFade()
+  }, [isEditing, content, draft, updateScrollFade])
+
+  // Also covers width/height changes that aren't content-driven — a window
+  // resize reflowing the grid can change how many lines wrap without the
+  // text itself changing.
+  React.useEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    const observer = new ResizeObserver(updateScrollFade)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [isEditing, updateScrollFade])
+
+  // Runs before paint (see above) so the caret/scroll restore below and the
+  // fade recompute happen in the same frame the textarea replaces the div —
+  // a plain useEffect would let the textarea render at scrollTop 0 first,
+  // which is the exact jump-to-top this is fixing.
+  React.useLayoutEffect(() => {
+    if (!isEditing) return
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.focus()
+    const offset = Math.min(caretOffsetRef.current, textarea.value.length)
+    textarea.setSelectionRange(offset, offset)
+    textarea.scrollTop = pendingScrollTopRef.current
+    updateScrollFade()
+  }, [isEditing, updateScrollFade])
+
+  const handleCardDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (isEditing) return
+    // Every existing action on this card (delete, the "..." menu, the
+    // social pill, add-to-calendar/change-date, regenerate) is a <button> —
+    // a single check covers all of them rather than enumerating each one,
+    // and naturally keeps working if a future action is added the same way.
+    if ((event.target as HTMLElement).closest("button")) return
+
+    // Resolves the click to a real position within the text where possible
+    // (see getCaretOffsetFromPoint) so the cursor lands where the user
+    // actually double-clicked, not always at the start/end — falls back to
+    // the end of the text for a double-click that landed elsewhere on the
+    // card (e.g. the header padding), same as clicking into the end of a
+    // plain input.
+    const caret = getCaretOffsetFromPoint(event.clientX, event.clientY)
+    caretOffsetRef.current =
+      caret && contentRef.current?.contains(caret.node) ? caret.offset : content.length
+    pendingScrollTopRef.current = contentRef.current?.scrollTop ?? 0
+
+    // The double-click's native "select the word under the cursor" would
+    // otherwise flash briefly before the textarea mounts in its place.
+    window.getSelection()?.removeAllRanges()
+    setDraft(content)
+    setIsEditing(true)
+  }
+
+  const commitEdit = () => {
+    setIsEditing(false)
+    const trimmed = draft.trim()
+    // An empty save would fail the DB's own non-empty constraint anyway —
+    // silently reverting to the last real content reads better than a
+    // save-error Toast for what's almost always an accidental select-all-delete.
+    if (trimmed && trimmed !== content) onContentChange(trimmed)
+  }
+
+  const handleContentKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault()
+      commitEdit()
+    } else if (event.key === "Escape") {
+      event.preventDefault()
+      setIsEditing(false)
+    }
+  }
 
   // Regenerating swaps this component's entire output for GeneratingPostCard
   // — same footprint (that card is already h-92 w-full min-w-70 on its own),
@@ -221,6 +333,7 @@ export function GeneratedPostCard({
       // own entrance fade on the wrapping div, which is harmless (same curve,
       // same 0→1 bounds).
       className="flex h-92 w-full min-w-70 flex-col gap-dist-md rounded-rad-lg border-[length:var(--stroke-xl)] border-border-subtle bg-surface-4 p-pad-lg transition-[opacity,filter] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]"
+      onDoubleClick={handleCardDoubleClick}
     >
       <div className="flex shrink-0 items-center justify-between">
         <div className="flex items-center gap-dist-sm">
@@ -249,28 +362,48 @@ export function GeneratedPostCard({
 
       {/* min-h-0 overrides the flex default of min-height:auto, which would
           otherwise keep this item at its full content height regardless of
-          flex-basis/flex-grow — without it, overflow-hidden never actually
-          gets a chance to clip anything (matters for the first, pre-clamp
-          paint below). Once `clamp` is measured, `flex: 0 0 auto` + an
-          explicit pixel height take over from flex-1 entirely — see the
-          comment above `clamp` for why. */}
-      <p
-        ref={paragraphRef}
-        style={
-          clamp
-            ? {
-                display: "-webkit-box",
-                WebkitBoxOrient: "vertical",
-                WebkitLineClamp: clamp.lines,
-                flex: "0 0 auto",
-                height: clamp.lines * clamp.lineHeightPx,
-              }
-            : undefined
-        }
-        className="min-h-0 flex-1 overflow-hidden text-body-lg text-text-bold"
-      >
-        {content}
-      </p>
+          flex-basis/flex-grow — without it there'd be nothing for
+          overflow-y-auto to actually clip/scroll against. */}
+      {isEditing ? (
+        <textarea
+          ref={(node) => {
+            textareaRef.current = node
+            contentRef.current = node
+          }}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={handleContentKeyDown}
+          onBlur={commitEdit}
+          onScroll={updateScrollFade}
+          style={{
+            maskImage: buildContentFadeMask(canScrollUp, canScrollDown),
+            WebkitMaskImage: buildContentFadeMask(canScrollUp, canScrollDown),
+          }}
+          className={cn(
+            "min-h-0 flex-1 resize-none bg-transparent outline-none",
+            CONTENT_TEXT_CLASSNAME,
+            HIDE_NATIVE_SCROLLBAR_CLASSNAME
+          )}
+        />
+      ) : (
+        <div
+          ref={(node) => {
+            contentRef.current = node
+          }}
+          onScroll={updateScrollFade}
+          style={{
+            maskImage: buildContentFadeMask(canScrollUp, canScrollDown),
+            WebkitMaskImage: buildContentFadeMask(canScrollUp, canScrollDown),
+          }}
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto",
+            CONTENT_TEXT_CLASSNAME,
+            HIDE_NATIVE_SCROLLBAR_CLASSNAME
+          )}
+        >
+          {content}
+        </div>
+      )}
 
       {/* Tap-to-cycle (per direct feedback) — each tap advances to the next
           platform in SOCIAL_PLATFORM_OPTIONS and wraps back to the first,

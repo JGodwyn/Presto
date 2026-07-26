@@ -135,6 +135,7 @@ const updatePostSchema = z.object({
     platform: z.enum(["linkedin", "x"]).optional(),
     status: z.enum(["draft", "scheduled", "published"]).optional(),
     scheduledFor: z.string().datetime().nullable().optional(),
+    content: z.string().trim().min(1).optional(),
   }),
 })
 
@@ -153,10 +154,16 @@ export async function updatePost(
   }
 
   const { patch } = parsed.data
-  const update: { platform?: PostPlatform; status?: PostStatus; scheduled_for?: string | null } = {}
+  const update: {
+    platform?: PostPlatform
+    status?: PostStatus
+    scheduled_for?: string | null
+    content?: string
+  } = {}
   if (patch.platform !== undefined) update.platform = patch.platform
   if (patch.status !== undefined) update.status = patch.status
   if (patch.scheduledFor !== undefined) update.scheduled_for = patch.scheduledFor
+  if (patch.content !== undefined) update.content = patch.content
 
   const { error } = await supabase.from("posts").update(update).eq("id", parsed.data.id)
 
