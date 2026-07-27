@@ -1,5 +1,5 @@
 import { google } from "@ai-sdk/google"
-import { APICallError, generateText, RetryError } from "ai"
+import { APICallError, generateText, RetryError, type ToolSet } from "ai"
 import { z } from "zod"
 
 // "tastetest" is the free, no-API-call stand-in (lib/ai/taste-test.ts) —
@@ -12,6 +12,24 @@ export type GenerationModel = (typeof GENERATION_MODELS)[number]
 
 export const generatePostInputSchema = z.object({
   prompt: z.string().min(1),
+  // "My writing style"/"References" file-kind entries, resolved (downloaded
+  // + base64-encoded) by lib/ai/attachments.ts before reaching here — sent
+  // as inline file parts so Gemini's native document understanding reads
+  // them directly, no PDF/DOCX parsing library needed.
+  fileParts: z
+    .array(
+      z.object({
+        mediaType: z.string(),
+        data: z.string(),
+        filename: z.string().optional(),
+      })
+    )
+    .optional(),
+  // Set whenever any writing-style/reference entry is a "url" kind — lets
+  // Gemini fetch and read the URL(s) mentioned in the prompt text itself
+  // (lib/ai/build-prompt.ts just writes the URL into the text; this tool is
+  // what actually resolves it).
+  useUrlContext: z.boolean().optional(),
 })
 
 export type GeneratePostInput = z.infer<typeof generatePostInputSchema>
@@ -23,7 +41,31 @@ export interface GeneratePostResult {
 export async function generatePost(input: GeneratePostInput): Promise<GeneratePostResult> {
   const { text } = await generateText({
     model: google("gemini-3.6-flash"),
-    prompt: input.prompt,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: input.prompt },
+          ...(input.fileParts ?? []).map((part) => ({
+            type: "file" as const,
+            data: part.data,
+            mediaType: part.mediaType,
+            filename: part.filename,
+          })),
+        ],
+      },
+    ],
+    // The cast is a real gap in @ai-sdk/google's own types, not a runtime
+    // concern: ToolSet's declared shape requires 'execute'/'onInputAvailable'/
+    // etc. as own properties, but a provider-executed tool (isProviderExecuted:
+    // true — Google's own backend runs it, nothing local ever calls execute)
+    // structurally doesn't carry those, and the package doesn't narrow ToolSet
+    // to account for that. This is exactly google.tools.urlContext()'s
+    // documented purpose and shape (verified by reading the installed
+    // package's source, not assumed) — the mismatch is the .d.ts, not this call.
+    tools: input.useUrlContext
+      ? ({ url_context: google.tools.urlContext({}) } as ToolSet)
+      : undefined,
   })
 
   return { content: text }

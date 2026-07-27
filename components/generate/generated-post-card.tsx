@@ -39,20 +39,32 @@ const EDGE_FADE_MASK = `linear-gradient(to right, transparent, black ${EDGE_FADE
 // Same fade-instead-of-hard-cutoff idea as the topics row above, applied
 // vertically to the content box: it scrolls (mouse wheel/trackpad/drag) the
 // full post text rather than clamping it to a fixed number of lines with an
-// ellipsis. Unlike the topics row/calendar carousel's always-on mask, each
-// edge's fade is conditional on there actually being more content that way
-// (per direct feedback: a resting card showing a top fade with nothing
-// above it to scroll to was misleading, and a resting bottom fade is the
-// only signal that a card scrolls at all before you try it) — see
-// updateScrollFade below, which recomputes both edges on scroll/resize/
-// content-change.
-const CONTENT_FADE_PX = 20
+// ellipsis. Unlike the topics row/calendar carousel's fixed-height mask,
+// each edge's fade height is the *actual remaining scroll distance at that
+// edge, capped at this max* — not a binary on/off switch. A binary switch
+// (an earlier version of this) had a dead zone: right up until the last
+// pixel of scroll, the full-height fade still applied even though there
+// was almost nothing left to reveal, so the fade visually "bled into" text
+// that was effectively already at rest (per direct feedback). Scaling the
+// fade down to whatever's actually left to scroll — 0 at true rest, up to
+// the max below once there's at least that much room — makes that
+// impossible: the fade can never cover more than the distance still
+// scrollable, at either edge, so it never dims text with nowhere left to
+// go. See updateScrollFade below.
+//
+// Bottom is taller than top (per direct feedback, twice: "more prominent,
+// especially at the bottom") — it's carrying more of the job here, since
+// it's the only thing (short of actually scrolling) that signals a card
+// has more content at all; the top fade only ever matters once you're
+// already mid-scroll and already know that.
+const CONTENT_FADE_TOP_PX = 32
+const CONTENT_FADE_BOTTOM_PX = 72
 const CONTENT_TEXT_CLASSNAME = "text-body-lg text-text-bold whitespace-pre-wrap"
 
-function buildContentFadeMask(canScrollUp: boolean, canScrollDown: boolean): string | undefined {
-  if (!canScrollUp && !canScrollDown) return undefined
-  const topStop = canScrollUp ? `transparent, black ${CONTENT_FADE_PX}px` : "black 0"
-  const bottomStop = canScrollDown ? `black calc(100% - ${CONTENT_FADE_PX}px), transparent` : "black 100%"
+function buildContentFadeMask(topFadePx: number, bottomFadePx: number): string | undefined {
+  if (topFadePx <= 0 && bottomFadePx <= 0) return undefined
+  const topStop = topFadePx > 0 ? `transparent, black ${topFadePx}px` : "black 0"
+  const bottomStop = bottomFadePx > 0 ? `black calc(100% - ${bottomFadePx}px), transparent` : "black 100%"
   return `linear-gradient(to bottom, ${topStop}, ${bottomStop})`
 }
 
@@ -197,13 +209,14 @@ export function GeneratedPostCard({
   // handleCardDoubleClick and the focus effect below.
   const pendingScrollTopRef = React.useRef(0)
 
-  const [canScrollUp, setCanScrollUp] = React.useState(false)
-  const [canScrollDown, setCanScrollDown] = React.useState(false)
+  const [topFadePx, setTopFadePx] = React.useState(0)
+  const [bottomFadePx, setBottomFadePx] = React.useState(0)
   const updateScrollFade = React.useCallback(() => {
     const el = contentRef.current
     if (!el) return
-    setCanScrollUp(el.scrollTop > 1)
-    setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 1)
+    const maxScrollTop = el.scrollHeight - el.clientHeight
+    setTopFadePx(Math.max(0, Math.min(CONTENT_FADE_TOP_PX, el.scrollTop)))
+    setBottomFadePx(Math.max(0, Math.min(CONTENT_FADE_BOTTOM_PX, maxScrollTop - el.scrollTop)))
   }, [])
 
   // Recomputes on mount/edit-mode-swap and whenever the text itself changes
@@ -376,8 +389,8 @@ export function GeneratedPostCard({
           onBlur={commitEdit}
           onScroll={updateScrollFade}
           style={{
-            maskImage: buildContentFadeMask(canScrollUp, canScrollDown),
-            WebkitMaskImage: buildContentFadeMask(canScrollUp, canScrollDown),
+            maskImage: buildContentFadeMask(topFadePx, bottomFadePx),
+            WebkitMaskImage: buildContentFadeMask(topFadePx, bottomFadePx),
           }}
           className={cn(
             "min-h-0 flex-1 resize-none bg-transparent outline-none",
@@ -392,8 +405,8 @@ export function GeneratedPostCard({
           }}
           onScroll={updateScrollFade}
           style={{
-            maskImage: buildContentFadeMask(canScrollUp, canScrollDown),
-            WebkitMaskImage: buildContentFadeMask(canScrollUp, canScrollDown),
+            maskImage: buildContentFadeMask(topFadePx, bottomFadePx),
+            WebkitMaskImage: buildContentFadeMask(topFadePx, bottomFadePx),
           }}
           className={cn(
             "min-h-0 flex-1 overflow-y-auto",

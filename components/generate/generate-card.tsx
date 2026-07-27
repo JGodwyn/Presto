@@ -67,6 +67,50 @@ const DATE_SELECT_OPTIONS = [
   { value: "pick", label: "Pick dates" },
 ]
 
+// Persisted per-project (colon-delimited "presto:" namespace, same convention
+// as components/onboarding/onboarding-context.tsx) so leaving the Generate
+// tab and coming back doesn't reset the form — everything below, including
+// the actual date/month selections, round-trips through localStorage.
+// Dates are stored as plain "YYYY-MM-DD" strings (serializeDate/
+// deserializeDate below) built from local getFullYear/getMonth/getDate,
+// never toISOString/Date parsing — those go through UTC, which can shift a
+// local-midnight date across a day boundary depending on the browser's
+// timezone, silently restoring the wrong day.
+interface StoredGenerateSettings {
+  mode: string
+  count: number
+  model: string
+  account: string
+  cadence: "daily" | "monthly"
+  dateSelectMethod: "range" | "pick"
+  skipDatesEnabled: boolean
+  dailyRangeFrom?: string
+  dailyRangeTo?: string
+  dailyDates: string[]
+  monthYear: number
+  selectedMonths: MonthSelection[]
+  skippedDates: string[]
+}
+
+function serializeDate(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+}
+
+function deserializeDate(value: string): Date | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return undefined
+  const [, year, month, day] = match
+  return new Date(Number(year), Number(month) - 1, Number(day))
+}
+
+function deserializeDates(values: unknown): Date[] {
+  if (!Array.isArray(values)) return []
+  return values
+    .filter((value): value is string => typeof value === "string")
+    .map(deserializeDate)
+    .filter((date): date is Date => date !== undefined)
+}
+
 function isSameDay(a: Date, b: Date) {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -157,6 +201,81 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     const [skipDatesEnabled, setSkipDatesEnabled] = React.useState(false)
     const [skippedDates, setSkippedDates] = React.useState<Date[]>([])
     const [showError, setShowError] = React.useState(false)
+
+    const storageKey = `presto:generate-settings:${projectId}`
+    // Gates the write effect below until the read has had its chance to run
+    // — without this, the write effect's first pass (which fires on mount
+    // like any other effect) would write the fresh defaults over whatever
+    // was saved before the read's setState calls land.
+    const [hasHydratedSettings, setHasHydratedSettings] = React.useState(false)
+
+    React.useEffect(() => {
+      const raw = window.localStorage.getItem(storageKey)
+      if (raw) {
+        try {
+          const saved = JSON.parse(raw) as Partial<StoredGenerateSettings>
+          if (saved.mode) setMode(saved.mode)
+          if (typeof saved.count === "number") setCount(saved.count)
+          if (saved.model) setModel(saved.model)
+          if (saved.account) setAccount(saved.account)
+          if (saved.cadence) setCadence(saved.cadence)
+          if (saved.dateSelectMethod) setDateSelectMethod(saved.dateSelectMethod)
+          if (typeof saved.skipDatesEnabled === "boolean")
+            setSkipDatesEnabled(saved.skipDatesEnabled)
+          if (saved.dailyRangeFrom || saved.dailyRangeTo) {
+            setDailyRange({
+              from: saved.dailyRangeFrom
+                ? deserializeDate(saved.dailyRangeFrom)
+                : undefined,
+              to: saved.dailyRangeTo ? deserializeDate(saved.dailyRangeTo) : undefined,
+            })
+          }
+          if (saved.dailyDates) setDailyDates(deserializeDates(saved.dailyDates))
+          if (typeof saved.monthYear === "number") setMonthYear(saved.monthYear)
+          if (Array.isArray(saved.selectedMonths))
+            setSelectedMonths(saved.selectedMonths)
+          if (saved.skippedDates) setSkippedDates(deserializeDates(saved.skippedDates))
+        } catch {
+          // Corrupted or old-shape value — ignore it, defaults stand.
+        }
+      }
+      setHasHydratedSettings(true)
+    }, [storageKey])
+
+    React.useEffect(() => {
+      if (!hasHydratedSettings) return
+      const toStore: StoredGenerateSettings = {
+        mode,
+        count,
+        model,
+        account,
+        cadence,
+        dateSelectMethod,
+        skipDatesEnabled,
+        dailyRangeFrom: dailyRange.from ? serializeDate(dailyRange.from) : undefined,
+        dailyRangeTo: dailyRange.to ? serializeDate(dailyRange.to) : undefined,
+        dailyDates: dailyDates.map(serializeDate),
+        monthYear,
+        selectedMonths,
+        skippedDates: skippedDates.map(serializeDate),
+      }
+      window.localStorage.setItem(storageKey, JSON.stringify(toStore))
+    }, [
+      hasHydratedSettings,
+      storageKey,
+      mode,
+      count,
+      model,
+      account,
+      cadence,
+      dateSelectMethod,
+      skipDatesEnabled,
+      dailyRange,
+      dailyDates,
+      monthYear,
+      selectedMonths,
+      skippedDates,
+    ])
 
     const { ref: boxRef, style: boxStyle } = useSquircleClipPath<HTMLDivElement>(
       { cornerRadius: STEPPER_BOX_CORNER_RADIUS }

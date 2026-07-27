@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
+import { resolveAttachment, type ResolvedAttachment } from "@/lib/ai/attachments"
 import { buildPostPrompt, pickTopicForIndex } from "@/lib/ai/build-prompt"
 import {
   classifyGenerationError,
@@ -12,9 +13,12 @@ import {
   type GenerationFailureReason,
 } from "@/lib/ai/generate"
 import { pickTasteTestContent } from "@/lib/ai/taste-test"
-import { fetchInstructions } from "@/lib/supabase/queries"
+import { fetchContentReferences, fetchInstructions, fetchWritingStyles } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 import type { Post, PostPlatform, PostStatus } from "@/types/post"
+
+const WRITING_STYLE_FILES_BUCKET = "writing-style-files"
+const CONTENT_REFERENCE_FILES_BUCKET = "content-reference-files"
 
 type PostRow = {
   id: string
@@ -89,14 +93,46 @@ export async function generateAndSavePost(
   if (parsed.data.model === "tastetest") {
     content = pickTasteTestContent(parsed.data.batchIndex)
   } else {
+    // Re-fetched (and, for file entries, re-downloaded) on every post in a
+    // batch, same as fetchInstructions above — a real inefficiency across a
+    // large batch, but matches the existing per-post-fetch precedent rather
+    // than restructuring how the batch shares context (a bigger change than
+    // this integration calls for).
+    const [writingStyles, references] = await Promise.all([
+      fetchWritingStyles(supabase, parsed.data.projectId),
+      fetchContentReferences(supabase, parsed.data.projectId),
+    ])
+    const resolvedWritingStyles = (
+      await Promise.all(
+        writingStyles.map((entry) => resolveAttachment(supabase, WRITING_STYLE_FILES_BUCKET, entry))
+      )
+    ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
+    const resolvedReferences = (
+      await Promise.all(
+        references.map((entry) => resolveAttachment(supabase, CONTENT_REFERENCE_FILES_BUCKET, entry))
+      )
+    ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
+
     const prompt = buildPostPrompt(instructions, {
       platform: parsed.data.platform,
       topic,
       batchContext: { index: parsed.data.batchIndex, total: parsed.data.batchTotal },
+      writingStyles: resolvedWritingStyles,
+      references: resolvedReferences,
     })
 
+    const allAttachments = [...resolvedWritingStyles, ...resolvedReferences]
+    const fileParts = allAttachments
+      .filter((attachment): attachment is Extract<ResolvedAttachment, { kind: "file" }> => attachment.kind === "file")
+      .map((attachment) => ({
+        mediaType: attachment.mediaType,
+        data: attachment.data,
+        filename: attachment.fileName,
+      }))
+    const useUrlContext = allAttachments.some((attachment) => attachment.kind === "url")
+
     try {
-      content = (await generatePost({ prompt })).content
+      content = (await generatePost({ prompt, fileParts, useUrlContext })).content
     } catch (error) {
       return {
         error: "Couldn't generate that post. Please try again.",
