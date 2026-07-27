@@ -13,7 +13,12 @@ import {
   type GenerationFailureReason,
 } from "@/lib/ai/generate"
 import { pickTasteTestContent } from "@/lib/ai/taste-test"
-import { fetchContentReferences, fetchInstructions, fetchWritingStyles } from "@/lib/supabase/queries"
+import {
+  fetchBatchContext,
+  fetchContentReferences,
+  fetchInstructions,
+  fetchWritingStyles,
+} from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 import type { Post, PostPlatform, PostStatus } from "@/types/post"
 
@@ -58,11 +63,21 @@ const generateAndSavePostSchema = z.object({
   batchIndex: z.number().int().min(0),
   batchTotal: z.number().int().min(1),
   scheduledFor: z.string().datetime().nullable(),
+  // Carries the resolved writing-style/reference context across the calls in
+  // one batch run (generating-view.tsx's loop calls this once per post) so
+  // it only gets resolved — including any Storage file downloads — once
+  // instead of once per post. See the cache-aware branch below; entirely
+  // optional and best-effort, never a hard dependency for generation to
+  // succeed (see WRITING_STYLE_FILES_BUCKET usage below for why).
+  batchContextId: z.string().uuid().optional(),
 })
 
 export async function generateAndSavePost(
   input: z.infer<typeof generateAndSavePostSchema>
-): Promise<{ error: string; reason: GenerationFailureReason } | { ok: true; post: Post }> {
+): Promise<
+  | { error: string; reason: GenerationFailureReason; batchContextId?: string }
+  | { ok: true; post: Post; batchContextId?: string }
+> {
   const parsed = generateAndSavePostSchema.safeParse(input)
   if (!parsed.success) {
     return { error: "Couldn't generate that post.", reason: "unknown" }
@@ -90,28 +105,86 @@ export async function generateAndSavePost(
   // (the DB row, topics, scheduling) runs exactly as it does for a real
   // model.
   let content: string
+  let batchContextId = parsed.data.batchContextId
+
   if (parsed.data.model === "tastetest") {
     content = pickTasteTestContent(parsed.data.batchIndex)
   } else {
-    // Re-fetched (and, for file entries, re-downloaded) on every post in a
-    // batch, same as fetchInstructions above — a real inefficiency across a
-    // large batch, but matches the existing per-post-fetch precedent rather
-    // than restructuring how the batch shares context (a bigger change than
-    // this integration calls for).
-    const [writingStyles, references] = await Promise.all([
-      fetchWritingStyles(supabase, parsed.data.projectId),
-      fetchContentReferences(supabase, parsed.data.projectId),
-    ])
-    const resolvedWritingStyles = (
-      await Promise.all(
-        writingStyles.map((entry) => resolveAttachment(supabase, WRITING_STYLE_FILES_BUCKET, entry))
-      )
-    ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
-    const resolvedReferences = (
-      await Promise.all(
-        references.map((entry) => resolveAttachment(supabase, CONTENT_REFERENCE_FILES_BUCKET, entry))
-      )
-    ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
+    let resolvedWritingStyles: ResolvedAttachment[] | undefined
+    let resolvedReferences: ResolvedAttachment[] | undefined
+
+    // Cache hit: a single cheap row lookup, no Storage I/O, no DB writes.
+    // Any failure here (thrown error or a miss — expired, manually deleted,
+    // or no id passed at all) falls through to a fresh resolve below rather
+    // than surfacing as a generation failure — this cache is purely
+    // additive, never a hard dependency for a post to generate.
+    if (batchContextId) {
+      try {
+        const cached = await fetchBatchContext(supabase, parsed.data.projectId, batchContextId)
+        if (cached) {
+          resolvedWritingStyles = cached.writingStyles
+          resolvedReferences = cached.contentReferences
+        }
+      } catch {
+        // Falls through to the fresh resolve below.
+      }
+    }
+
+    if (!resolvedWritingStyles || !resolvedReferences) {
+      const [writingStyles, references] = await Promise.all([
+        fetchWritingStyles(supabase, parsed.data.projectId),
+        fetchContentReferences(supabase, parsed.data.projectId),
+      ])
+      resolvedWritingStyles = (
+        await Promise.all(
+          writingStyles.map((entry) => resolveAttachment(supabase, WRITING_STYLE_FILES_BUCKET, entry))
+        )
+      ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
+      resolvedReferences = (
+        await Promise.all(
+          references.map((entry) => resolveAttachment(supabase, CONTENT_REFERENCE_FILES_BUCKET, entry))
+        )
+      ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
+
+      // No cache row to reuse — this call pays the real resolve cost, same
+      // as every call did before this cache existed. Best-effort sweep +
+      // insert so the REST of this batch can reuse the result instead of
+      // paying it again: neither is allowed to fail this post's generation,
+      // so batchContextId simply stays unset on any error here, which just
+      // means the next call in the batch takes this same miss path too —
+      // i.e. the batch degrades to exactly its pre-cache behavior, never a
+      // harder failure.
+      batchContextId = undefined
+
+      try {
+        await supabase
+          .from("generation_batch_context")
+          .delete()
+          .eq("user_id", user.id)
+          .lt("expires_at", new Date().toISOString())
+      } catch {
+        // Non-fatal — the insert below is still attempted.
+      }
+
+      try {
+        const { data: cacheRow, error: cacheError } = await supabase
+          .from("generation_batch_context")
+          .insert({
+            project_id: parsed.data.projectId,
+            user_id: user.id,
+            writing_styles: resolvedWritingStyles,
+            content_references: resolvedReferences,
+          })
+          .select("id")
+          .single()
+
+        if (!cacheError && cacheRow) {
+          batchContextId = cacheRow.id
+        }
+      } catch {
+        // Non-fatal — batchContextId stays undefined.
+      }
+    }
 
     const prompt = buildPostPrompt(instructions, {
       platform: parsed.data.platform,
@@ -134,9 +207,14 @@ export async function generateAndSavePost(
     try {
       content = (await generatePost({ prompt, fileParts, useUrlContext })).content
     } catch (error) {
+      // Still surfaces batchContextId even on failure — the context was
+      // already resolved (and, on a miss, cached) above this point, so a
+      // later call in the same batch (e.g. the model rate-limited this one
+      // but not the next) can still reuse it rather than re-resolving too.
       return {
         error: "Couldn't generate that post. Please try again.",
         reason: classifyGenerationError(error),
+        batchContextId,
       }
     }
   }
@@ -161,7 +239,7 @@ export async function generateAndSavePost(
 
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)
 
-  return { ok: true, post: mapRow(data) }
+  return { ok: true, post: mapRow(data), batchContextId }
 }
 
 const updatePostSchema = z.object({

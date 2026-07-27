@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import type { ResolvedAttachment } from "@/lib/ai/attachments"
 import type { ContentReference } from "@/types/content-reference"
 import type { Instructions } from "@/types/instructions"
 import type { Post } from "@/types/post"
@@ -146,6 +147,35 @@ export async function fetchPosts(
     scheduledFor: row.scheduled_for,
     createdAt: row.created_at,
   }))
+}
+
+// Cache lookup for generateAndSavePost's shared batch context (see
+// post-actions.ts) — writes/deletes for this table stay out of this file,
+// per the convention above, and live inline in that server action instead
+// (same as posts inserts). The expires_at filter treats a row that's expired
+// but not yet swept as a miss too — the lazy sweep only runs when a fresh
+// row is being created, not on every lookup, so a request landing in that
+// gap must still fall back rather than serve stale data.
+export async function fetchBatchContext(
+  supabase: SupabaseClient,
+  projectId: string,
+  id: string
+): Promise<{ writingStyles: ResolvedAttachment[]; contentReferences: ResolvedAttachment[] } | null> {
+  const { data, error } = await supabase
+    .from("generation_batch_context")
+    .select("writing_styles, content_references")
+    .eq("id", id)
+    .eq("project_id", projectId)
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  return {
+    writingStyles: data.writing_styles as ResolvedAttachment[],
+    contentReferences: data.content_references as ResolvedAttachment[],
+  }
 }
 
 export async function hasProjects(supabase: SupabaseClient): Promise<boolean> {

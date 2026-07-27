@@ -214,6 +214,17 @@ export function GeneratingView({
   const startedForRunIdRef = React.useRef<number | null>(null)
   const activeRunIdRef = React.useRef(runId)
   const isUnmountedRef = React.useRef(false)
+  // The batchContextId returned from this batch's first (cache-miss)
+  // generateAndSavePost call (see post-actions.ts) — every subsequent call
+  // in the same batch passes it back so the writing-style/reference
+  // resolution (including any Storage file downloads) only happens once
+  // per batch instead of once per post. A ref, not state: it only affects
+  // what's sent on the *next* call, never a render. Reset to undefined only
+  // in handleRestart (a genuinely new batch — old cached context could be
+  // stale if Instructions changed since); left untouched by handleResume
+  // and by ordinary loop continuation, both of which are the same logical
+  // batch carrying on.
+  const batchContextIdRef = React.useRef<string | undefined>(undefined)
   React.useEffect(() => {
     isUnmountedRef.current = false
     return () => {
@@ -424,9 +435,12 @@ export function GeneratingView({
           batchIndex: i,
           batchTotal: count,
           scheduledFor: scheduledFor ? scheduledFor.toISOString() : null,
+          batchContextId: batchContextIdRef.current,
         })
 
         if (isUnmountedRef.current || activeRunIdRef.current !== runId) return
+
+        if (result.batchContextId) batchContextIdRef.current = result.batchContextId
 
         if ("error" in result) {
           setLastFailureReason(result.reason)
@@ -498,6 +512,7 @@ export function GeneratingView({
     setGenerationErrorMessage(null)
     setShowFailureModal(false)
     setLastFailureReason("unknown")
+    batchContextIdRef.current = undefined
     setStatus("generating")
     setRunId((id) => id + 1)
   }
