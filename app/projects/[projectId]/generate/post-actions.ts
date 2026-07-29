@@ -8,10 +8,11 @@ import { resolveAttachment, type ResolvedAttachment } from "@/lib/ai/attachments
 import { buildPostPrompt, pickTopicForIndex } from "@/lib/ai/build-prompt"
 import {
   classifyGenerationError,
+  didFallBackOffByok,
   generatePost,
-  GENERATION_MODELS,
   type GenerationFailureReason,
 } from "@/lib/ai/generate"
+import { resolveModelSelection } from "@/lib/ai/resolve-model"
 import { pickTasteTestContent } from "@/lib/ai/taste-test"
 import {
   fetchBatchContext,
@@ -59,7 +60,11 @@ async function requireUser(supabase: SupabaseClient) {
 const generateAndSavePostSchema = z.object({
   projectId: z.string().uuid(),
   platform: z.enum(["linkedin", "x"]),
-  model: z.enum(GENERATION_MODELS),
+  // No longer an enum: a value here is either a built-in id or a
+  // user_ai_models row id (a uuid). resolveModelSelection below is what
+  // actually validates it — and under RLS, so an id belonging to another user
+  // is rejected the same way a nonexistent one is.
+  model: z.string().min(1).max(200),
   batchIndex: z.number().int().min(0),
   batchTotal: z.number().int().min(1),
   scheduledFor: z.string().datetime().nullable(),
@@ -99,6 +104,14 @@ export async function generateAndSavePost(
 
   const topic = pickTopicForIndex(instructions.topics, parsed.data.batchIndex)
 
+  const resolvedModel = await resolveModelSelection(supabase, parsed.data.model)
+  if (!resolvedModel) {
+    return {
+      error: "That model isn't available anymore. Pick another one in Connections.",
+      reason: "model_unavailable",
+    }
+  }
+
   // TasteTest skips the real model call entirely (no prompt needed) so the
   // Generate flow's UI — reveal pacing, topic assignment, persistence,
   // review/edit actions — can be exercised for free. Everything else below
@@ -107,7 +120,7 @@ export async function generateAndSavePost(
   let content: string
   let batchContextId = parsed.data.batchContextId
 
-  if (parsed.data.model === "tastetest") {
+  if ("kind" in resolvedModel) {
     content = pickTasteTestContent(parsed.data.batchIndex)
   } else {
     let resolvedWritingStyles: ResolvedAttachment[] | undefined
@@ -205,7 +218,32 @@ export async function generateAndSavePost(
     const useUrlContext = allAttachments.some((attachment) => attachment.kind === "url")
 
     try {
-      content = (await generatePost({ prompt, fileParts, useUrlContext })).content
+      const result = await generatePost({
+        prompt,
+        fileParts,
+        useUrlContext,
+        model: resolvedModel.selection,
+      })
+      content = result.content
+
+      // The gateway can silently fall back onto this app's own credentials
+      // when a user's key fails (see didFallBackOffByok). Flag the model so
+      // Connections tells them to replace the key, instead of it quietly
+      // costing us on every future run. Non-fatal in both directions: the
+      // post below still saves, and a failed flag write changes nothing.
+      if (resolvedModel.modelRowId && (await didFallBackOffByok(result.generationId))) {
+        try {
+          await supabase
+            .from("user_ai_models")
+            .update({
+              status: "error",
+              last_error: "Your API key didn't work, so this ran on Presto's own credits.",
+            })
+            .eq("id", resolvedModel.modelRowId)
+        } catch {
+          // Non-fatal.
+        }
+      }
     } catch (error) {
       // Still surfaces batchContextId even on failure — the context was
       // already resolved (and, on a miss, cached) above this point, so a

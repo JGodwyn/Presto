@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 import type { ResolvedAttachment } from "@/lib/ai/attachments"
+import type { UserAiModel } from "@/types/ai-model"
 import type { ContentReference } from "@/types/content-reference"
 import type { Instructions } from "@/types/instructions"
 import type { Post } from "@/types/post"
@@ -121,6 +122,34 @@ export async function fetchContentReferences(
     fileName: row.file_name,
     fileSize: row.file_size,
     filePath: row.file_path,
+    createdAt: row.created_at,
+  }))
+}
+
+// The only query here with no projectId — user_ai_models is keyed on the user
+// alone (see types/ai-model.ts), so RLS is the whole scope. Note that
+// encrypted_key is deliberately absent from the select: the key is read only
+// inside a server action, never on a path a browser client could take.
+export async function fetchUserAiModels(
+  supabase: SupabaseClient
+): Promise<UserAiModel[]> {
+  const { data, error } = await supabase
+    .from("user_ai_models")
+    .select(
+      "id, label, provider_slug, gateway_model_id, key_last_four, status, last_error, created_at"
+    )
+    .order("created_at", { ascending: true })
+
+  if (error) throw error
+
+  return data.map((row) => ({
+    id: row.id,
+    label: row.label,
+    providerSlug: row.provider_slug,
+    gatewayModelId: row.gateway_model_id,
+    keyLastFour: row.key_last_four,
+    status: row.status,
+    lastError: row.last_error,
     createdAt: row.created_at,
   }))
 }

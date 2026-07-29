@@ -6,7 +6,7 @@ import { useParams, useSearchParams } from "next/navigation"
 
 import { GeneratingView } from "@/components/generate/generating-view"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
-import { GENERATION_MODELS, type GenerationModel } from "@/lib/ai/generate"
+import { BUILTIN_MODEL_ID } from "@/lib/ai/generate"
 
 // Suspense boundary: useSearchParams opts the tree below it out of static
 // prerendering (see next/docs use-search-params.md) — scoping that to just
@@ -20,12 +20,12 @@ function GeneratingPageContent({ projectId }: { projectId: string }) {
   // for any URL that doesn't carry a recognized value.
   const accountParam = searchParams.get("account")
   const account: SocialPlatform = accountParam === "x" ? "x" : "linkedin"
-  // Same fallback pattern as account — defaults to the real model for any
-  // URL that doesn't carry a recognized value.
-  const modelParam = searchParams.get("model")
-  const model: GenerationModel = GENERATION_MODELS.includes(modelParam as GenerationModel)
-    ? (modelParam as GenerationModel)
-    : "gemini-3.6-flash"
+  // Unlike account, this isn't checked against a fixed list: a user-added
+  // model is a user_ai_models row id, so any non-empty string is plausible
+  // here. post-actions.ts's resolveModelSelection is the real gate — it
+  // validates under RLS, which this client component can't do anyway. An
+  // absent param still falls back to the built-in.
+  const model = searchParams.get("model") || BUILTIN_MODEL_ID
 
   return (
     // enter="blur-in" pairs with generate/page.tsx's exit="blur-out" (see

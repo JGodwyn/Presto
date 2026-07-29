@@ -26,7 +26,7 @@ import type { SocialPlatform } from "@/components/generate/social-platform-optio
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { useShake } from "@/hooks/use-shake"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
-import type { GenerationFailureReason, GenerationModel } from "@/lib/ai/generate"
+import type { GenerationFailureReason } from "@/lib/ai/generate"
 import { readScheduledDates } from "@/lib/generate-schedule"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -60,6 +60,8 @@ const TOTAL_FAILURE_MESSAGES: Record<GenerationFailureReason, string> = {
   missing_instructions:
     "This project doesn't have Instructions set up yet. Add some on the Instructions page, then try again.",
   not_signed_in: "You've been signed out. Sign back in and try again.",
+  model_unavailable:
+    "That model isn't available anymore. Pick another one on the Generate page, or add one in Connections.",
   rate_limit:
     "You've hit your model's rate limit or usage quota. Wait a bit and try again, or switch to TasteTest to keep testing for free.",
   auth: "There's a problem with the model's API key. Check it's set up correctly and try again.",
@@ -118,7 +120,9 @@ export function GeneratingView({
   projectId: string
   count: number
   account: SocialPlatform
-  model: GenerationModel
+  // A built-in id ("gemini-3.6-flash"/"tastetest") or a user_ai_models row
+  // id — resolved and validated server-side in post-actions.ts.
+  model: string
 }) {
   const router = useRouter()
   // The heading loops and cards keep revealing only while status is

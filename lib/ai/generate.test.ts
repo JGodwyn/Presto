@@ -7,6 +7,10 @@ describe("generatePost", () => {
     async () => {
       const result = await generatePost({
         prompt: "Write a short LinkedIn post about the benefits of remote work.",
+        // The built-in path — runs on GOOGLE_GENERATIVE_AI_API_KEY directly,
+        // no gateway involved (which is why the skip guard above still
+        // covers this test).
+        model: { kind: "builtin" },
       })
 
       expect(result.content).toBeTypeOf("string")

@@ -23,6 +23,9 @@ import {
 } from "@/components/generate/select-pill"
 import { SOCIAL_PLATFORM_OPTIONS } from "@/components/generate/social-platform-options"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/generate"
+import { fetchUserAiModels } from "@/lib/supabase/queries"
+import { createClient } from "@/lib/supabase/client"
 import {
   clearScheduledDates,
   writeScheduledDates,
@@ -38,16 +41,18 @@ const PLUGGED_TAG_CORNER_RADIUS = 8
 const MIN_POSTS = 1
 const MAX_POSTS = 31
 
-// Only one real model is wired up (lib/ai/generate.ts, via Gemini) — plus
-// TasteTest (lib/ai/taste-test.ts), a free stand-in that skips the real
-// model call and returns canned content instead, purely so the Generate
-// flow can be tested repeatedly without spending free-tier quota. Values
-// here are kept in sync by hand with lib/ai/generate.ts's GENERATION_MODELS.
-// The account list still belongs to Connections, which has no real data
-// model yet.
-const MODEL_OPTIONS: SelectPillOption[] = [
-  { value: "gemini-3.6-flash", label: "Gemini 3.6 Flash" },
-  { value: "tastetest", label: "TasteTest" },
+// The two models that need no setup: the app's own Gemini key, and TasteTest
+// (lib/ai/taste-test.ts), a free stand-in that skips the real model call and
+// returns canned content instead, purely so the Generate flow can be tested
+// repeatedly without spending free-tier quota. Values are kept in sync by
+// hand with lib/ai/generate.ts's BUILTIN_MODELS. Anything the user has added
+// on the Connections page is appended to these at runtime (see the fetch
+// below) — a user model's `value` is its user_ai_models row id.
+// The account list still belongs to Connections, which hasn't built social
+// OAuth yet.
+const BUILTIN_MODEL_OPTIONS: SelectPillOption[] = [
+  { value: BUILTIN_MODEL_ID, label: "Gemini 3.6 Flash" },
+  { value: TASTE_TEST_MODEL_ID, label: "TasteTest" },
 ]
 
 // SOCIAL_PLATFORM_OPTIONS already matches SelectPillOption's shape
@@ -182,7 +187,52 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
 
     const [mode, setMode] = React.useState("number")
     const [count, setCount] = React.useState(MIN_POSTS)
-    const [model, setModel] = React.useState(MODEL_OPTIONS[0].value)
+    const [model, setModel] = React.useState(BUILTIN_MODEL_OPTIONS[0].value)
+    // Models the user added on the Connections page. Fetched here with the
+    // browser client rather than passed down as a prop because this card's
+    // page is a client component (it holds the reset-calendar ref) and so
+    // can't fetch on the server — lib/supabase/queries.ts's contract
+    // explicitly accepts either client, and RLS scopes the read either way.
+    // The built-ins render immediately; these append when they arrive.
+    const [userModelOptions, setUserModelOptions] = React.useState<
+      SelectPillOption[]
+    >([])
+    // Tracked separately from the list being empty: "no models yet" and "no
+    // models because we haven't asked" need to be told apart by the
+    // stale-selection repair below, and deleting your only model produces the
+    // former while looking exactly like the latter.
+    const [userModelsLoaded, setUserModelsLoaded] = React.useState(false)
+
+    React.useEffect(() => {
+      let cancelled = false
+
+      void fetchUserAiModels(createClient())
+        .then((models) => {
+          if (cancelled) return
+          setUserModelOptions(
+            models.map((userModel) => ({
+              value: userModel.id,
+              label: userModel.label,
+            }))
+          )
+          setUserModelsLoaded(true)
+        })
+        .catch(() => {
+          // Non-fatal: the built-ins are still selectable, and Connections is
+          // where a broken model list would actually get diagnosed. Left
+          // unloaded on purpose — a failed fetch is no evidence that a
+          // persisted model id is stale, so nothing should be reset.
+        })
+
+      return () => {
+        cancelled = true
+      }
+    }, [])
+
+    const modelOptions = React.useMemo(
+      () => [...BUILTIN_MODEL_OPTIONS, ...userModelOptions],
+      [userModelOptions]
+    )
     const [account, setAccount] = React.useState(ACCOUNT_OPTIONS[0].value)
 
     const [cadence, setCadence] = React.useState<"daily" | "monthly">("daily")
@@ -284,7 +334,22 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       { cornerRadius: PLUGGED_TAG_CORNER_RADIUS }
     )
 
-    const selectedModel = MODEL_OPTIONS.find((o) => o.value === model)!
+    // No non-null assertion here: `model` is restored from localStorage
+    // without validation, and a user model deleted on Connections since the
+    // last visit leaves an id that matches nothing. Falling back to the
+    // built-in keeps the pill rendering; the effect below repairs the state
+    // itself so the stale id can't also be sent to the generate flow.
+    const selectedModel =
+      modelOptions.find((o) => o.value === model) ?? BUILTIN_MODEL_OPTIONS[0]
+
+    React.useEffect(() => {
+      // Gated on the fetch having resolved — before that, every user model id
+      // legitimately "matches nothing" and would be reset for no reason.
+      if (!userModelsLoaded) return
+      if (!modelOptions.some((o) => o.value === model)) {
+        setModel(BUILTIN_MODEL_OPTIONS[0].value)
+      }
+    }, [model, modelOptions, userModelsLoaded])
     const selectedAccount = ACCOUNT_OPTIONS.find((o) => o.value === account)!
 
     const hasCalendarSelection =
@@ -437,7 +502,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     const modelPills = (
       <div className="flex items-center gap-dist-md">
         <SelectPill
-          options={MODEL_OPTIONS}
+          options={modelOptions}
           value={model}
           onChange={setModel}
           ariaLabel="AI model"
