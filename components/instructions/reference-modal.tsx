@@ -21,6 +21,7 @@ import {
 import { FieldError } from "@/components/instructions/field-error"
 import { UploadDropzone } from "@/components/instructions/upload-dropzone"
 import type { ContentReference } from "@/types/content-reference"
+import { withNetworkStatus } from "@/lib/network-status"
 
 // Mirrors writing-style-modal.tsx exactly — References works the same way
 // My writing style does: same Type/URL/Upload tabs, same trigger-swap
@@ -71,14 +72,19 @@ function ReferenceModal({
     setError(null)
     setSaving(true)
 
-    const result =
+    const result = await withNetworkStatus(
       tab === "type"
-        ? await addTextReference({ projectId, content: typeValue })
+        ? addTextReference({ projectId, content: typeValue })
         : tab === "url"
-          ? await addUrlReference({ projectId, content: urlValue })
-          : await saveFile(projectId, file)
+          ? addUrlReference({ projectId, content: urlValue })
+          : saveFile(projectId, file)
+    )
 
     setSaving(false)
+
+    // null = never reached the server. Leave the modal open with everything
+    // the user typed still in it; the disconnected toast explains the rest.
+    if (result === null) return
 
     if ("error" in result) {
       setError(result.error)

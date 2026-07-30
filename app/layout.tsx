@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 import { Agentation } from "agentation";
 import { DialRoot } from "dialkit";
 import "dialkit/styles.css";
+import { NetworkStatus } from "@/components/shared/network-status";
 import "./globals.css";
 
 const openRunde = localFont({
@@ -55,6 +56,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         {children}
+        {/* Global: watches connectivity and shows the disconnected toast on
+            any screen, signed in or out. */}
+        <NetworkStatus />
         <DialRoot />
         {process.env.NODE_ENV === "development" && (
           // Without `endpoint`, the toolbar silently falls back to

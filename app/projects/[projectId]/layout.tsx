@@ -1,12 +1,15 @@
 import { redirect } from "next/navigation"
 import { z } from "zod"
 
+import { FlickerProbe } from "@/components/shared/flicker-probe"
 import { ProjectSidebar } from "@/components/shared/project-sidebar"
+import { SectionContent } from "@/components/shared/section-content"
 import { ProjectTopbar } from "@/components/shared/project-topbar"
 import { OnboardingProvider } from "@/components/onboarding/onboarding-context"
 import { OnboardingCover } from "@/components/onboarding/onboarding-cover"
 import { OnboardingCallout } from "@/components/onboarding/onboarding-callout"
 import { createClient } from "@/lib/supabase/server"
+import { isNetworkError } from "@/lib/network-error"
 import { cn } from "@/lib/utils"
 import { fetchProject } from "@/lib/supabase/queries"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
@@ -33,16 +36,21 @@ export default async function ProjectLayout({
   if (!projectIdSchema.safeParse(projectId).success) redirect("/projects")
 
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) redirect("/login")
+  const { data: userData, error: userError } = await supabase.auth.getUser()
+  const user = userData.user
+  // Same reasoning as lib/supabase/middleware.ts: "couldn't reach the auth
+  // server" and "signed out" are indistinguishable from the return value
+  // alone, and only one of them should send someone to /login. On a network
+  // failure, fall through instead — fetchProject below throws rather than
+  // returning null when it can't reach the database, so this can't quietly
+  // render a project page for someone who isn't signed in.
+  if (!user && !(userError && isNetworkError(userError))) redirect("/login")
 
   const project = await fetchProject(supabase, projectId)
   if (!project) redirect("/projects")
 
   const firstName =
-    (user.user_metadata?.name as string | undefined)?.trim().split(/\s+/)[0] ??
+    (user?.user_metadata?.name as string | undefined)?.trim().split(/\s+/)[0] ??
     "there"
 
   return (
@@ -74,12 +82,18 @@ export default async function ProjectLayout({
               HIDE_NATIVE_SCROLLBAR_CLASSNAME
             )}
           >
-            <OnboardingCallout>{children}</OnboardingCallout>
+            <OnboardingCallout>
+              <SectionContent>{children}</SectionContent>
+            </OnboardingCallout>
           </main>
         </div>
       </div>
 
       <OnboardingCover />
+      {/* TEMPORARY: dev-only flicker diagnostics — remove with
+          components/shared/flicker-probe.tsx once the section-switch flicker
+          is solved. */}
+      <FlickerProbe />
     </OnboardingProvider>
   )
 }

@@ -15,6 +15,7 @@ import {
 } from "@phosphor-icons/react"
 
 import { cn } from "@/lib/utils"
+import { startSectionNavigation } from "@/lib/section-navigation"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { useOnboarding } from "@/components/onboarding/onboarding-context"
 
@@ -39,12 +40,14 @@ function SidebarItem({
   label,
   icon: ItemIcon,
   active,
+  current,
   onNavigate,
 }: {
   href: string
   label: string
   icon: Icon
   active: boolean
+  current: boolean
   onNavigate: () => void
 }) {
   const { ref, style } = useSquircleClipPath<HTMLAnchorElement>({
@@ -52,12 +55,40 @@ function SidebarItem({
     cornerSmoothing: 1,
   })
 
+  const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    // Tapping the tab you're already on does nothing. Left alone it re-runs
+    // the whole section navigation — refetch, spinner, scroll reset — over
+    // content that's already on screen, which reads as the page breaking
+    // rather than as anything the tap asked for.
+    if (current) {
+      event.preventDefault()
+      return
+    }
+    // Cmd/ctrl/shift/alt clicks (and the middle button) open the section
+    // somewhere else and never navigate *this* document, so they must not
+    // arm an overlay that only arrival here can clear.
+    if (
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0
+    ) {
+      return
+    }
+    onNavigate()
+    // The click itself is the start signal, so the page spinner is armed
+    // before the router has done anything at all — see lib/section-navigation
+    // for why this doesn't go through `useLinkStatus`.
+    startSectionNavigation(href)
+  }
+
   return (
     <Link
       ref={ref}
       style={style}
       href={href}
-      onClick={onNavigate}
+      onClick={handleClick}
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex items-center gap-dist-md rounded-rad-xmd border-2 px-pad-md py-pad-sm",
@@ -66,7 +97,7 @@ function SidebarItem({
           : "border-border-subtle bg-surface-3 text-body-lg text-text-bold"
       )}
     >
-      <ItemIcon weight="bold" className="size-5" />
+      <ItemIcon weight="bold" className="size-5 shrink-0" />
       <span>{label}</span>
     </Link>
   )
@@ -150,6 +181,10 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
               label={label}
               icon={icon}
               active={active}
+              // Exact match, unlike `active` above: on a sub-route
+              // (generate/generating) the Generate tab still highlights, but
+              // tapping it has somewhere real to go and must not be a no-op.
+              current={pathname === href}
               onNavigate={() => setPendingPath(path)}
             />
           )

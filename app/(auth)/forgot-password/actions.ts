@@ -3,6 +3,11 @@
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
+import {
+  isNetworkError,
+  networkActionError,
+  type ActionError,
+} from "@/lib/network-error"
 
 const forgotPasswordSchema = z.object({
   email: z.string().email(),
@@ -12,7 +17,7 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>
 
 export async function requestPasswordReset(
   input: ForgotPasswordInput
-): Promise<{ error: string } | { success: true }> {
+): Promise<ActionError | { success: true }> {
   const parsed = forgotPasswordSchema.safeParse(input)
 
   if (!parsed.success) {
@@ -23,6 +28,7 @@ export async function requestPasswordReset(
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email)
 
   if (error) {
+    if (isNetworkError(error)) return networkActionError()
     return { error: error.message }
   }
 
@@ -38,7 +44,7 @@ export type VerifyRecoveryInput = z.infer<typeof verifyRecoverySchema>
 
 export async function verifyRecoveryOtp(
   input: VerifyRecoveryInput
-): Promise<{ error: true } | { success: true }> {
+): Promise<{ error: true; network?: true } | { success: true }> {
   const parsed = verifyRecoverySchema.safeParse(input)
 
   if (!parsed.success) {
@@ -55,7 +61,9 @@ export async function verifyRecoveryOtp(
   // Supabase's verifyOtp doesn't distinguish a wrong code from an expired
   // one (both return error_code "otp_expired") — the caller picks the
   // right message client-side from elapsed time. See lib/supabase/otp-error.
+  // Unless the request never landed, in which case neither reading is true.
   if (error) {
+    if (isNetworkError(error)) return { error: true, network: true }
     return { error: true }
   }
 
@@ -70,7 +78,7 @@ export type UpdatePasswordInput = z.infer<typeof updatePasswordSchema>
 
 export async function updatePassword(
   input: UpdatePasswordInput
-): Promise<{ error: string } | { success: true }> {
+): Promise<ActionError | { success: true }> {
   const parsed = updatePasswordSchema.safeParse(input)
 
   if (!parsed.success) {
@@ -83,6 +91,7 @@ export async function updatePassword(
   })
 
   if (error) {
+    if (isNetworkError(error)) return networkActionError()
     return { error: error.message }
   }
 

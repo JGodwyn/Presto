@@ -8,6 +8,7 @@ import { ArrowLeft, Envelope, SpinnerGap } from "@phosphor-icons/react"
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { requestPasswordReset } from "@/app/(auth)/forgot-password/actions"
+import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 
 // Deliberately no "email doesn't exist" error state here (Figma doesn't
 // show one either) — password-reset flows conventionally don't reveal
@@ -36,8 +37,15 @@ function ForgotPasswordScreen({ onBack, onContinue }: ForgotPasswordScreenProps)
   })
 
   const onSubmit = async (values: ForgotPasswordValues) => {
-    const result = await requestPasswordReset({ email: values.email })
+    const result = await withNetworkStatus(requestPasswordReset({ email: values.email }))
+    // withNetworkStatus already raised the disconnected toast — the request
+    // never landed, so there's nothing to report against a field.
+    if (result === null) return
     if ("error" in result) {
+      if (result.network) {
+        reportNetworkIssue()
+        return
+      }
       setError("email", { message: result.error })
       return
     }

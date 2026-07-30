@@ -7,6 +7,7 @@ import { updateTextWritingStyle } from "@/app/projects/[projectId]/instructions/
 import { PillTextarea } from "@/components/ui/pill-textarea"
 import { FileTypeIcon } from "@/components/instructions/file-type-icon"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { withNetworkStatus } from "@/lib/network-status"
 import type { WritingStyle } from "@/types/writing-style"
 
 // Figma --rad-lg/--rad-xmd as px for the squircle path math — see
@@ -66,11 +67,15 @@ function WritingStyleEntry({
     }
     if (value === style.content) return
 
-    const result = await updateTextWritingStyle({
-      projectId: style.projectId,
-      id: style.id,
-      content: value,
-    })
+    const result = await withNetworkStatus(
+      updateTextWritingStyle({
+        projectId: style.projectId,
+        id: style.id,
+        content: value,
+      })
+    )
+    // null = never reached the server; the disconnected toast covers it.
+    if (result === null) return
     if ("error" in result) onSaveFailed()
   }
 

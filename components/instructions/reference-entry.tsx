@@ -7,6 +7,7 @@ import { updateTextReference } from "@/app/projects/[projectId]/instructions/ref
 import { PillTextarea } from "@/components/ui/pill-textarea"
 import { FileTypeIcon } from "@/components/instructions/file-type-icon"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { withNetworkStatus } from "@/lib/network-status"
 import type { ContentReference } from "@/types/content-reference"
 
 // Figma --rad-lg/--rad-xmd as px for the squircle path math — see
@@ -65,11 +66,15 @@ function ReferenceEntry({
     }
     if (value === reference.content) return
 
-    const result = await updateTextReference({
-      projectId: reference.projectId,
-      id: reference.id,
-      content: value,
-    })
+    const result = await withNetworkStatus(
+      updateTextReference({
+        projectId: reference.projectId,
+        id: reference.id,
+        content: value,
+      })
+    )
+    // null = never reached the server; the disconnected toast covers it.
+    if (result === null) return
     if ("error" in result) onSaveFailed()
   }
 

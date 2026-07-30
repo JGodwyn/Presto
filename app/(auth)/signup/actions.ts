@@ -4,6 +4,11 @@ import { redirect } from "next/navigation"
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
+import {
+  isNetworkError,
+  networkActionError,
+  type ActionError,
+} from "@/lib/network-error"
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -15,7 +20,7 @@ export type SignupInput = z.infer<typeof signupSchema>
 
 export async function signup(
   input: SignupInput
-): Promise<{ error: string } | { success: true }> {
+): Promise<ActionError | { success: true }> {
   const parsed = signupSchema.safeParse(input)
 
   if (!parsed.success) {
@@ -30,6 +35,7 @@ export async function signup(
   })
 
   if (error) {
+    if (isNetworkError(error)) return networkActionError()
     return { error: error.message }
   }
 
@@ -53,7 +59,7 @@ export type VerifySignupInput = z.infer<typeof verifySignupSchema>
 
 export async function verifySignup(
   input: VerifySignupInput
-): Promise<{ error: true } | void> {
+): Promise<{ error: true; network?: true } | void> {
   const parsed = verifySignupSchema.safeParse(input)
 
   if (!parsed.success) {
@@ -70,7 +76,9 @@ export async function verifySignup(
   // Supabase's verifyOtp doesn't distinguish a wrong code from an expired
   // one (both return error_code "otp_expired") — the caller picks the
   // right message client-side from elapsed time. See lib/supabase/otp-error.
+  // Unless the request never landed, in which case neither reading is true.
   if (error) {
+    if (isNetworkError(error)) return { error: true, network: true }
     return { error: true }
   }
 

@@ -21,6 +21,7 @@ import {
 import { FieldError } from "@/components/instructions/field-error"
 import { UploadDropzone } from "@/components/instructions/upload-dropzone"
 import type { WritingStyle } from "@/types/writing-style"
+import { withNetworkStatus } from "@/lib/network-status"
 
 type StyleTab = "type" | "url" | "upload"
 
@@ -69,14 +70,19 @@ function WritingStyleModal({
     setError(null)
     setSaving(true)
 
-    const result =
+    const result = await withNetworkStatus(
       tab === "type"
-        ? await addTextWritingStyle({ projectId, content: typeValue })
+        ? addTextWritingStyle({ projectId, content: typeValue })
         : tab === "url"
-          ? await addUrlWritingStyle({ projectId, content: urlValue })
-          : await saveFile(projectId, file)
+          ? addUrlWritingStyle({ projectId, content: urlValue })
+          : saveFile(projectId, file)
+    )
 
     setSaving(false)
+
+    // null = never reached the server. Leave the modal open with everything
+    // the user typed still in it; the disconnected toast explains the rest.
+    if (result === null) return
 
     if ("error" in result) {
       setError(result.error)

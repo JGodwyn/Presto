@@ -21,6 +21,7 @@ import {
   fetchWritingStyles,
 } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
+import { isNetworkError, NETWORK_ERROR_MESSAGE } from "@/lib/network-error"
 import type { Post, PostPlatform, PostStatus } from "@/types/post"
 
 const WRITING_STYLE_FILES_BUCKET = "writing-style-files"
@@ -50,11 +51,18 @@ function mapRow(row: PostRow): Post {
   }
 }
 
+// Returns the user, or which *kind* of no-user this is. getUser() yields no
+// user both when the session is genuinely gone and when the auth server
+// couldn't be reached, and the two deserve different messages — "you've been
+// signed out" sends someone off to log in again over what was a dropped
+// connection.
 async function requireUser(supabase: SupabaseClient) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  return user
+  const { data, error } = await supabase.auth.getUser()
+  if (data.user) return { user: data.user } as const
+  return {
+    user: null,
+    offline: Boolean(error && isNetworkError(error)),
+  } as const
 }
 
 const generateAndSavePostSchema = z.object({
@@ -89,10 +97,13 @@ export async function generateAndSavePost(
   }
 
   const supabase = await createClient()
-  const user = await requireUser(supabase)
-  if (!user) {
-    return { error: "You need to be signed in to generate posts.", reason: "not_signed_in" }
+  const auth = await requireUser(supabase)
+  if (!auth.user) {
+    return auth.offline
+      ? { error: NETWORK_ERROR_MESSAGE, reason: "network" }
+      : { error: "You need to be signed in to generate posts.", reason: "not_signed_in" }
   }
+  const user = auth.user
 
   const instructions = await fetchInstructions(supabase, parsed.data.projectId)
   if (!instructions) {
@@ -300,9 +311,9 @@ export async function updatePost(
   }
 
   const supabase = await createClient()
-  const user = await requireUser(supabase)
-  if (!user) {
-    return { error: "You need to be signed in." }
+  const auth = await requireUser(supabase)
+  if (!auth.user) {
+    return { error: auth.offline ? NETWORK_ERROR_MESSAGE : "You need to be signed in." }
   }
 
   const { patch } = parsed.data
@@ -342,9 +353,9 @@ export async function deletePost(
   }
 
   const supabase = await createClient()
-  const user = await requireUser(supabase)
-  if (!user) {
-    return { error: "You need to be signed in." }
+  const auth = await requireUser(supabase)
+  if (!auth.user) {
+    return { error: auth.offline ? NETWORK_ERROR_MESSAGE : "You need to be signed in." }
   }
 
   const { error } = await supabase.from("posts").delete().eq("id", parsed.data.id)

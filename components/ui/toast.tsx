@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useDialKit } from "dialkit"
 import {
   AnimatePresence,
   motion,
@@ -53,44 +52,61 @@ type ToastDirection = keyof typeof directionOffsets
 // STANDARDS.md's strong ease-out — built-in CSS curves are too weak.
 const STRONG_EASE_OUT: [number, number, number, number] = [0.23, 1, 0.32, 1]
 
-// DialKit's transition control resolves to one of these two shapes depending
-// on which mode the panel is in (easing / simple spring / advanced spring).
-type DialTransition =
-  | {
-    type: "spring"
-    bounce?: number
-    visualDuration?: number
-    stiffness?: number
-    damping?: number
-    mass?: number
-  }
-  | { type: "easing"; duration: number; ease: [number, number, number, number] }
+// These were tuned live on a DialKit panel and frozen here once the feel was
+// right; the panel and its handles are gone (git history has them if the
+// entrance ever needs re-tuning). Distances are px, durations seconds.
+//
+// The entrance spring's bounce is well past STANDARDS.md's "keep it 0.1-0.3"
+// guidance — a deliberate call, since a pronounced pop is the point. At a
+// 15px slide it carries ~3.8px past the resting position and peaks at scale
+// 1.05 (~164ms in) before easing back. visualDuration is time-to-target
+// rather than total settle, so it reads as 250ms even though the tail runs
+// on to ~480ms.
+const ENTER = {
+  slide: 15,
+  scale: 0.8,
+  blur: 2,
+  // Opacity is kept off the spring: a bouncing fade overshoots past 1
+  // (clamped, so it just snaps opaque early) and reads as a flicker.
+  fade: 0.15,
+  transition: { type: "spring", bounce: 0.6, visualDuration: 0.25 },
+} satisfies { transition: Transition } & Record<string, unknown>
 
-// Motion has no "easing" transition type — an easing config is just a tween
-// described by a duration plus a cubic-bezier array, so `type` is dropped
-// rather than forwarded. Springs pass through as-is, minus any handle the
-// panel left undefined (Motion treats an explicit `undefined` as a value,
-// not as "use your default").
-function toMotionTransition(transition: DialTransition): Transition {
-  if (transition.type === "easing") {
-    return { duration: transition.duration, ease: transition.ease }
-  }
-  return {
-    type: "spring",
-    ...Object.fromEntries(
-      Object.entries(transition).filter(
-        ([key, value]) => key !== "type" && value !== undefined
-      )
-    ),
-  }
-}
+// No spring on the way out — overshoot on an element that's leaving draws the
+// eye back to something the user is done with.
+const EXIT = {
+  slide: 16,
+  scale: 0.7,
+  blur: 5,
+  transition: { duration: 0.2, ease: STRONG_EASE_OUT },
+} satisfies { transition: Transition } & Record<string, unknown>
+
+// The extra-info capsule animates on its own clock rather than riding the
+// wrapper: the toast lands first, then the capsule slides down and blurs in
+// under it. `delay` is measured from the same instant the toast starts, so it
+// has to exceed the toast's own visualDuration to read as arriving second.
+// Its spring is gentler than the toast's (bounce 0.4 vs 0.6) — it carries
+// ~2.8px past its resting position and peaks at scale 1.047 around 226ms in,
+// leaving the capsule settled ~0.83s after the toast starts.
+// Deliberately no exit of its own: the toast leaves as one object.
+const EXTRA_INFO = {
+  delay: 0.4,
+  slide: 30,
+  scale: 0.5,
+  blur: 6,
+  fade: 0.2,
+  transition: { type: "spring", bounce: 0.4, visualDuration: 0.3 },
+} satisfies { transition: Transition } & Record<string, unknown>
 
 interface ToastProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   variant?: ToastVariant
   direction?: ToastDirection
-  duration?: number
+  // `null` disables auto-dismiss, for a toast that reports an ongoing
+  // condition rather than an event — it stays until whatever owns `open`
+  // decides the condition is over (see the network-disconnected toast).
+  duration?: number | null
   showIcon?: boolean
   // Rendered in the icon slot instead of the variant's fixed Figma icon —
   // for cases like an in-progress spinner that no variant provides.
@@ -119,55 +135,8 @@ function Toast({
 }: ToastProps) {
   const prefersReducedMotion = useReducedMotion()
 
-  // Live-tunable via the DialKit panel (top-right, dev only) rather than
-  // hand-editing values and reloading — same approach as useShake.
-  // The explicit `id` is load-bearing: DialKit's default panel id is
-  // `${name}-${useId()}`, i.e. one panel per *component instance*, so without
-  // it every mounted Toast stacks up another identical "Toast" panel (the
-  // Instructions page alone has four). A stable id collapses them into one
-  // shared set of controls — which is also the intent, since the entrance is
-  // meant to be uniform across every toast in the app. It additionally opts
-  // the panel into DialKit's `retainOnUnmount`, so the controls stay
-  // available when no toast happens to be on screen.
-  // `transition` is DialKit's transition control: the panel can switch it
-  // between an easing curve (duration + editable cubic-bezier) and a spring
-  // (simple bounce/visualDuration, or advanced stiffness/damping/mass), which
-  // is where the overshoot comes from — a spring settles past its target and
-  // eases back on its own, no keyframe needed.
-  const dial = useDialKit(
-    "Toast",
-    {
-      // Defaults below are the values dialled in on the panel and handed back
-      // to be made permanent — not theoretical starting points.
-      enter: {
-        slide: [15, 0, 80, 1],
-        scale: [0.8, 0.5, 1, 0.01],
-        blur: [2, 0, 12, 0.5],
-        // Opacity is kept off the spring: a bouncing fade overshoots past 1
-        // (clamped, so it just snaps opaque early) and reads as a flicker.
-        fade: [0.15, 0.05, 1, 0.01],
-        // bounce 0.6 is well past STANDARDS.md's "keep it 0.1-0.3" guidance
-        // — a deliberate call, since a pronounced pop is the point here. At
-        // a 15px slide it carries ~3.8px past the resting position and peaks
-        // at scale 1.05 (~164ms in) before easing back. visualDuration is
-        // time-to-target rather than total settle, so the motion reads as
-        // 250ms even though the tail runs on to ~480ms.
-        transition: { type: "spring", bounce: 0.6, visualDuration: 0.25 },
-      },
-      exit: {
-        slide: [16, 0, 80, 1],
-        scale: [0.7, 0.5, 1.2, 0.01],
-        blur: [5, 0, 12, 0.5],
-        // No spring on the way out — overshoot on an element that's leaving
-        // draws the eye back to something the user is done with.
-        transition: { type: "easing", duration: 0.2, ease: STRONG_EASE_OUT },
-      },
-    },
-    { id: "toast" }
-  )
-
   React.useEffect(() => {
-    if (!open) return
+    if (!open || duration === null) return
     const timer = setTimeout(() => onOpenChange(false), duration)
     return () => clearTimeout(timer)
   }, [open, duration, onOpenChange])
@@ -182,17 +151,29 @@ function Toast({
     ? { opacity: 0 }
     : {
       opacity: 0,
-      scale: dial.enter.scale,
-      filter: `blur(${dial.enter.blur}px)`,
-      ...offset(dial.enter.slide),
+      scale: ENTER.scale,
+      filter: `blur(${ENTER.blur}px)`,
+      ...offset(ENTER.slide),
     }
   const exitState = prefersReducedMotion
     ? { opacity: 0 }
     : {
       opacity: 0,
-      scale: dial.exit.scale,
-      filter: `blur(${dial.exit.blur}px)`,
-      ...offset(dial.exit.slide),
+      scale: EXIT.scale,
+      filter: `blur(${EXIT.blur}px)`,
+      ...offset(EXIT.slide),
+    }
+  // The capsule's slide is always downward, unlike the toast's direction-aware
+  // one: it starts tucked further up behind the toast and drops into place, so
+  // it reads as emerging from underneath. A direction-aware offset would send
+  // it sideways or upward, away from the toast it's annotating.
+  const extraInfoEnterState = prefersReducedMotion
+    ? { opacity: 0 }
+    : {
+      opacity: 0,
+      y: -EXTRA_INFO.slide,
+      scale: EXTRA_INFO.scale,
+      filter: `blur(${EXTRA_INFO.blur}px)`,
     }
 
   return (
@@ -224,13 +205,10 @@ function Toast({
             x: 0,
             y: 0,
           }}
-          exit={{
-            ...exitState,
-            transition: toMotionTransition(dial.exit.transition),
-          }}
+          exit={{ ...exitState, transition: EXIT.transition }}
           transition={{
-            ...toMotionTransition(dial.enter.transition),
-            opacity: { duration: dial.enter.fade, ease: STRONG_EASE_OUT },
+            ...ENTER.transition,
+            opacity: { duration: ENTER.fade, ease: STRONG_EASE_OUT },
           }}
         >
           <div
@@ -249,7 +227,7 @@ function Toast({
           >
             {showIcon && (
               <span className="flex shrink-0 items-center justify-center text-icon-inverse [&_svg]:size-5">
-                {icon ?? <VariantIcon weight="bold" />}
+                {icon ?? <VariantIcon weight="fill" />}
               </span>
             )}
             <p className="text-[length:var(--text-title-lg)] leading-[var(--text-title-lg--line-height)] tracking-[var(--text-title-lg--letter-spacing)] font-display font-bold text-text-inverse uppercase">
@@ -257,11 +235,37 @@ function Toast({
             </p>
           </div>
           {extraInfo && (
+            // Two elements again, and for a filter reason like the shadow/clip
+            // split elsewhere in this codebase: blur() and drop-shadow() are
+            // both the `filter` property, so animating blur inline on the
+            // capsule itself would replace its shadow outright (and leave it
+            // replaced, since Motion parks `filter: blur(0px)` there when it
+            // finishes). The wrapper animates, the inner capsule keeps the
+            // shadow — and the wrapper's blur passes through to the shadow
+            // too, so the whole capsule blurs in as one piece.
             // -mt-dist-xs is the export's 2px negative gap: the capsule tucks
             // under the toast rather than sitting flush below it.
-            <div className="-mt-dist-xs flex items-center gap-dist-sm rounded-full bg-surface-4 px-pad-md py-pad-xs text-body-md text-text-bold drop-shadow-[0px_4px_16px_rgba(0,0,0,0.25)] [&_svg]:size-4">
-              {extraInfo}
-            </div>
+            <motion.div
+              className="-mt-dist-xs"
+              initial={extraInfoEnterState}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+              transition={{
+                ...EXTRA_INFO.transition,
+                delay: EXTRA_INFO.delay,
+                // A per-property override replaces the whole transition for
+                // that property, so the delay has to be repeated here — it
+                // isn't inherited from the parent object.
+                opacity: {
+                  duration: EXTRA_INFO.fade,
+                  ease: STRONG_EASE_OUT,
+                  delay: EXTRA_INFO.delay,
+                },
+              }}
+            >
+              <div className="flex items-center gap-dist-sm rounded-full bg-surface-4 px-pad-md py-pad-xs text-body-md text-text-bold drop-shadow-[0px_4px_16px_rgba(0,0,0,0.25)] [&_svg]:size-4">
+                {extraInfo}
+              </div>
+            </motion.div>
           )}
         </motion.div>
       )}

@@ -28,6 +28,7 @@ import { useShake } from "@/hooks/use-shake"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import type { GenerationFailureReason } from "@/lib/ai/generate"
 import { readScheduledDates } from "@/lib/generate-schedule"
+import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
 
@@ -66,7 +67,8 @@ const TOTAL_FAILURE_MESSAGES: Record<GenerationFailureReason, string> = {
     "You've hit your model's rate limit or usage quota. Wait a bit and try again, or switch to TasteTest to keep testing for free.",
   auth: "There's a problem with the model's API key. Check it's set up correctly and try again.",
   server: "The model's service is having trouble right now. Try again in a bit.",
-  network: "We couldn't reach the model — check your network connection and try again.",
+  network:
+    "We couldn't reach the model. Check your internet connection and try again.",
   unknown:
     "We couldn't generate a post. This could be due to your model or your network. Check both and try again.",
 }
@@ -280,8 +282,10 @@ export function GeneratingView({
     )
     deleteFallbackTimeouts.current.set(post.id, timeout)
 
-    void deletePost({ projectId, id: post.id }).then((result) => {
-      if ("error" in result) {
+    void withNetworkStatus(deletePost({ projectId, id: post.id })).then((result) => {
+      // Both branches undo the optimistic removal; only a server-side refusal
+      // gets its own toast, since a network failure already has one.
+      if (result === null || "error" in result) {
         const pending = deleteFallbackTimeouts.current.get(post.id)
         if (pending) {
           clearTimeout(pending)
@@ -295,7 +299,7 @@ export function GeneratingView({
         setPosts((prev) =>
           prev.some((p) => p.id === post.id) ? prev : [...prev, post]
         )
-        showError("Couldn't delete that post")
+        if (result !== null) showError("Couldn't delete that post")
       }
     })
   }
@@ -305,16 +309,16 @@ export function GeneratingView({
     setPosts((prev) =>
       prev.map((p) => (p.id === post.id ? { ...p, date } : p))
     )
-    void updatePost({
+    void withNetworkStatus(updatePost({
       projectId,
       id: post.id,
       patch: { scheduledFor: date.toISOString(), status: "scheduled" },
-    }).then((result) => {
-      if ("error" in result) {
+    })).then((result) => {
+      if (result === null || "error" in result) {
         setPosts((prev) =>
           prev.map((p) => (p.id === post.id ? { ...p, date: previousDate } : p))
         )
-        showError("Couldn't save that date")
+        if (result !== null) showError("Couldn't save that date")
       }
     })
   }
@@ -323,16 +327,16 @@ export function GeneratingView({
     setPosts((prev) =>
       prev.map((p) => (p.id === post.id ? { ...p, date: undefined } : p))
     )
-    void updatePost({
+    void withNetworkStatus(updatePost({
       projectId,
       id: post.id,
       patch: { scheduledFor: null, status: "draft" },
-    }).then((result) => {
-      if ("error" in result) {
+    })).then((result) => {
+      if (result === null || "error" in result) {
         setPosts((prev) =>
           prev.map((p) => (p.id === post.id ? { ...p, date: post.date } : p))
         )
-        showError("Couldn't turn that post into a draft")
+        if (result !== null) showError("Couldn't turn that post into a draft")
       }
     })
   }
@@ -342,12 +346,12 @@ export function GeneratingView({
     setPosts((prev) =>
       prev.map((p) => (p.id === post.id ? { ...p, social } : p))
     )
-    void updatePost({
+    void withNetworkStatus(updatePost({
       projectId,
       id: post.id,
       patch: { platform: social },
-    }).then((result) => {
-      if ("error" in result) {
+    })).then((result) => {
+      if (result === null || "error" in result) {
         setPosts((prev) =>
           prev.map((p) =>
             p.id === post.id ? { ...p, social: previousSocial } : p
@@ -363,18 +367,18 @@ export function GeneratingView({
     setPosts((prev) =>
       prev.map((p) => (p.id === post.id ? { ...p, content } : p))
     )
-    void updatePost({
+    void withNetworkStatus(updatePost({
       projectId,
       id: post.id,
       patch: { content },
-    }).then((result) => {
-      if ("error" in result) {
+    })).then((result) => {
+      if (result === null || "error" in result) {
         setPosts((prev) =>
           prev.map((p) =>
             p.id === post.id ? { ...p, content: previousContent } : p
           )
         )
-        showError("Couldn't save your edit")
+        if (result !== null) showError("Couldn't save your edit")
       }
     })
   }
@@ -432,21 +436,36 @@ export function GeneratingView({
         }
 
         const scheduledFor = scheduledDates?.[i] ?? null
-        const result = await generateAndSavePost({
-          projectId,
-          platform: account,
-          model,
-          batchIndex: i,
-          batchTotal: count,
-          scheduledFor: scheduledFor ? scheduledFor.toISOString() : null,
-          batchContextId: batchContextIdRef.current,
-        })
+        const result = await withNetworkStatus(
+          generateAndSavePost({
+            projectId,
+            platform: account,
+            model,
+            batchIndex: i,
+            batchTotal: count,
+            scheduledFor: scheduledFor ? scheduledFor.toISOString() : null,
+            batchContextId: batchContextIdRef.current,
+          })
+        )
 
         if (isUnmountedRef.current || activeRunIdRef.current !== runId) return
+
+        // null = the browser couldn't reach us at all; withNetworkStatus has
+        // raised the toast. Count it as a failure so the batch still finishes
+        // and reports honestly rather than hanging on a missing post.
+        if (result === null) {
+          setLastFailureReason("network")
+          setFailedCount((c) => c + 1)
+          setGeneratedSoFar((c) => c + 1)
+          continue
+        }
 
         if (result.batchContextId) batchContextIdRef.current = result.batchContextId
 
         if ("error" in result) {
+          // The other direction: the browser reached us fine, but the server
+          // couldn't reach what *it* needed, so only this flag reveals it.
+          if (result.reason === "network") reportNetworkIssue()
           setLastFailureReason(result.reason)
           setFailedCount((c) => c + 1)
         } else {

@@ -4,6 +4,7 @@ import * as React from "react"
 
 import { deleteUserAiModel } from "@/app/projects/[projectId]/connections/model-actions"
 import { Toast } from "@/components/ui/toast"
+import { withNetworkStatus } from "@/lib/network-status"
 import { AddModelModal } from "@/components/connections/add-model-modal"
 import { AiModelEntry } from "@/components/connections/ai-model-entry"
 import { DottedDivider } from "@/components/instructions/dotted-divider"
@@ -47,7 +48,11 @@ function AiModelsCard({
   const handleDelete = (model: UserAiModel) => {
     setModels((prev) => prev.filter((m) => m.id !== model.id))
 
-    void deleteUserAiModel({ projectId, id: model.id }).then((result) => {
+    void withNetworkStatus(deleteUserAiModel({ projectId, id: model.id })).then((result) => {
+      if (result === null) {
+        setModels((prev) => sortByCreatedAt([...prev, model]))
+        return
+      }
       if ("error" in result) {
         setModels((prev) => sortByCreatedAt([...prev, model]))
         setToastMessage("Couldn't remove that model")

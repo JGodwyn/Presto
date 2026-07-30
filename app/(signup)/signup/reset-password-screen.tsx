@@ -9,6 +9,7 @@ import { ArrowLeft, Eye, EyeClosedIcon, LockKey, SpinnerGap } from "@phosphor-ic
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { updatePassword } from "@/app/(auth)/forgot-password/actions"
+import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 
 const resetPasswordSchema = z
   .object({
@@ -43,8 +44,15 @@ function ResetPasswordScreen({ onBack, onContinue }: ResetPasswordScreenProps) {
   })
 
   const onSubmit = async (values: ResetPasswordValues) => {
-    const result = await updatePassword({ password: values.password })
+    const result = await withNetworkStatus(updatePassword({ password: values.password }))
+    // withNetworkStatus already raised the disconnected toast — the request
+    // never landed, so there's nothing to report against a field.
+    if (result === null) return
     if ("error" in result) {
+      if (result.network) {
+        reportNetworkIssue()
+        return
+      }
       setError("password", { message: result.error })
       return
     }

@@ -1,9 +1,21 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
+import { isNetworkError } from "@/lib/network-error"
+
 // Everything signed-in lives under these three: the dashboard sections all
 // moved to /projects/<id>/…, and /settings is the gear's redirect stub.
 const PROTECTED_PREFIXES = ["/create-project", "/projects", "/settings"]
+
+// @supabase/ssr stores the session as `sb-<project-ref>-auth-token`, split
+// across `.0`/`.1` suffixes when it outgrows one cookie. Its presence isn't
+// proof of a valid session — only that this browser had one recently enough
+// to be worth not evicting when the auth server can't be reached to confirm.
+function hasSessionCookie(request: NextRequest) {
+  return request.cookies
+    .getAll()
+    .some(({ name }) => name.startsWith("sb-") && name.includes("auth-token"))
+}
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request })
@@ -35,13 +47,23 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data, error } = await supabase.auth.getUser()
+  const user = data.user
 
   const isProtectedRoute = PROTECTED_PREFIXES.some((prefix) =>
     request.nextUrl.pathname.startsWith(prefix)
   )
+
+  // A getUser() that couldn't reach the auth server looks exactly like a
+  // signed-out one — both yield no user — and treating it as signed out is
+  // what bounced people to /login mid-session on a bad connection. When the
+  // browser is still carrying a session cookie, the more likely story by far
+  // is "we couldn't check" rather than "they're signed out", so the request
+  // is let through: RLS still gates every row, so the worst case is a page
+  // that renders with no data rather than one that leaks any.
+  if (!user && isProtectedRoute && error && isNetworkError(error)) {
+    if (hasSessionCookie(request)) return response
+  }
 
   if (!user && isProtectedRoute) {
     const url = request.nextUrl.clone()

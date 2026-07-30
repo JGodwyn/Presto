@@ -12,6 +12,7 @@ import {
 import { PillTextarea } from "@/components/ui/pill-textarea"
 import { Switch } from "@/components/ui/switch"
 import { Toast } from "@/components/ui/toast"
+import { withNetworkStatus } from "@/lib/network-status"
 import { DottedDivider } from "@/components/instructions/dotted-divider"
 import { InstructionsCard } from "@/components/instructions/instructions-card"
 import { TopicPicker } from "@/components/instructions/topic-picker"
@@ -111,7 +112,10 @@ function MyVoiceCard({
   // setter, so it's safe to memoize once and never resync.
   const queueSave = useSaveQueue(
     React.useCallback(async (payload: SaveInstructionsInput) => {
-      const result = await saveInstructions(payload)
+      const result = await withNetworkStatus(saveInstructions(payload))
+      // null = the request never landed; the disconnected toast already says
+      // so, and "couldn't save your changes" would be a second, vaguer story.
+      if (result === null) return
       if ("error" in result) setSaveFailed(true)
     }, [])
   )

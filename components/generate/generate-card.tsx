@@ -26,6 +26,7 @@ import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/generate"
 import { fetchUserAiModels } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/client"
+import { withNetworkStatus } from "@/lib/network-status"
 import {
   clearScheduledDates,
   writeScheduledDates,
@@ -206,8 +207,9 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     React.useEffect(() => {
       let cancelled = false
 
-      void fetchUserAiModels(createClient())
+      void withNetworkStatus(fetchUserAiModels(createClient()))
         .then((models) => {
+          if (models === null) return
           if (cancelled) return
           setUserModelOptions(
             models.map((userModel) => ({
@@ -222,6 +224,8 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
           // where a broken model list would actually get diagnosed. Left
           // unloaded on purpose — a failed fetch is no evidence that a
           // persisted model id is stale, so nothing should be reset.
+          // (A connectivity failure never reaches here — withNetworkStatus
+          // turns it into a null result and raises the toast instead.)
         })
 
       return () => {

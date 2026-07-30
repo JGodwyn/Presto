@@ -4,6 +4,7 @@ import * as React from "react"
 
 import { deleteWritingStyle } from "@/app/projects/[projectId]/instructions/writing-style-actions"
 import { Toast } from "@/components/ui/toast"
+import { withNetworkStatus } from "@/lib/network-status"
 import { DottedDivider } from "@/components/instructions/dotted-divider"
 import { InstructionsCard } from "@/components/instructions/instructions-card"
 import { WritingStyleEntry } from "@/components/instructions/writing-style-entry"
@@ -57,12 +58,21 @@ function WritingStyleCard({
   const handleDelete = (style: WritingStyle) => {
     setStyles((prev) => prev.filter((s) => s.id !== style.id))
 
-    void deleteWritingStyle({ projectId, id: style.id }).then((result) => {
-      if ("error" in result) {
-        setStyles((prev) => sortByCreatedAt([...prev, style]))
-        showError("Couldn't delete that item")
+    void withNetworkStatus(deleteWritingStyle({ projectId, id: style.id })).then(
+      (result) => {
+        // Either way the delete didn't happen, so the item comes back — but a
+        // network failure already has the disconnected toast explaining it,
+        // and a second toast would just be noise.
+        if (result === null) {
+          setStyles((prev) => sortByCreatedAt([...prev, style]))
+          return
+        }
+        if ("error" in result) {
+          setStyles((prev) => sortByCreatedAt([...prev, style]))
+          showError("Couldn't delete that item")
+        }
       }
-    })
+    )
   }
 
   const handleSaveFailed = () => {

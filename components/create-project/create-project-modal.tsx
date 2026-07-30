@@ -11,6 +11,7 @@ import { createProject } from "@/app/projects/actions"
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { Toast } from "@/components/ui/toast"
+import { withNetworkStatus } from "@/lib/network-status"
 import {
   Dialog,
   DialogContent,
@@ -56,7 +57,15 @@ function CreateProjectModal({ trigger }: { trigger?: React.ReactNode }) {
     setShowCreatingToast(true)
     setOpen(false)
 
-    const result = await createProject(values)
+    const result = await withNetworkStatus(createProject(values))
+
+    // Never landed — put the dialog back untouched and let the disconnected
+    // toast do the explaining rather than blaming the project name.
+    if (result === null) {
+      setShowCreatingToast(false)
+      setOpen(true)
+      return
+    }
 
     if ("error" in result) {
       // Bring the dialog back with the error in the field's helper slot.

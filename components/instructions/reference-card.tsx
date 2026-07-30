@@ -4,6 +4,7 @@ import * as React from "react"
 
 import { deleteReference } from "@/app/projects/[projectId]/instructions/reference-actions"
 import { Toast } from "@/components/ui/toast"
+import { withNetworkStatus } from "@/lib/network-status"
 import { DottedDivider } from "@/components/instructions/dotted-divider"
 import { InstructionsCard } from "@/components/instructions/instructions-card"
 import { ReferenceEntry } from "@/components/instructions/reference-entry"
@@ -57,7 +58,13 @@ function ReferenceCard({
   const handleDelete = (reference: ContentReference) => {
     setReferences((prev) => prev.filter((r) => r.id !== reference.id))
 
-    void deleteReference({ projectId, id: reference.id }).then((result) => {
+    void withNetworkStatus(deleteReference({ projectId, id: reference.id })).then((result) => {
+      // Either way the delete didn't happen, so the item comes back — but a
+      // network failure already has the disconnected toast explaining it.
+      if (result === null) {
+        setReferences((prev) => sortByCreatedAt([...prev, reference]))
+        return
+      }
       if ("error" in result) {
         setReferences((prev) => sortByCreatedAt([...prev, reference]))
         showError("Couldn't delete that item")

@@ -19,6 +19,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { PillInput } from "@/components/ui/pill-input"
+import { withNetworkStatus } from "@/lib/network-status"
 import { FieldError } from "@/components/instructions/field-error"
 import { ModelCombobox } from "@/components/connections/model-combobox"
 import { SelectPill } from "@/components/generate/select-pill"
@@ -97,9 +98,14 @@ function AddModelModal({
     setError(null)
     setVerifying(true)
 
-    const result = await listGatewayModels({ providerSlug, apiKey })
+    const result = await withNetworkStatus(
+      listGatewayModels({ providerSlug, apiKey })
+    )
 
     setVerifying(false)
+
+    // null = never reached the server, so this says nothing about the key.
+    if (result === null) return
 
     if ("error" in result) {
       setError(result.error)
@@ -116,15 +122,19 @@ function AddModelModal({
     setError(null)
     setSaving(true)
 
-    const result = await addUserAiModel({
-      projectId,
-      providerSlug,
-      gatewayModelId: model.id,
-      label: label.trim() || model.name,
-      apiKey,
-    })
+    const result = await withNetworkStatus(
+      addUserAiModel({
+        projectId,
+        providerSlug,
+        gatewayModelId: model.id,
+        label: label.trim() || model.name,
+        apiKey,
+      })
+    )
 
     setSaving(false)
+
+    if (result === null) return
 
     if ("error" in result) {
       setError(result.error)
