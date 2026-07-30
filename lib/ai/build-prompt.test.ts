@@ -116,6 +116,46 @@ describe("buildPostPrompt", () => {
     expect(prompt).not.toContain("base64==")
   })
 
+  it("appends the rejected post and a be-different instruction when regenerating", () => {
+    const instructions = makeInstructions({ tone: "Friendly", topics: ["Remote work"] })
+
+    const prompt = buildPostPrompt(instructions, {
+      platform: "linkedin",
+      topic: "Remote work",
+      previousContent: "The old post nobody liked.",
+    })
+
+    // The brief itself is untouched — a regeneration is the same prompt plus a
+    // constraint, not a different prompt.
+    expect(prompt).toContain("Tone: Friendly")
+    expect(prompt).toContain("Topic: Remote work")
+    expect(prompt).toContain("Previous attempt:")
+    expect(prompt).toContain("The old post nobody liked.")
+    expect(prompt).toContain("Write a different post")
+  })
+
+  it("omits the regeneration section for a first generation or a blank previous post", () => {
+    const instructions = makeInstructions({ tone: "Friendly" })
+
+    expect(buildPostPrompt(instructions, { platform: "linkedin" })).not.toContain("Previous attempt:")
+    expect(
+      buildPostPrompt(instructions, { platform: "linkedin", previousContent: "   " })
+    ).not.toContain("Previous attempt:")
+  })
+
+  it("carries the regeneration section into single-prompt mode too", () => {
+    const instructions = makeInstructions({ singlePrompt: true, singlePromptText: "Write a post." })
+
+    const prompt = buildPostPrompt(instructions, {
+      platform: "linkedin",
+      previousContent: "The old post.",
+    })
+
+    expect(prompt).toContain("Write a post.")
+    expect(prompt).toContain("Previous attempt:")
+    expect(prompt).toContain("The old post.")
+  })
+
   it("layers writing style/reference sections into single-prompt mode too", () => {
     const instructions = makeInstructions({ singlePrompt: true, singlePromptText: "Write a post." })
     const writingStyles: ResolvedAttachment[] = [{ kind: "text", text: "Short, punchy sentences." }]

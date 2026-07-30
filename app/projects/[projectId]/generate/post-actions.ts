@@ -11,9 +11,10 @@ import {
   didFallBackOffByok,
   generatePost,
   type GenerationFailureReason,
+  type ModelSelection,
 } from "@/lib/ai/generate"
-import { resolveModelSelection } from "@/lib/ai/resolve-model"
-import { pickTasteTestContent } from "@/lib/ai/taste-test"
+import { resolveModelSelection, type ResolvedModel } from "@/lib/ai/resolve-model"
+import { pickDifferentTasteTestContent, pickTasteTestContent } from "@/lib/ai/taste-test"
 import {
   fetchBatchContext,
   fetchContentReferences,
@@ -63,6 +64,149 @@ async function requireUser(supabase: SupabaseClient) {
     user: null,
     offline: Boolean(error && isNetworkError(error)),
   } as const
+}
+
+// The resolved writing-style/reference attachments a prompt gets built from,
+// plus whichever batch-context row id the *next* call in this batch should
+// pass back (see the schema's batchContextId note below). Shared by
+// generateAndSavePost and regeneratePost — a regeneration is the same brief
+// as the post it replaces, so it resolves its context exactly the same way,
+// cache included.
+interface GenerationContext {
+  writingStyles: ResolvedAttachment[]
+  references: ResolvedAttachment[]
+  batchContextId: string | undefined
+}
+
+async function resolveGenerationContext(
+  supabase: SupabaseClient,
+  projectId: string,
+  userId: string,
+  batchContextId: string | undefined
+): Promise<GenerationContext> {
+  // Cache hit: a single cheap row lookup, no Storage I/O, no DB writes.
+  // Any failure here (thrown error or a miss — expired, manually deleted,
+  // or no id passed at all) falls through to a fresh resolve below rather
+  // than surfacing as a generation failure — this cache is purely
+  // additive, never a hard dependency for a post to generate.
+  if (batchContextId) {
+    try {
+      const cached = await fetchBatchContext(supabase, projectId, batchContextId)
+      if (cached) {
+        return {
+          writingStyles: cached.writingStyles,
+          references: cached.contentReferences,
+          batchContextId,
+        }
+      }
+    } catch {
+      // Falls through to the fresh resolve below.
+    }
+  }
+
+  const [writingStyleEntries, referenceEntries] = await Promise.all([
+    fetchWritingStyles(supabase, projectId),
+    fetchContentReferences(supabase, projectId),
+  ])
+  const writingStyles = (
+    await Promise.all(
+      writingStyleEntries.map((entry) => resolveAttachment(supabase, WRITING_STYLE_FILES_BUCKET, entry))
+    )
+  ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
+  const references = (
+    await Promise.all(
+      referenceEntries.map((entry) => resolveAttachment(supabase, CONTENT_REFERENCE_FILES_BUCKET, entry))
+    )
+  ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
+
+  // No cache row to reuse — this call pays the real resolve cost, same
+  // as every call did before this cache existed. Best-effort sweep +
+  // insert so the REST of this batch can reuse the result instead of
+  // paying it again: neither is allowed to fail this post's generation,
+  // so the returned id simply stays unset on any error here, which just
+  // means the next call in the batch takes this same miss path too —
+  // i.e. the batch degrades to exactly its pre-cache behavior, never a
+  // harder failure.
+  let freshContextId: string | undefined
+
+  try {
+    await supabase
+      .from("generation_batch_context")
+      .delete()
+      .eq("user_id", userId)
+      .lt("expires_at", new Date().toISOString())
+  } catch {
+    // Non-fatal — the insert below is still attempted.
+  }
+
+  try {
+    const { data: cacheRow, error: cacheError } = await supabase
+      .from("generation_batch_context")
+      .insert({
+        project_id: projectId,
+        user_id: userId,
+        writing_styles: writingStyles,
+        content_references: references,
+      })
+      .select("id")
+      .single()
+
+    if (!cacheError && cacheRow) {
+      freshContextId = cacheRow.id
+    }
+  } catch {
+    // Non-fatal — freshContextId stays undefined.
+  }
+
+  return { writingStyles, references, batchContextId: freshContextId }
+}
+
+// Turns a built prompt + its attachments into generated text. Throws whatever
+// generatePost threw (callers run it through classifyGenerationError) — the
+// only thing swallowed here is the BYOK-fallback bookkeeping, which must never
+// fail a generation that otherwise succeeded.
+async function runGeneration(
+  supabase: SupabaseClient,
+  resolvedModel: Extract<ResolvedModel, { selection: ModelSelection }>,
+  prompt: string,
+  attachments: ResolvedAttachment[]
+): Promise<string> {
+  const fileParts = attachments
+    .filter((attachment): attachment is Extract<ResolvedAttachment, { kind: "file" }> => attachment.kind === "file")
+    .map((attachment) => ({
+      mediaType: attachment.mediaType,
+      data: attachment.data,
+      filename: attachment.fileName,
+    }))
+  const useUrlContext = attachments.some((attachment) => attachment.kind === "url")
+
+  const result = await generatePost({
+    prompt,
+    fileParts,
+    useUrlContext,
+    model: resolvedModel.selection,
+  })
+
+  // The gateway can silently fall back onto this app's own credentials
+  // when a user's key fails (see didFallBackOffByok). Flag the model so
+  // Connections tells them to replace the key, instead of it quietly
+  // costing us on every future run. Non-fatal in both directions: the
+  // post still saves, and a failed flag write changes nothing.
+  if (resolvedModel.modelRowId && (await didFallBackOffByok(result.generationId))) {
+    try {
+      await supabase
+        .from("user_ai_models")
+        .update({
+          status: "error",
+          last_error: "Your API key didn't work, so this ran on Presto's own credits.",
+        })
+        .eq("id", resolvedModel.modelRowId)
+    } catch {
+      // Non-fatal.
+    }
+  }
+
+  return result.content
 }
 
 const generateAndSavePostSchema = z.object({
@@ -134,127 +278,27 @@ export async function generateAndSavePost(
   if ("kind" in resolvedModel) {
     content = pickTasteTestContent(parsed.data.batchIndex)
   } else {
-    let resolvedWritingStyles: ResolvedAttachment[] | undefined
-    let resolvedReferences: ResolvedAttachment[] | undefined
-
-    // Cache hit: a single cheap row lookup, no Storage I/O, no DB writes.
-    // Any failure here (thrown error or a miss — expired, manually deleted,
-    // or no id passed at all) falls through to a fresh resolve below rather
-    // than surfacing as a generation failure — this cache is purely
-    // additive, never a hard dependency for a post to generate.
-    if (batchContextId) {
-      try {
-        const cached = await fetchBatchContext(supabase, parsed.data.projectId, batchContextId)
-        if (cached) {
-          resolvedWritingStyles = cached.writingStyles
-          resolvedReferences = cached.contentReferences
-        }
-      } catch {
-        // Falls through to the fresh resolve below.
-      }
-    }
-
-    if (!resolvedWritingStyles || !resolvedReferences) {
-      const [writingStyles, references] = await Promise.all([
-        fetchWritingStyles(supabase, parsed.data.projectId),
-        fetchContentReferences(supabase, parsed.data.projectId),
-      ])
-      resolvedWritingStyles = (
-        await Promise.all(
-          writingStyles.map((entry) => resolveAttachment(supabase, WRITING_STYLE_FILES_BUCKET, entry))
-        )
-      ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
-      resolvedReferences = (
-        await Promise.all(
-          references.map((entry) => resolveAttachment(supabase, CONTENT_REFERENCE_FILES_BUCKET, entry))
-        )
-      ).filter((attachment): attachment is ResolvedAttachment => attachment !== null)
-
-      // No cache row to reuse — this call pays the real resolve cost, same
-      // as every call did before this cache existed. Best-effort sweep +
-      // insert so the REST of this batch can reuse the result instead of
-      // paying it again: neither is allowed to fail this post's generation,
-      // so batchContextId simply stays unset on any error here, which just
-      // means the next call in the batch takes this same miss path too —
-      // i.e. the batch degrades to exactly its pre-cache behavior, never a
-      // harder failure.
-      batchContextId = undefined
-
-      try {
-        await supabase
-          .from("generation_batch_context")
-          .delete()
-          .eq("user_id", user.id)
-          .lt("expires_at", new Date().toISOString())
-      } catch {
-        // Non-fatal — the insert below is still attempted.
-      }
-
-      try {
-        const { data: cacheRow, error: cacheError } = await supabase
-          .from("generation_batch_context")
-          .insert({
-            project_id: parsed.data.projectId,
-            user_id: user.id,
-            writing_styles: resolvedWritingStyles,
-            content_references: resolvedReferences,
-          })
-          .select("id")
-          .single()
-
-        if (!cacheError && cacheRow) {
-          batchContextId = cacheRow.id
-        }
-      } catch {
-        // Non-fatal — batchContextId stays undefined.
-      }
-    }
+    const context = await resolveGenerationContext(
+      supabase,
+      parsed.data.projectId,
+      user.id,
+      batchContextId
+    )
+    batchContextId = context.batchContextId
 
     const prompt = buildPostPrompt(instructions, {
       platform: parsed.data.platform,
       topic,
       batchContext: { index: parsed.data.batchIndex, total: parsed.data.batchTotal },
-      writingStyles: resolvedWritingStyles,
-      references: resolvedReferences,
+      writingStyles: context.writingStyles,
+      references: context.references,
     })
 
-    const allAttachments = [...resolvedWritingStyles, ...resolvedReferences]
-    const fileParts = allAttachments
-      .filter((attachment): attachment is Extract<ResolvedAttachment, { kind: "file" }> => attachment.kind === "file")
-      .map((attachment) => ({
-        mediaType: attachment.mediaType,
-        data: attachment.data,
-        filename: attachment.fileName,
-      }))
-    const useUrlContext = allAttachments.some((attachment) => attachment.kind === "url")
-
     try {
-      const result = await generatePost({
-        prompt,
-        fileParts,
-        useUrlContext,
-        model: resolvedModel.selection,
-      })
-      content = result.content
-
-      // The gateway can silently fall back onto this app's own credentials
-      // when a user's key fails (see didFallBackOffByok). Flag the model so
-      // Connections tells them to replace the key, instead of it quietly
-      // costing us on every future run. Non-fatal in both directions: the
-      // post below still saves, and a failed flag write changes nothing.
-      if (resolvedModel.modelRowId && (await didFallBackOffByok(result.generationId))) {
-        try {
-          await supabase
-            .from("user_ai_models")
-            .update({
-              status: "error",
-              last_error: "Your API key didn't work, so this ran on Presto's own credits.",
-            })
-            .eq("id", resolvedModel.modelRowId)
-        } catch {
-          // Non-fatal.
-        }
-      }
+      content = await runGeneration(supabase, resolvedModel, prompt, [
+        ...context.writingStyles,
+        ...context.references,
+      ])
     } catch (error) {
       // Still surfaces batchContextId even on failure — the context was
       // already resolved (and, on a miss, cached) above this point, so a
@@ -284,6 +328,129 @@ export async function generateAndSavePost(
 
   if (error || !data) {
     return { error: "Couldn't save that post. Please try again.", reason: "unknown" }
+  }
+
+  revalidatePath(`/projects/${parsed.data.projectId}/generate`)
+
+  return { ok: true, post: mapRow(data), batchContextId }
+}
+
+const regeneratePostSchema = z.object({
+  projectId: z.string().uuid(),
+  id: z.string().uuid(),
+  model: z.string().min(1).max(200),
+  batchContextId: z.string().uuid().optional(),
+})
+
+// The Regenerate button on a generated card: same prompt builder, same
+// Instructions, same writing-style/reference context as the post it replaces —
+// only the content changes, in place. Deliberately an UPDATE rather than a
+// delete-and-insert, so the post keeps its id (the card is keyed on it), its
+// scheduled date and its platform; nothing about where it sits in the batch
+// moves because its text was rerolled.
+//
+// Everything the prompt needs comes from the *stored* row rather than the
+// client: platform and topic can both have been changed on the card since it
+// was generated, and the row is the only thing that actually knows the current
+// values. The client only says which post and which model.
+export async function regeneratePost(
+  input: z.infer<typeof regeneratePostSchema>
+): Promise<
+  | { error: string; reason: GenerationFailureReason; batchContextId?: string }
+  | { ok: true; post: Post; batchContextId?: string }
+> {
+  const parsed = regeneratePostSchema.safeParse(input)
+  if (!parsed.success) {
+    return { error: "Couldn't regenerate that post.", reason: "unknown" }
+  }
+
+  const supabase = await createClient()
+  const auth = await requireUser(supabase)
+  if (!auth.user) {
+    return auth.offline
+      ? { error: NETWORK_ERROR_MESSAGE, reason: "network" }
+      : { error: "You need to be signed in to regenerate posts.", reason: "not_signed_in" }
+  }
+  const user = auth.user
+
+  // RLS scopes this to the signed-in user, so someone else's post id reads as
+  // a post that doesn't exist — same contract as resolveModelSelection.
+  const { data: existing, error: fetchError } = await supabase
+    .from("posts")
+    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
+    .eq("id", parsed.data.id)
+    .eq("project_id", parsed.data.projectId)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    return { error: "Couldn't find that post.", reason: "unknown" }
+  }
+
+  const instructions = await fetchInstructions(supabase, parsed.data.projectId)
+  if (!instructions) {
+    return {
+      error: "Set up your project's Instructions before generating posts.",
+      reason: "missing_instructions",
+    }
+  }
+
+  const resolvedModel = await resolveModelSelection(supabase, parsed.data.model)
+  if (!resolvedModel) {
+    return {
+      error: "That model isn't available anymore. Pick another one in Connections.",
+      reason: "model_unavailable",
+    }
+  }
+
+  const row = existing as PostRow
+  let content: string
+  let batchContextId = parsed.data.batchContextId
+
+  if ("kind" in resolvedModel) {
+    content = pickDifferentTasteTestContent(row.content)
+  } else {
+    const context = await resolveGenerationContext(
+      supabase,
+      parsed.data.projectId,
+      user.id,
+      batchContextId
+    )
+    batchContextId = context.batchContextId
+
+    const prompt = buildPostPrompt(instructions, {
+      platform: row.platform,
+      // Whatever topic this post was generated under (posts store at most
+      // one) — so a reroll stays on the same subject rather than drifting to
+      // whatever the round-robin would have picked next.
+      topic: row.topics[0],
+      writingStyles: context.writingStyles,
+      references: context.references,
+      previousContent: row.content,
+    })
+
+    try {
+      content = await runGeneration(supabase, resolvedModel, prompt, [
+        ...context.writingStyles,
+        ...context.references,
+      ])
+    } catch (error) {
+      return {
+        error: "Couldn't regenerate that post. Please try again.",
+        reason: classifyGenerationError(error),
+        batchContextId,
+      }
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .update({ content })
+    .eq("id", parsed.data.id)
+    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
+    .single()
+
+  if (error || !data) {
+    return { error: "Couldn't save the new post. Please try again.", reason: "unknown" }
   }
 
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)

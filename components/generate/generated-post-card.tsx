@@ -20,11 +20,6 @@ import { cn } from "@/lib/utils"
 const CARD_CORNER_RADIUS = 16 // rad-lg
 const PILL_CORNER_RADIUS = 8 // rad-md — same as Chip's own corner radius
 
-// Same pace as GeneratingView's own CARD_REVEAL_MS — regenerating a single
-// card is standing in for the same "one post takes about this long" placeholder
-// timing, just scoped to one card instead of the whole batch.
-const REGENERATE_MS = 1200
-
 // How wide a fade-to-transparent runs in from each side of the topics row —
 // same masking technique as the calendar's skip-dates carousel
 // (generate-calendar-column.tsx's EDGE_FADE_PX): a CSS mask, not overflow,
@@ -110,6 +105,11 @@ interface GeneratedPostCardProps {
   // Scheduled-only (the draft state has no scheduling to undo) — sends the
   // post back to date: undefined.
   onTurnToDraft: () => void
+  // Runs a real generation against this post's own brief and writes the new
+  // text back through `content` (GeneratingView owns both the server call and
+  // the state) — this card only owns the placeholder it shows while that's in
+  // flight, so it just awaits whatever this resolves to.
+  onRegenerate: () => Promise<void>
   // Seeded from whichever account was selected on the Generate page;
   // tapping the pill below cycles it independently per card from there.
   social: SocialPlatform
@@ -127,9 +127,9 @@ interface GeneratedPostCardProps {
 
 // What a GeneratingPostCard turns into once its post finishes — from the
 // Figma "Generated post card" export (design-sync/generated-post-card).
-// Add to calendar opens a date-picker dialog; Delete/Regenerate are wired to
-// GeneratingView's per-post state (delete/date) or fully local (regenerate,
-// a transient visual toggle with nothing to persist).
+// Add to calendar opens a date-picker dialog; Delete/Regenerate both run
+// through GeneratingView's per-post state and server actions — this card owns
+// only the placeholder shown while a regeneration is in flight.
 export function GeneratedPostCard({
   content,
   onContentChange,
@@ -138,6 +138,7 @@ export function GeneratedPostCard({
   onDateChange,
   onDelete,
   onTurnToDraft,
+  onRegenerate,
   social,
   onSocialChange,
   textOpacityMin,
@@ -169,16 +170,31 @@ export function GeneratedPostCard({
   const { ref: socialRef, style: socialStyle } =
     useSquircleClipPath<HTMLButtonElement>({ cornerRadius: PILL_CORNER_RADIUS })
 
-  // Regenerate is purely a local visual toggle — nothing about the post
-  // actually changes (no real generation to re-run yet), it just shows the
-  // generating placeholder again for a beat and flips back, standing in for
-  // "this post is being redone."
+  // The placeholder stands in for this card for exactly as long as the real
+  // generation call is in flight — no timer of its own, so a slow model keeps
+  // it up and a fast one drops it the moment new text lands. Failures are
+  // reported (as a Toast) by whoever owns onRegenerate, and this card simply
+  // reappears with its original content, which is still the truth.
   const [isRegenerating, setIsRegenerating] = React.useState(false)
+  const isMountedRef = React.useRef(true)
   React.useEffect(() => {
-    if (!isRegenerating) return
-    const id = setTimeout(() => setIsRegenerating(false), REGENERATE_MS)
-    return () => clearTimeout(id)
-  }, [isRegenerating])
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  const handleRegenerate = async () => {
+    if (isRegenerating) return
+    setIsRegenerating(true)
+    try {
+      await onRegenerate()
+    } finally {
+      // Deleting a post mid-regenerate unmounts this card while the call is
+      // still out — nothing left to flip back.
+      if (isMountedRef.current) setIsRegenerating(false)
+    }
+  }
 
   // Add to calendar / Change date: commits immediately on every date click
   // (per direct feedback — better for clicking through several dates in a
@@ -473,7 +489,7 @@ export function GeneratedPostCard({
           variant="brand-secondary"
           size="icon-sm"
           aria-label="Regenerate post"
-          onClick={() => setIsRegenerating(true)}
+          onClick={() => void handleRegenerate()}
         >
           <ArrowClockwise weight="bold" />
         </Button>

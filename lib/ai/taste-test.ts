@@ -72,3 +72,15 @@ If you're tired and can't figure out why the tiredness feels different this time
 export function pickTasteTestContent(index: number): string {
   return TASTE_TEST_CONTENTS[index % TASTE_TEST_CONTENTS.length]
 }
+
+// Regenerating has no batch index to key off — and picking by index would
+// hand back the same string the user just asked to replace. Random instead,
+// stepped forward once if it landed on the content already on the card, so a
+// regenerate visibly changes something every time (which is the whole point of
+// exercising the flow on this model).
+export function pickDifferentTasteTestContent(current: string): string {
+  const start = Math.floor(Math.random() * TASTE_TEST_CONTENTS.length)
+  const picked = TASTE_TEST_CONTENTS[start]
+  if (picked !== current) return picked
+  return TASTE_TEST_CONTENTS[(start + 1) % TASTE_TEST_CONTENTS.length]
+}

@@ -42,10 +42,32 @@ export interface BuildPostPromptOptions {
   // needs an async Storage download this function can't do (it stays pure).
   writingStyles?: ResolvedAttachment[]
   references?: ResolvedAttachment[]
+  // Set when the Regenerate button on a generated card is what triggered this
+  // call: everything above stays identical (that's the point — same brief,
+  // same voice, same topic), and this appends the post being replaced so the
+  // model can deliberately write something *else* rather than re-rolling the
+  // same prompt and landing somewhere near the same answer.
+  previousContent?: string
+}
+
+// Last section of the prompt when a post is being regenerated (see
+// previousContent above) — deliberately at the very end, after the "write one
+// post" instruction, so the constraint the user just asked for is the most
+// recent thing the model reads.
+function buildRegenerateSection(previousContent: string): string {
+  return [
+    "You already wrote the post below from this exact brief, and it was rejected.",
+    "Write a different post: same instructions, same topic, same voice — but a new angle, a new opening line and a different structure. Do not reuse its phrasing or reorder the same points.",
+    "",
+    "Previous attempt:",
+    '"""',
+    previousContent.trim(),
+    '"""',
+  ].join("\n")
 }
 
 export function buildPostPrompt(instructions: Instructions, options: BuildPostPromptOptions): string {
-  const { platform, topic, batchContext, writingStyles, references } = options
+  const { platform, topic, batchContext, writingStyles, references, previousContent } = options
   const platformLabel = PLATFORM_LABELS[platform]
 
   const writingStyleSection = buildAttachmentSection(
@@ -70,6 +92,7 @@ export function buildPostPrompt(instructions: Instructions, options: BuildPostPr
         `This is post ${batchContext.index + 1} of ${batchContext.total} in this batch — make it distinct from the others.`,
       )
     }
+    if (previousContent?.trim()) lines.push(buildRegenerateSection(previousContent))
 
     return lines.join("\n\n")
   }
@@ -85,6 +108,8 @@ export function buildPostPrompt(instructions: Instructions, options: BuildPostPr
   if (topic) sections.push(`Topic: ${topic}`)
 
   sections.push("Write one complete, ready-to-publish post following the above.")
+
+  if (previousContent?.trim()) sections.push(buildRegenerateSection(previousContent))
 
   return sections.join("\n\n")
 }

@@ -15,7 +15,12 @@ import {
   X,
 } from "@phosphor-icons/react"
 
-import { generateAndSavePost, deletePost, updatePost } from "@/app/projects/[projectId]/generate/post-actions"
+import {
+  generateAndSavePost,
+  deletePost,
+  regeneratePost,
+  updatePost,
+} from "@/app/projects/[projectId]/generate/post-actions"
 import { AnimateText } from "@/components/ui/animated-text"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
@@ -360,6 +365,39 @@ export function GeneratingView({
         showError("Couldn't change that post's platform")
       }
     })
+  }
+
+  // Rerolls one post's text against the same brief it was generated from (see
+  // regeneratePost — the prompt is rebuilt server-side from the stored row, so
+  // nothing about the batch's own state needs to be replayed here). Awaited
+  // rather than optimistic, unlike every handler above: there's no new content
+  // to show until the model has actually produced it, and GeneratedPostCard
+  // holds its placeholder up for exactly as long as this takes. The batch's
+  // cached writing-style/reference context is passed and refreshed the same
+  // way the generation loop does it.
+  const handleRegeneratePost = async (post: GeneratedPost) => {
+    const result = await withNetworkStatus(
+      regeneratePost({
+        projectId,
+        id: post.id,
+        model,
+        batchContextId: batchContextIdRef.current,
+      })
+    )
+
+    if (result === null) return
+
+    if (result.batchContextId) batchContextIdRef.current = result.batchContextId
+
+    if ("error" in result) {
+      if (result.reason === "network") reportNetworkIssue()
+      else showError(result.error)
+      return
+    }
+
+    setPosts((prev) =>
+      prev.map((p) => (p.id === post.id ? { ...p, content: result.post.content } : p))
+    )
   }
 
   const handleContentChange = (post: GeneratedPost, content: string) => {
@@ -833,6 +871,7 @@ export function GeneratingView({
                 onDateChange={(date) => handlePostDateChange(post, date)}
                 onDelete={() => handleDeletePost(post)}
                 onTurnToDraft={() => handleTurnToDraft(post)}
+                onRegenerate={() => handleRegeneratePost(post)}
                 social={post.social}
                 onSocialChange={(social) => handleSocialChange(post, social)}
                 textOpacityMin={cardDial.text.opacityMin}
