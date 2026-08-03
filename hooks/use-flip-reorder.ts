@@ -2,10 +2,17 @@
 
 import * as React from "react"
 
-// Matches the segmented control indicator's own move-on-screen timing — the
-// "quick move" curve reserved for existing elements repositioning, distinct
-// from whatever mount/exit curve the caller's own enter/exit animation uses.
-const REORDER_DURATION_MS = 150
+// The "quick move" curve reserved for existing elements repositioning (the
+// segmented control indicator's own move-on-screen easing), distinct from
+// whatever mount/exit curve the caller's own enter/exit animation uses.
+//
+// 100ms, down from 150 — a gap closing behind a removed item is a
+// consequence, not an event: it only has to stay legible as movement rather
+// than a jump, and at this distance it reads as instant-but-smooth. Well
+// inside STANDARDS.md's 100-160ms band for the smallest UI moves. Shared, so
+// this covers the skip-dates carousel, the Generate grid and the Content
+// page's day deck alike.
+const REORDER_DURATION_MS = 100
 const REORDER_EASING = "cubic-bezier(0.77,0,0.175,1)"
 
 // FLIP (First-Last-Invert-Play): when an item leaves a list, the remaining

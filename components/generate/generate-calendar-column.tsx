@@ -6,6 +6,7 @@ import { Info, Warning } from "@phosphor-icons/react"
 import { Calendar, type DateRange } from "@/components/ui/calendar"
 import { Switch } from "@/components/ui/switch"
 import { MonthGrid, type MonthSelection } from "@/components/generate/month-grid"
+import { useDragScroll } from "@/hooks/use-drag-scroll"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { useShake } from "@/hooks/use-shake"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
@@ -20,11 +21,6 @@ const TOGGLE_PILL_CORNER_RADIUS = 16
 // calendars in a row) — per direct feedback, it was previously just
 // whatever width the flex row happened to hand it.
 const COLUMN_WIDTH_CLASSNAME = "w-100"
-// Below this many pixels of horizontal pointer movement, a pointer-down is
-// still treated as a plain click (so tapping a day in a MonthSkipCalendar
-// isn't swallowed by the drag-to-scroll handler below).
-const DRAG_THRESHOLD_PX = 4
-
 function isSameDay(a: Date, b: Date) {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -51,42 +47,25 @@ function formatDate(date: Date) {
 // Leaves a little breathing room before the true viewport edge — the row
 // can otherwise end up exactly flush with it.
 const RIGHT_SAFETY_MARGIN_PX = 32
-// Rubber-band drag: how far past either end the row can be pulled, and how
-// much of the raw pointer delta actually gets through once past an edge
-// (< 1 so it visibly resists rather than tracking 1:1).
-const ELASTIC_MAX_PX = 72
-const ELASTIC_RESISTANCE = 0.35
 // How wide a fade-to-transparent runs in from each side of the carousel
 // viewport (a CSS mask, not overflow) — softens the otherwise-sharp vertical
 // line a calendar gets sliced by mid-scroll.
 const EDGE_FADE_PX = 24
 const EDGE_FADE_MASK = `linear-gradient(to right, transparent, black ${EDGE_FADE_PX}px, black calc(100% - ${EDGE_FADE_PX}px), transparent)`
 
-// Click-and-drag horizontal scrolling for the skip-dates calendar row,
-// alongside the wheel/trackpad scrolling overflow-x-auto already gives for
-// free. Bundles three things:
-// - A drag threshold: a pointerdown+pointerup with under 4px of movement
-//   still reaches the underlying day-cell button as an ordinary click.
-// - A measured, capped breakout width (see maxWidthPx below) rather than a
-//   flat "+336px" guess — the flat version could claim more width than the
-//   page actually has room for at a given viewport size, which left part of
-//   the row's own viewport sitting behind GeneratePanel's overflow-hidden:
-//   clientWidth included space that was never actually paintable, so no
-//   amount of scrolling could bring the last calendar into that dead zone.
-// - Elastic overshoot at either end: past the natural scroll bounds, the
-//   row still visually follows the drag (resisted, capped at
-//   ELASTIC_MAX_PX) via a transform on the inner content wrapper — actual
-//   scrollLeft stays clamped to its real range throughout — and springs
-//   back the instant the pointer releases.
+// The skip-dates calendar row's own scrolling: the shared drag-to-scroll +
+// elastic-overshoot behaviour (hooks/use-drag-scroll.ts, also used by the
+// Content page's day deck) plus one thing specific to this row —
+//
+// A measured, capped breakout width (see maxWidthPx below) rather than a flat
+// "+336px" guess. The flat version could claim more width than the page
+// actually has room for at a given viewport size, which left part of the
+// row's own viewport sitting behind GeneratePanel's overflow-hidden:
+// clientWidth included space that was never actually paintable, so no amount
+// of scrolling could bring the last calendar into that dead zone.
 function useCarouselScroll<T extends HTMLElement>() {
   const elRef = React.useRef<T | null>(null)
-  const dragRef = React.useRef<{
-    startX: number
-    startScrollLeft: number
-    dragging: boolean
-  } | null>(null)
-  const [isDragging, setIsDragging] = React.useState(false)
-  const [elasticOffset, setElasticOffset] = React.useState(0)
+  const dragScroll = useDragScroll()
   const [maxWidthPx, setMaxWidthPx] = React.useState<number>()
 
   const measure = React.useCallback(() => {
@@ -108,9 +87,9 @@ function useCarouselScroll<T extends HTMLElement>() {
   // A callback ref, not useRef+useEffect: this row only exists in the DOM
   // once "Skip some dates" is on AND at least one month is selected — on
   // first mount neither may be true yet, so a dependency-array effect tied
-  // to `[]` would run once against a null ref and never get a second
-  // chance when the row actually appears later. A callback ref re-fires on
-  // every real attach (same reasoning as use-squircle-clip-path.ts).
+  // to `[]` would run once against a null ref and never get a second chance
+  // when the row actually appears later. A callback ref re-fires on every
+  // real attach (same reasoning as use-squircle-clip-path.ts).
   const ref = React.useCallback(
     (node: T | null) => {
       elRef.current = node
@@ -124,57 +103,7 @@ function useCarouselScroll<T extends HTMLElement>() {
     return () => window.removeEventListener("resize", measure)
   }, [measure])
 
-  const onPointerDown = (event: React.PointerEvent) => {
-    const el = elRef.current
-    if (!el) return
-    dragRef.current = {
-      startX: event.clientX,
-      startScrollLeft: el.scrollLeft,
-      dragging: false,
-    }
-  }
-
-  const onPointerMove = (event: React.PointerEvent) => {
-    const el = elRef.current
-    const drag = dragRef.current
-    if (!el || !drag) return
-    const dx = event.clientX - drag.startX
-    if (!drag.dragging) {
-      if (Math.abs(dx) < DRAG_THRESHOLD_PX) return
-      drag.dragging = true
-      setIsDragging(true)
-      el.setPointerCapture(event.pointerId)
-    }
-    const target = drag.startScrollLeft - dx
-    const maxScroll = el.scrollWidth - el.clientWidth
-    if (target < 0) {
-      el.scrollLeft = 0
-      setElasticOffset(Math.min(-target * ELASTIC_RESISTANCE, ELASTIC_MAX_PX))
-    } else if (target > maxScroll) {
-      el.scrollLeft = maxScroll
-      setElasticOffset(-Math.min((target - maxScroll) * ELASTIC_RESISTANCE, ELASTIC_MAX_PX))
-    } else {
-      el.scrollLeft = target
-      setElasticOffset(0)
-    }
-  }
-
-  const endDrag = () => {
-    dragRef.current = null
-    setIsDragging(false)
-    setElasticOffset(0)
-  }
-
-  return {
-    ref,
-    maxWidthPx,
-    isDragging,
-    elasticOffset,
-    onPointerDown,
-    onPointerMove,
-    onPointerUp: endDrag,
-    onPointerCancel: endDrag,
-  }
+  return { ref, maxWidthPx, ...dragScroll }
 }
 
 // A stable reference for the "toggle is off" case below — a fresh `[]`

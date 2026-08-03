@@ -24,6 +24,7 @@ import {
 import { SOCIAL_PLATFORM_OPTIONS } from "@/components/generate/social-platform-options"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/generate"
+import { generateSettingsStorageKey } from "@/lib/generate-settings"
 import { fetchUserAiModels } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/client"
 import { withNetworkStatus } from "@/lib/network-status"
@@ -256,7 +257,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     const [skippedDates, setSkippedDates] = React.useState<Date[]>([])
     const [showError, setShowError] = React.useState(false)
 
-    const storageKey = `presto:generate-settings:${projectId}`
+    const storageKey = generateSettingsStorageKey(projectId)
     // Gates the write effect below until the read has had its chance to run
     // — without this, the write effect's first pass (which fires on mount
     // like any other effect) would write the fresh defaults over whatever

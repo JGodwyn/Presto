@@ -123,7 +123,29 @@ function TooltipContent({
           className={cn(
             // Figma drop shadow: 0 0 8 at 24% black — hardcoded, same
             // convention as menu.tsx's shadow (not a design token).
-            "origin-(--transform-origin) drop-shadow-[0_0_8px_rgba(25,25,25,0.24)] transition-[transform,opacity] duration-150 ease-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0 motion-reduce:transition-none"
+            "drop-shadow-[0_0_8px_rgba(25,25,25,0.24)]",
+            // Grows out of whatever it's pointing at. Base UI's Positioner
+            // publishes --transform-origin as the anchor's own edge — for a
+            // tooltip above its trigger that resolves to "50% calc(100% +
+            // 16px)", i.e. the sideOffset gap below the bubble — so the
+            // bubble scales up *and* rises the last few pixels into place
+            // rather than swelling from its own middle.
+            "origin-(--transform-origin)",
+            // The scale is what animates, so `scale` is what has to be in the
+            // transition list. It said `transform` before, which is a
+            // different CSS property from the standalone `scale` these
+            // utilities set — so the tooltip snapped to full size and only
+            // the fade ever ran.
+            //
+            // Opacity is on its own shorter, plain ease-out: the scale's
+            // over-extend curve (app/globals.css) deliberately passes its
+            // target, which on opacity would clamp at 1 and flicker.
+            "[transition:scale_200ms_var(--ease-over-extend),opacity_130ms_cubic-bezier(0.23,1,0.32,1)]",
+            "data-starting-style:scale-90 data-starting-style:opacity-0",
+            // Leaving is quick and plain — an over-extend on the way out
+            // pulls the eye back to something that's going away.
+            "data-ending-style:scale-[0.96] data-ending-style:opacity-0 data-ending-style:[transition:scale_130ms_cubic-bezier(0.23,1,0.32,1),opacity_130ms_cubic-bezier(0.23,1,0.32,1)]",
+            "motion-reduce:transition-none"
           )}
         >
           <div

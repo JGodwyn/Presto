@@ -1,0 +1,142 @@
+import { formatFullDate } from "@/lib/format-date"
+import type { Post } from "@/types/post"
+
+// The Content page's three tabs (design-sync/content-base-calendar-view).
+// Membership is decided by *date*, not by the posts table's own `status`
+// column (per direct instruction): a post is queued if its scheduled date is
+// still ahead, published once that date has passed, and a draft when it has
+// no date at all.
+export type ContentTab = "queued" | "published" | "draft"
+
+export const CONTENT_TABS: { value: ContentTab; label: string }[] = [
+  { value: "queued", label: "Queued" },
+  { value: "published", label: "Published" },
+  { value: "draft", label: "Draft" },
+]
+
+export interface DayGroup {
+  // `${year}-${month}-${day}` — stable React key, and the same shape a future
+  // day-detail view can look a date up by.
+  key: string
+  day: number
+  posts: Post[]
+}
+
+export interface MonthGroup {
+  key: string
+  year: number
+  // 0-indexed, as Date itself reports it.
+  month: number
+  // "July 2026" — Phudu renders it in caps, so it isn't uppercased here.
+  label: string
+  days: DayGroup[]
+}
+
+// "July 5th, 2026" — the same format the post cards themselves print, used as
+// the day deck's accessible name.
+export function formatDayLabel(month: MonthGroup, day: DayGroup): string {
+  return formatFullDate(new Date(month.year, month.month, day.day))
+}
+
+export function belongsToTab(post: Post, tab: ContentTab, now: number): boolean {
+  switch (tab) {
+    case "queued":
+      return post.scheduledFor !== null && Date.parse(post.scheduledFor) >= now
+    case "published":
+      return post.scheduledFor !== null && Date.parse(post.scheduledFor) < now
+    case "draft":
+      return post.scheduledFor === null
+  }
+}
+
+export function postsForTab(posts: Post[], tab: ContentTab, now: number): Post[] {
+  return posts.filter((post) => belongsToTab(post, tab, now))
+}
+
+function dayKey(year: number, month: number, day: number): string {
+  return `${year}-${month}-${day}`
+}
+
+// Which day's group a post lands in, or null when it isn't on this tab at all.
+// The Content page uses it to answer one question an edit raises: does this
+// post still belong to the day whose deck is open? A date change can move it
+// to another day, to another tab, or nowhere at all — and the answer decides
+// whether its card animates out of the deck or just updates in place.
+export function dayKeyForPost(
+  post: Post,
+  tab: ContentTab,
+  now: number
+): string | null {
+  if (!belongsToTab(post, tab, now)) return null
+  const date = groupingDate(post, tab)
+  return dayKey(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+// Which date a tab groups by. Queued/Published group by the date the post is
+// scheduled for — the whole point of those two tabs. Drafts have no such date,
+// so they fall under the day they were created (per direct instruction), which
+// keeps the chips and the "tap a day" interaction identical across all three
+// tabs rather than needing a shape of its own.
+function groupingDate(post: Post, tab: ContentTab): Date {
+  return new Date(tab === "draft" ? post.createdAt : (post.scheduledFor ?? post.createdAt))
+}
+
+// Newest-first everywhere except Queued, which reads forwards: the next thing
+// going out belongs at the top, while an archive (Published) and a pile of
+// drafts both want their most recent entries first.
+function isAscending(tab: ContentTab): boolean {
+  return tab === "queued"
+}
+
+// Groups a tab's posts into month sections, each holding one entry per day
+// that has posts (empty days are simply absent — this is a list of days that
+// have content, not a month grid).
+//
+// Deliberately reads the *local* date parts: a scheduled date is picked as a
+// calendar day in the user's own timezone (Calendar hands back local midnight,
+// which is then stored as UTC), so local is the only reading that recovers the
+// day the user actually chose. That makes this browser-correct and, on a
+// server rendering in a different timezone, approximate for posts sitting
+// within a few hours of midnight — the client render is the authority.
+export function groupPostsByMonth(posts: Post[], tab: ContentTab, now: number): MonthGroup[] {
+  const ascending = isAscending(tab)
+  const months = new Map<string, MonthGroup>()
+
+  for (const post of postsForTab(posts, tab, now)) {
+    const date = groupingDate(post, tab)
+    const year = date.getFullYear()
+    const month = date.getMonth()
+    const day = date.getDate()
+    const monthKey = `${year}-${month}`
+    const key = dayKey(year, month, day)
+
+    let monthGroup = months.get(monthKey)
+    if (!monthGroup) {
+      monthGroup = {
+        key: monthKey,
+        year,
+        month,
+        label: date.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+        days: [],
+      }
+      months.set(monthKey, monthGroup)
+    }
+
+    const dayGroup = monthGroup.days.find((entry) => entry.key === key)
+    if (dayGroup) {
+      dayGroup.posts.push(post)
+    } else {
+      monthGroup.days.push({ key, day, posts: [post] })
+    }
+  }
+
+  const direction = ascending ? 1 : -1
+  const sorted = [...months.values()].sort(
+    (a, b) => (a.year - b.year || a.month - b.month) * direction
+  )
+  for (const monthGroup of sorted) {
+    monthGroup.days.sort((a, b) => (a.day - b.day) * direction)
+  }
+
+  return sorted
+}

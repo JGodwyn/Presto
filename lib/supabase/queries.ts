@@ -154,6 +154,36 @@ export async function fetchUserAiModels(
   }))
 }
 
+// One post, for its own page. RLS scopes this to the signed-in user, so
+// someone else's id reads as a post that doesn't exist — the project filter is
+// there so a post from another of *your* projects doesn't answer either.
+export async function fetchPost(
+  supabase: SupabaseClient,
+  projectId: string,
+  id: string
+): Promise<Post | null> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
+    .eq("id", id)
+    .eq("project_id", projectId)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  return {
+    id: data.id,
+    projectId: data.project_id,
+    platform: data.platform,
+    status: data.status,
+    content: data.content,
+    topics: data.topics,
+    scheduledFor: data.scheduled_for,
+    createdAt: data.created_at,
+  }
+}
+
 export async function fetchPosts(
   supabase: SupabaseClient,
   projectId: string

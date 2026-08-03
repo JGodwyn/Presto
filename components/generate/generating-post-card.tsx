@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { cn } from "@/lib/utils"
 
 const CARD_CORNER_RADIUS = 16 // rad-lg
 const DASH = 2
@@ -24,6 +25,11 @@ interface GeneratingPostCardProps {
   // own pulse.
   borderOpacityMin: number
   borderOpacityDuration: number
+  // Merged last, so this placeholder can be sized to whatever the real card
+  // next to it is — the two have to match exactly (the Generate grid's h-92,
+  // the Content deck's h-98/w-68) or a card visibly changes size the moment
+  // it stops being a placeholder.
+  className?: string
 }
 
 // Placeholder shown for the one post currently generating, from the Figma
@@ -39,6 +45,7 @@ export function GeneratingPostCard({
   rotationDuration,
   borderOpacityMin,
   borderOpacityDuration,
+  className,
 }: GeneratingPostCardProps) {
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({
     cornerRadius: CARD_CORNER_RADIUS,
@@ -119,7 +126,7 @@ export function GeneratingPostCard({
     // so the border svg (a sibling, not a descendant of that clip) can
     // paint its stroke's outer bleed freely instead of having it cut off
     // at the fill's own edge.
-    <div className="relative h-92 w-full min-w-70">
+    <div className={cn("relative h-92 w-full min-w-70", className)}>
       {/* inset-0.5 (2px = half the border's own 4px strokeWidth): the fill
           and border below are measured/drawn against this slightly smaller
           box, not the full h-92/w-full one, so the border's centered stroke

@@ -14,6 +14,7 @@ import {
   type SocialPlatform,
 } from "@/components/generate/social-platform-options"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { formatFullDate } from "@/lib/format-date"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 
@@ -24,12 +25,14 @@ const PILL_CORNER_RADIUS = 8 // rad-md — same as Chip's own corner radius
 // same masking technique as the calendar's skip-dates carousel
 // (generate-calendar-column.tsx's EDGE_FADE_PX): a CSS mask, not overflow,
 // so a chip scrolling through fades out instead of getting sliced by a hard
-// edge. Sized to this card's own p-pad-lg (16px) rather than copying the
-// carousel's 24px verbatim — the row below bleeds out to that exact padding
-// and no further, so a wider fade would push resting chips past the card's
-// true inner edge.
-const EDGE_FADE_PX = 16
-const EDGE_FADE_MASK = `linear-gradient(to right, transparent, black ${EDGE_FADE_PX}px, black calc(100% - ${EDGE_FADE_PX}px), transparent)`
+// edge. The right fade is this card's own p-pad-lg (16px) — the row bleeds
+// out to exactly that padding and no further. The left is half that: the
+// topics now sit beside the platform pill rather than spanning the card, so
+// a 16px fade there would reach back under the pill. Kept in sync by hand
+// with the row's own pl-2/-ml-2 and pr-4/-mr-4 (Tailwind needs literals).
+const EDGE_FADE_LEFT_PX = 8
+const EDGE_FADE_RIGHT_PX = 16
+const EDGE_FADE_MASK = `linear-gradient(to right, transparent, black ${EDGE_FADE_LEFT_PX}px, black calc(100% - ${EDGE_FADE_RIGHT_PX}px), transparent)`
 
 // Same fade-instead-of-hard-cutoff idea as the topics row above, applied
 // vertically to the content box: it scrolls (mouse wheel/trackpad/drag) the
@@ -79,13 +82,9 @@ function getCaretOffsetFromPoint(x: number, y: number): { node: Node; offset: nu
   return null
 }
 
-function formatDate(date: Date) {
-  return date.toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  })
-}
+// Shared with the Content page's chips and day deck (lib/format-date.ts) so
+// the same day never reads "5th" in one place and "5" in another.
+const formatDate = formatFullDate
 
 interface GeneratedPostCardProps {
   content: string
@@ -117,12 +116,19 @@ interface GeneratedPostCardProps {
   // Forwarded straight through to the GeneratingPostCard this renders in
   // place of itself while regenerating — same live DialKit values
   // GeneratingView already threads into the "real" active generating card.
-  textOpacityMin: number
-  textOpacityDuration: number
-  rotationEnabled: boolean
-  rotationDuration: number
-  borderOpacityMin: number
-  borderOpacityDuration: number
+  // Optional, defaulting to that panel's own defaults, so a call site with no
+  // dials of its own (the Content page's day deck) doesn't have to invent
+  // six numbers it never intends to change.
+  textOpacityMin?: number
+  textOpacityDuration?: number
+  rotationEnabled?: boolean
+  rotationDuration?: number
+  borderOpacityMin?: number
+  borderOpacityDuration?: number
+  // Merged last, so a caller can override the card's own size — the deck on
+  // the Content page renders it at that export's dimensions rather than the
+  // Generate grid's, which are pinned to GeneratingPostCard's.
+  className?: string
 }
 
 // What a GeneratingPostCard turns into once its post finishes — from the
@@ -141,12 +147,13 @@ export function GeneratedPostCard({
   onRegenerate,
   social,
   onSocialChange,
-  textOpacityMin,
-  textOpacityDuration,
-  rotationEnabled,
-  rotationDuration,
-  borderOpacityMin,
-  borderOpacityDuration,
+  textOpacityMin = 0.4,
+  textOpacityDuration = 0.5,
+  rotationEnabled = true,
+  rotationDuration = 0.8,
+  borderOpacityMin = 0.25,
+  borderOpacityDuration = 0.35,
+  className,
 }: GeneratedPostCardProps) {
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({
     cornerRadius: CARD_CORNER_RADIUS,
@@ -314,12 +321,16 @@ export function GeneratedPostCard({
     }
   }
 
-  // Regenerating swaps this component's entire output for GeneratingPostCard
-  // — same footprint (that card is already h-92 w-full min-w-70 on its own),
-  // just a different key so React genuinely remounts rather than diffing two
+  // Regenerating swaps this component's entire output for GeneratingPostCard,
+  // with a different key so React genuinely remounts rather than diffing two
   // unrelated trees in place, which is what gives each swap its own quick
   // starting: fade below (a bare prop/className update wouldn't retrigger
   // starting-style at all).
+  //
+  // `className` goes through to the placeholder as well: that card matches
+  // this one's default footprint on its own, but a caller that resizes this
+  // card (the Content deck's h-98/w-68) has to resize both, or the card
+  // visibly changes size the moment it stops being a placeholder.
   if (isRegenerating) {
     return (
       <div
@@ -327,6 +338,7 @@ export function GeneratedPostCard({
         className="transition-[opacity,filter] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]"
       >
         <GeneratingPostCard
+          className={className}
           textOpacityMin={textOpacityMin}
           textOpacityDuration={textOpacityDuration}
           rotationEnabled={rotationEnabled}
@@ -361,7 +373,10 @@ export function GeneratedPostCard({
       // plays on the very first real reveal, nested inside GeneratingView's
       // own entrance fade on the wrapping div, which is harmless (same curve,
       // same 0→1 bounds).
-      className="flex h-92 w-full min-w-70 flex-col gap-dist-md rounded-rad-lg border-[length:var(--stroke-xl)] border-border-subtle bg-surface-4 p-pad-lg transition-[opacity,filter] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]"
+      className={cn(
+        "flex h-92 w-full min-w-70 flex-col gap-dist-md rounded-rad-lg border-[length:var(--stroke-xl)] border-border-subtle bg-surface-4 p-pad-lg transition-[opacity,filter] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]",
+        className
+      )}
       onDoubleClick={handleCardDoubleClick}
     >
       <div className="flex shrink-0 items-center justify-between">
@@ -434,46 +449,54 @@ export function GeneratedPostCard({
         </div>
       )}
 
-      {/* Tap-to-cycle (per direct feedback) — each tap advances to the next
-          platform in SOCIAL_PLATFORM_OPTIONS and wraps back to the first,
-          same hover tint recipe as SelectPill's own capsule trigger since
-          this is now the same kind of "click to change" pill. */}
-      <button
-        ref={socialRef}
-        style={socialStyle}
-        type="button"
-        onClick={handleCycleSocial}
-        aria-label={`Change social platform (currently ${currentSocial.label})`}
-        className="flex h-7 w-fit shrink-0 cursor-pointer items-center gap-dist-sm rounded-rad-md border-[length:var(--stroke-lg)] border-border-subtle bg-surface-3 px-pad-sm transition-colors duration-150 ease-out hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)]"
-      >
-        {currentSocial.icon}
-        <span className="text-body-md-bold text-text-bold">
-          {currentSocial.label}
-        </span>
-      </button>
+      {/* The platform pill and the topics share one row (per direct
+          request) — the pill holds its own width and the topics take
+          whatever's left, scrolling within it. */}
+      <div className="flex h-7 shrink-0 items-center gap-dist-sm">
+        {/* Tap-to-cycle (per direct feedback) — each tap advances to the next
+            platform in SOCIAL_PLATFORM_OPTIONS and wraps back to the first,
+            same hover tint recipe as SelectPill's own capsule trigger since
+            this is now the same kind of "click to change" pill. */}
+        <button
+          ref={socialRef}
+          style={socialStyle}
+          type="button"
+          onClick={handleCycleSocial}
+          aria-label={`Change social platform (currently ${currentSocial.label})`}
+          className="flex h-7 w-fit shrink-0 cursor-pointer items-center gap-dist-sm rounded-rad-md border-[length:var(--stroke-lg)] border-border-subtle bg-surface-3 px-pad-sm transition-colors duration-150 ease-out hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)]"
+        >
+          {currentSocial.icon}
+          <span className="text-body-md-bold text-text-bold">
+            {currentSocial.label}
+          </span>
+        </button>
 
-      {/* Horizontally scrolling, not wrapping — a wider topics list no
-          longer grows the row's height, keeping every card's height
-          identical regardless of how many topics a post ends up with.
-          -mx-4/px-4 (16px, matching EDGE_FADE_PX/p-pad-lg): the fade mask
-          below fades against the row's own boundary, which is exactly where
-          a resting (unscrolled) chip's own edge sits too — this bleeds the
-          row out to the card's true inner edge so the fade buffers resting
-          content on both sides instead of dimming it (same fix as the
-          calendar carousel's px-6/-ml-6, scaled down to this card's smaller
-          padding budget). */}
-      <div
-        style={{ maskImage: EDGE_FADE_MASK, WebkitMaskImage: EDGE_FADE_MASK }}
-        className={cn(
-          "-mx-4 flex h-7 shrink-0 items-center gap-dist-sm overflow-x-auto px-4",
-          HIDE_NATIVE_SCROLLBAR_CLASSNAME
-        )}
-      >
-        {topics.map((topic) => (
-          <Chip key={topic} size="md" selected={false} className="shrink-0">
-            {topic}
-          </Chip>
-        ))}
+        {/* Horizontally scrolling, not wrapping — a wider topics list no
+            longer grows the row's height, keeping every card's height
+            identical regardless of how many topics a post ends up with.
+            min-w-0 so this can actually shrink inside the flex row (a flex
+            item's automatic minimum is its content, which would otherwise
+            push the pill out of the card).
+
+            The bleed/padding pair on each side is what keeps the fade mask
+            off resting content: the mask fades against this box's own
+            boundary, which is exactly where a resting chip's edge sits, so
+            each side is padded by its fade width and pulled back out by the
+            same amount. Right goes the full 16px to the card's inner edge;
+            left only 8px, since past that it would reach under the pill. */}
+        <div
+          style={{ maskImage: EDGE_FADE_MASK, WebkitMaskImage: EDGE_FADE_MASK }}
+          className={cn(
+            "-mr-4 -ml-2 flex h-7 min-w-0 flex-1 items-center gap-dist-sm overflow-x-auto pr-4 pl-2",
+            HIDE_NATIVE_SCROLLBAR_CLASSNAME
+          )}
+        >
+          {topics.map((topic) => (
+            <Chip key={topic} size="md" selected={false} className="shrink-0">
+              {topic}
+            </Chip>
+          ))}
+        </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-dist-sm">
