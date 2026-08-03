@@ -14,7 +14,7 @@ import {
   type SocialPlatform,
 } from "@/components/generate/social-platform-options"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
-import { formatFullDate } from "@/lib/format-date"
+import { formatShortDate } from "@/lib/format-date"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 
@@ -82,9 +82,10 @@ function getCaretOffsetFromPoint(x: number, y: number): { node: Node; offset: nu
   return null
 }
 
-// Shared with the Content page's chips and day deck (lib/format-date.ts) so
-// the same day never reads "5th" in one place and "5" in another.
-const formatDate = formatFullDate
+// The short form (lib/format-date.ts): this header has one line to spend, and
+// "September 15th, 2026" is the one date that doesn't fit a 272px card beside
+// its actions button. Only the month shortens — "Sept 15th, 2026".
+const formatDate = formatShortDate
 
 interface GeneratedPostCardProps {
   content: string
@@ -104,6 +105,9 @@ interface GeneratedPostCardProps {
   // Scheduled-only (the draft state has no scheduling to undo) — sends the
   // post back to date: undefined.
   onTurnToDraft: () => void
+  // Adds an "Open up" row to the actions menu, for callers that have a page to
+  // send the post to. Left out where there isn't one.
+  onOpen?: () => void
   // Runs a real generation against this post's own brief and writes the new
   // text back through `content` (GeneratingView owns both the server call and
   // the state) — this card only owns the placeholder it shows while that's in
@@ -144,6 +148,7 @@ export function GeneratedPostCard({
   onDateChange,
   onDelete,
   onTurnToDraft,
+  onOpen,
   onRegenerate,
   social,
   onSocialChange,
@@ -380,18 +385,29 @@ export function GeneratedPostCard({
       onDoubleClick={handleCardDoubleClick}
     >
       <div className="flex shrink-0 items-center justify-between">
-        <div className="flex items-center gap-dist-sm">
+        {/* min-w-0 so the date below can actually shrink: a flex item's
+            automatic minimum is its content, which would otherwise push the
+            actions button out of the card instead of truncating. */}
+        <div className="flex min-w-0 items-center gap-dist-sm">
           {date ? (
-            <CalendarDots className="size-5 text-icon-subtle" weight="bold" />
+            <CalendarDots className="size-5 shrink-0 text-icon-subtle" weight="bold" />
           ) : (
-            <Scribble className="size-5 text-icon-subtle" weight="bold" />
+            <Scribble className="size-5 shrink-0 text-icon-subtle" weight="bold" />
           )}
-          <span className="text-body-lg-bold text-text-bold">
+          <span className="truncate text-body-lg-bold text-text-bold">
             {date ? formatDate(date) : "Draft"}
           </span>
         </div>
-        {date ? (
-          <PostActionsMenu onTurnToDraft={onTurnToDraft} onDelete={onDelete} />
+        {/* A draft has no scheduling to undo, so its menu is Open up + Delete
+            — but it only becomes a menu at all once there's somewhere to open
+            it to. Without that (the Generating page), a draft keeps the plain
+            Delete button the export gives it. */}
+        {date || onOpen ? (
+          <PostActionsMenu
+            onOpen={onOpen}
+            onTurnToDraft={date ? onTurnToDraft : undefined}
+            onDelete={onDelete}
+          />
         ) : (
           <Button
             variant="danger"

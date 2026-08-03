@@ -1,12 +1,14 @@
 "use client"
 
-import Link from "next/link"
+import * as React from "react"
+import { useRouter } from "next/navigation"
 import {
   ArrowsClockwise,
   CalendarDots,
   CaretLeft,
   PencilSimple,
   Scribble,
+  SpinnerGap,
   Trash,
 } from "@phosphor-icons/react"
 
@@ -33,18 +35,39 @@ export function PostDetails({
   // The Content page this was opened from.
   backHref: string
 }) {
+  const router = useRouter()
+  const [isNavigatingBack, startNavigateBack] = React.useTransition()
   const scheduled = post.scheduledFor ? new Date(post.scheduledFor) : undefined
+
+  // Warms the Content page ahead of the tap, the same reason the Generating
+  // page prefetches whatever its Close button points at: arriving here through
+  // a menu item rather than a <Link> means nothing prefetched it.
+  React.useEffect(() => {
+    router.prefetch(backHref)
+  }, [router, backHref])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-dist-xl p-pad-2xl">
       <div className="flex shrink-0 items-center justify-between">
+        {/* A button with its own transition rather than a plain <Link>: going
+            back re-runs the Content page's own server work, and until that
+            lands there is nothing to show for the tap. `isPending` is the
+            signal for exactly that gap — same treatment as the Generating
+            page's Close button. (useLinkStatus is the other candidate and the
+            wrong one here: it's skipped entirely for an already-prefetched
+            route, which this one usually is.) */}
         <Button
           variant="brand-secondary"
           size="icon-sm"
-          nativeButton={false}
-          render={<Link href={backHref} aria-label="Back to content" />}
+          aria-label="Back to content"
+          disabled={isNavigatingBack}
+          onClick={() => startNavigateBack(() => router.push(backHref))}
         >
-          <CaretLeft weight="bold" />
+          {isNavigatingBack ? (
+            <SpinnerGap weight="bold" className="animate-spin" />
+          ) : (
+            <CaretLeft weight="bold" />
+          )}
         </Button>
 
         <div className="flex items-center gap-dist-md">

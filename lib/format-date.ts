@@ -23,3 +23,27 @@ export function formatFullDate(date: Date): string {
   const month = date.toLocaleDateString("en-US", { month: "long" })
   return `${month} ${formatOrdinal(date.getDate())}, ${date.getFullYear()}`
 }
+
+// Spelled out rather than taken from `toLocaleDateString({ month: "short" })`:
+// that gives "Sep", and the short form this app wants is "Sept".
+const SHORT_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sept",
+  "Oct",
+  "Nov",
+  "Dec",
+]
+
+// "Sept 5th, 2026" — the same date on a card that has one line to spare for
+// it. Only the month shortens; the ordinal and year are what make it a date
+// rather than a label.
+export function formatShortDate(date: Date): string {
+  return `${SHORT_MONTHS[date.getMonth()]} ${formatOrdinal(date.getDate())}, ${date.getFullYear()}`
+}

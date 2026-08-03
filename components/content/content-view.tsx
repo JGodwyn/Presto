@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowsClockwise, Eyes } from "@phosphor-icons/react"
+import { ArrowsClockwise, Eyes, Info } from "@phosphor-icons/react"
 
 import { DayDeck, type DeckOrigin } from "@/components/content/day-deck"
 import { MonthBoard } from "@/components/content/month-board"
@@ -9,6 +9,7 @@ import { MonthSection } from "@/components/content/month-section"
 import { EmptyState } from "@/components/shared/empty-state"
 import { SegmentedControl } from "@/components/ui/segmented-control"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
+import { useScrollMemory } from "@/hooks/use-scroll-memory"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import {
   CONTENT_TABS,
@@ -17,23 +18,22 @@ import {
   groupPostsByMonth,
   type ContentTab,
 } from "@/lib/content-grouping"
+import {
+  CONTENT_VIEWS,
+  getContentTab,
+  getContentView,
+  getServerContentTab,
+  getServerContentView,
+  setContentTab,
+  setContentView,
+  subscribeToContentView,
+} from "@/lib/content-view"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
 
 // Figma --rad-xmd as px for the squircle path math (the "Show as" pill).
 const SHOW_AS_CORNER_RADIUS = 12
-
-// How the day's posts are laid out. Tapping the "Show as" pill cycles through
-// these in order — two for now (design-sync/content-base-calendar-view and
-// content-kanban-view); a List view has been mentioned but not exported, and
-// adding it here is all it would take.
-const CONTENT_VIEWS = [
-  { value: "calendar", label: "Calendar" },
-  { value: "kanban", label: "Kanban" },
-] as const
-
-type ContentViewMode = (typeof CONTENT_VIEWS)[number]["value"]
 
 // How far the months dissolve at each end of the page's own scroll area.
 // Bottom is deeper for the same reason it is inside a Kanban column: it's the
@@ -77,9 +77,22 @@ export function ContentView({
   posts: Post[]
   now: number
 }) {
-  const [tab, setTab] = React.useState<ContentTab>("queued")
-  const [viewIndex, setViewIndex] = React.useState(0)
-  const view: ContentViewMode = CONTENT_VIEWS[viewIndex % CONTENT_VIEWS.length].value
+  // Remembered per project alongside the layout, so leaving for a post's own
+  // page and coming back doesn't drop you on Queued.
+  const tab = React.useSyncExternalStore(
+    subscribeToContentView,
+    () => getContentTab(projectId),
+    getServerContentTab
+  )
+  // The layout this project was last viewed in, straight from the store — the
+  // server snapshot is the default, so the first client pass agrees with the
+  // markup and then switches to whatever was saved.
+  const view = React.useSyncExternalStore(
+    subscribeToContentView,
+    () => getContentView(projectId),
+    getServerContentView
+  )
+  const [spin, setSpin] = React.useState(0)
   // Client state seeded from the server fetch, so edits made inside a day's
   // deck (date changes, deletes, platform switches) are reflected in the
   // chips and their counts straight away rather than after a refresh — same
@@ -118,7 +131,7 @@ export function ContentView({
   // isn't in view any more.
   const handleTabChange = (value: ContentTab) => {
     setOpenDay(null)
-    setTab(value)
+    setContentTab(projectId, value)
   }
 
   const { ref: showAsRef, style: showAsStyle } =
@@ -132,6 +145,25 @@ export function ContentView({
     start: PAGE_FADE_TOP_PX,
     end: PAGE_FADE_BOTTOM_PX,
   })
+  // Keyed on the layout and tab as well as the project: each shows a different
+  // list, so one of them's offset means nothing in another. Switching tabs
+  // therefore restores where you'd been in *that* tab, which falls out of the
+  // key changing rather than needing its own handling.
+  const { ref: monthsMemoryRef, onScroll: onMonthsMemoryScroll } =
+    useScrollMemory(`${projectId}:${view}:${tab}`)
+
+  // Both hooks want the same node and the same scroll events.
+  const setMonthsNode = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      monthsRef(node)
+      monthsMemoryRef(node)
+    },
+    [monthsRef, monthsMemoryRef]
+  )
+  const handleMonthsScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    onMonthsScroll()
+    onMonthsMemoryScroll(event)
+  }
 
   // The icon's turn is animated imperatively rather than transitioned from the
   // `rotate` below. A CSS transition only fires if the browser observed the
@@ -144,17 +176,21 @@ export function ContentView({
   // compute. The inline `rotate` still holds the resting value, which is what
   // the animation lands on when it finishes.
   const iconRef = React.useRef<SVGSVGElement>(null)
-  const spinRef = React.useRef(0)
 
   const cycleView = () => {
-    const from = spinRef.current
-    const to = from + SHOW_AS_ICON_SPIN_DEG
-    spinRef.current = to
+    const index = CONTENT_VIEWS.findIndex((entry) => entry.value === view)
+    const next = CONTENT_VIEWS[(index + 1) % CONTENT_VIEWS.length].value
+    const to = spin + SHOW_AS_ICON_SPIN_DEG
     iconRef.current?.animate(
-      [{ rotate: `${from}deg` }, { rotate: `${to}deg` }],
+      [{ rotate: `${spin}deg` }, { rotate: `${to}deg` }],
       { duration: SHOW_AS_ICON_SPIN_MS, easing: SHOW_AS_ICON_SPIN_EASING }
     )
-    setViewIndex((index) => index + 1)
+    setSpin(to)
+    // Writing to the store is what re-renders this — there's no local copy of
+    // the view to keep in step with it. The icon's angle stays local: the spin
+    // belongs to the act of switching, not to the state, so a restored view
+    // starts unrotated.
+    setContentView(projectId, next)
   }
 
   return (
@@ -178,21 +214,32 @@ export function ContentView({
             style={showAsStyle}
             type="button"
             onClick={cycleView}
-            aria-label={`Showing as ${CONTENT_VIEWS[viewIndex % CONTENT_VIEWS.length].label} — tap to change`}
+            aria-label={`Showing as ${CONTENT_VIEWS.find((entry) => entry.value === view)?.label} — tap to change`}
             className="flex cursor-pointer items-center gap-dist-md rounded-rad-xmd bg-surface-3 px-pad-md py-pad-xs transition-[background-color,scale] duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
           >
             <span className="text-body-lg text-text-subtle">Show as:</span>
             <span className="text-body-lg text-text-bold">
-              {CONTENT_VIEWS[viewIndex % CONTENT_VIEWS.length].label}
+              {CONTENT_VIEWS.find((entry) => entry.value === view)?.label}
             </span>
             <ArrowsClockwise
               ref={iconRef}
               weight="bold"
-              style={{ rotate: `${viewIndex * SHOW_AS_ICON_SPIN_DEG}deg` }}
+              style={{ rotate: `${spin}deg` }}
               className="size-5 text-icon-bold"
             />
           </button>
         </div>
+
+        {/* Drafts only: they have no scheduled date, so they group by the day
+            they were created (lib/content-grouping.ts's groupingDate) — worth
+            saying, since every other tab's chips read as scheduling. Same info
+            line shape as the Generate and Generating pages. */}
+        {tab === "draft" ? (
+          <p className="flex items-center gap-dist-md text-body-md text-text-subtle">
+            <Info className="size-4 text-icon-subtle" />
+            Drafts sorted on date created
+          </p>
+        ) : null}
       </div>
 
       {/* Only this part scrolls (per direct feedback): the panel is exactly
@@ -208,8 +255,8 @@ export function ContentView({
         />
       ) : view === "kanban" ? (
         <div
-          ref={monthsRef}
-          onScroll={onMonthsScroll}
+          ref={setMonthsNode}
+          onScroll={handleMonthsScroll}
           className={cn(
             "flex min-h-0 flex-1 flex-col gap-dist-xl overflow-y-auto",
             HIDE_NATIVE_SCROLLBAR_CLASSNAME
@@ -225,8 +272,8 @@ export function ContentView({
         </div>
       ) : (
         <div
-          ref={monthsRef}
-          onScroll={onMonthsScroll}
+          ref={setMonthsNode}
+          onScroll={handleMonthsScroll}
           className={cn(
             "flex min-h-0 flex-1 flex-col gap-dist-xl overflow-y-auto",
             HIDE_NATIVE_SCROLLBAR_CLASSNAME

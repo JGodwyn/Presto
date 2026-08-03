@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { createPortal } from "react-dom"
+import { useRouter } from "next/navigation"
 import { X } from "@phosphor-icons/react"
 
 import {
@@ -235,6 +236,7 @@ export function DayDeck({
   // straight into it, same shape as a setState updater.
   onPostsChange: (updater: (prev: Post[]) => Post[]) => void
 }) {
+  const router = useRouter()
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const animations = React.useRef(new Map<string, Animation>())
   const openedRef = React.useRef(false)
@@ -376,6 +378,23 @@ export function DayDeck({
     setClosing(true)
   }, [setClosing])
 
+  // Run once the put-away has finished and the deck is unmounting. "Open up"
+  // is the only thing that uses it: the deck should be seen to close before
+  // the page underneath it changes, rather than the whole overlay vanishing
+  // mid-flight. A ref rather than state because nothing renders from it and
+  // the close effect below reads it at the end of an animation, well after
+  // the render that set it.
+  const afterClose = React.useRef<(() => void) | null>(null)
+
+  const closeThenOpen = (postId: string) => {
+    const href = `/projects/${projectId}/calendar/${postId}`
+    // Warms the route during the close, so the ~half second the cards spend
+    // flying home is spent fetching rather than added to the wait.
+    router.prefetch(href)
+    afterClose.current = () => router.push(href)
+    startClose()
+  }
+
   // Edits that take a post off this day don't remove its card outright — the
   // card flies home into the chip first, exactly the way it would if the whole
   // deck were closing, and the change is only handed to the caller once it
@@ -497,6 +516,9 @@ export function DayDeck({
       pendingCommits.current.clear()
       for (const commit of commits) commit()
       onClose()
+      const after = afterClose.current
+      afterClose.current = null
+      after?.()
     }
 
     // allSettled, not all: `all` rejects the moment any one animation is
@@ -773,6 +795,7 @@ export function DayDeck({
                         onDateChange={(date) => handleDateChange(post, date)}
                         onDelete={() => handleDelete(post)}
                         onTurnToDraft={() => handleTurnToDraft(post)}
+                        onOpen={() => closeThenOpen(post.id)}
                         onRegenerate={() => handleRegenerate(post)}
                         social={post.platform}
                         onSocialChange={(social) =>

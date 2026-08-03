@@ -71,9 +71,16 @@ export function GlowPanel({
       // overflow nothing was meant to reach. Anything that scrolls an element
       // into view — a focus, an assistive click — could shove the entire page
       // content sideways and leave it there, which is exactly what happened.
-      // `clip` crops identically and is never scrollable, and it zeroes the
-      // automatic minimum size just the same.
-      className="relative flex flex-1 flex-col overflow-clip rounded-rad-lg bg-surface-4"
+      // `clip` crops identically and is never scrollable.
+      //
+      // `min-h-0` is not decoration next to it, and leaving it off is a bug
+      // that has already been made once: a flex item's automatic minimum size
+      // is its content, and while `overflow: hidden` zeroes that as a side
+      // effect, **`clip` does not** — so the panel grew to its full content
+      // height, overflowed the box meant to cap it, and the whole page went
+      // back to scrolling. Say it explicitly instead of relying on either
+      // overflow value to imply it.
+      className="relative flex min-h-0 flex-1 flex-col overflow-clip rounded-rad-lg bg-surface-4"
     >
       {/* The export places the art at 1157px on a 920px panel — wider than
           its container, cropped at the sides. The calc keeps that ratio at

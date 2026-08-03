@@ -2,7 +2,12 @@
 
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { DotsThree, Scribble, Trash } from "@phosphor-icons/react"
+import {
+  ArrowsOutSimpleIcon,
+  DotsThree,
+  Scribble,
+  Trash,
+} from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { Menu, MenuItem } from "@/components/ui/menu"
@@ -18,10 +23,16 @@ import { Menu, MenuItem } from "@/components/ui/menu"
 // (items) is what keeps focus on the trigger while an item is clicked, so
 // the blur that closes the menu only fires for genuine outside clicks.
 export function PostActionsMenu({
+  onOpen,
   onTurnToDraft,
   onDelete,
 }: {
-  onTurnToDraft: () => void
+  // Opens the post's own page. Optional: only the callers that have somewhere
+  // to send it pass this (the Content page's day deck), and the row is left
+  // out entirely where they don't.
+  onOpen?: () => void
+  // Left out on a draft — there's no schedule to undo.
+  onTurnToDraft?: () => void
   onDelete: () => void
 }) {
   const [open, setOpen] = React.useState(false)
@@ -76,18 +87,33 @@ export function PostActionsMenu({
       </div>
       {open && menuRect
         ? createPortal(
-            <div
-              style={{ position: "fixed", top: menuRect.top, right: menuRect.right }}
-              className="z-50 w-max"
+          <div
+            style={{ position: "fixed", top: menuRect.top, right: menuRect.right }}
+            className="z-50 w-max"
+          >
+            <Menu
+              role="menu"
+              aria-label="Post actions"
+              onMouseDown={(event) => event.preventDefault()}
+              containerClassName="transition-[opacity,translate] duration-150 ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0"
             >
-              <Menu
-                role="menu"
-                aria-label="Post actions"
-                onMouseDown={(event) => event.preventDefault()}
-                containerClassName="transition-[opacity,translate] duration-150 ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0"
-              >
+              {onOpen ? (
                 <MenuItem
                   role="menuitem"
+                  className="justify-between"
+                  onClick={() => {
+                    onOpen()
+                    setOpen(false)
+                  }}
+                >
+                  Open up
+                  <ArrowsOutSimpleIcon weight="bold" />
+                </MenuItem>
+              ) : null}
+              {onTurnToDraft ? (
+                <MenuItem
+                  role="menuitem"
+                  withDivider={Boolean(onOpen)}
                   className="justify-between"
                   onClick={() => {
                     onTurnToDraft()
@@ -97,23 +123,24 @@ export function PostActionsMenu({
                   Turn to draft
                   <Scribble weight="bold" />
                 </MenuItem>
-                <MenuItem
-                  role="menuitem"
-                  variant="danger"
-                  withDivider
-                  className="justify-between"
-                  onClick={() => {
-                    onDelete()
-                    setOpen(false)
-                  }}
-                >
-                  Delete
-                  <Trash weight="bold" />
-                </MenuItem>
-              </Menu>
-            </div>,
-            document.body
-          )
+              ) : null}
+              <MenuItem
+                role="menuitem"
+                variant="danger"
+                withDivider={Boolean(onOpen || onTurnToDraft)}
+                className="justify-between"
+                onClick={() => {
+                  onDelete()
+                  setOpen(false)
+                }}
+              >
+                Delete
+                <Trash weight="bold" />
+              </MenuItem>
+            </Menu>
+          </div>,
+          document.body
+        )
         : null}
     </>
   )
