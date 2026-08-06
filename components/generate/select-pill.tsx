@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 
 import { Menu, MenuItem } from "@/components/ui/menu"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { cn } from "@/lib/utils"
 
 // The pill is a full capsule (--rad-rd) at 32px tall, so the squircle path
 // wants half the height as its radius.
@@ -26,12 +27,17 @@ export function SelectPill({
   value,
   onChange,
   ariaLabel,
+  className,
   children,
 }: {
   options: SelectPillOption[]
   value: string
   onChange: (value: string) => void
   ariaLabel: string
+  // Merged onto the trigger button — the Generate page's own pills stay
+  // borderless surface-3 (the default), but design-sync/regeneratemodal's
+  // own model pill is a bordered surface-4 capsule instead.
+  className?: string
   children: React.ReactNode
 }) {
   const [open, setOpen] = React.useState(false)
@@ -134,7 +140,10 @@ export function SelectPill({
         // trigger content (e.g. the account pill's caret) restyle itself
         // off this button's aria-expanded without SelectPill exposing its
         // open state.
-        className="group/select-pill flex h-8 cursor-pointer items-center gap-dist-sm rounded-full bg-surface-3 px-pad-md text-body-lg transition-colors duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50"
+        className={cn(
+          "group/select-pill flex h-8 cursor-pointer items-center gap-dist-sm rounded-full bg-surface-3 px-pad-md text-body-lg transition-colors duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50",
+          className
+        )}
       >
         {children}
       </button>

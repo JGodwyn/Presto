@@ -48,16 +48,45 @@ export interface BuildPostPromptOptions {
   // model can deliberately write something *else* rather than re-rolling the
   // same prompt and landing somewhere near the same answer.
   previousContent?: string
+  // The regenerate modal's own optional note (design-sync/regeneratemodal)
+  // on what this specific rewrite should do differently — additional to the
+  // project's Instructions, not a replacement for them, so it's appended
+  // after every other section rather than folded into tone/rules/etc.
+  guidance?: string
+}
+
+// Fallback for guidance with no previousContent to react to — not a path
+// anything currently exercises (guidance only ever arrives alongside a post
+// being regenerated), kept so a future caller that passes guidance alone
+// still gets it acted on.
+function buildGuidanceSection(guidance: string): string {
+  return `For this specific rewrite, the user also asked for: ${guidance.trim()}`
 }
 
 // Last section of the prompt when a post is being regenerated (see
 // previousContent above) — deliberately at the very end, after the "write one
-// post" instruction, so the constraint the user just asked for is the most
-// recent thing the model reads.
-function buildRegenerateSection(previousContent: string): string {
+// post" instruction, so this is the most recent thing the model reads.
+//
+// This used to always append the "be different" instruction, then a
+// separate section for the user's own guidance after it — two instructions
+// that actively compete when both are present ("do what the guidance says"
+// vs. "make it broadly different"), and a flash-tier model would often
+// over-weight the earlier, more forceful "be different" framing over one
+// trailing guidance sentence, drifting from what was actually asked. When
+// guidance is given it's now the only instruction: it says what to change
+// and implicitly permits keeping everything else, so there's nothing left
+// competing with it. "Be different" is the fallback for a bare "Just
+// regenerate" with no guidance at all, where it's the only available signal
+// to keep a reroll from landing near the same answer.
+function buildRegenerateSection(previousContent: string, guidance?: string): string {
+  const trimmedGuidance = guidance?.trim()
+  const instruction = trimmedGuidance
+    ? `For this rewrite, the specific request below is the priority. Follow it exactly, even if that means keeping the same angle, opening line, or structure as the previous attempt — only change what the request actually asks you to change.\n\nSpecific request: ${trimmedGuidance}`
+    : "Write a different post: same instructions, same topic, same voice — but a new angle, a new opening line and a different structure. Do not reuse its phrasing or reorder the same points."
+
   return [
     "You already wrote the post below from this exact brief, and it was rejected.",
-    "Write a different post: same instructions, same topic, same voice — but a new angle, a new opening line and a different structure. Do not reuse its phrasing or reorder the same points.",
+    instruction,
     "",
     "Previous attempt:",
     '"""',
@@ -67,7 +96,8 @@ function buildRegenerateSection(previousContent: string): string {
 }
 
 export function buildPostPrompt(instructions: Instructions, options: BuildPostPromptOptions): string {
-  const { platform, topic, batchContext, writingStyles, references, previousContent } = options
+  const { platform, topic, batchContext, writingStyles, references, previousContent, guidance } =
+    options
   const platformLabel = PLATFORM_LABELS[platform]
 
   const writingStyleSection = buildAttachmentSection(
@@ -92,7 +122,11 @@ export function buildPostPrompt(instructions: Instructions, options: BuildPostPr
         `This is post ${batchContext.index + 1} of ${batchContext.total} in this batch — make it distinct from the others.`,
       )
     }
-    if (previousContent?.trim()) lines.push(buildRegenerateSection(previousContent))
+    if (previousContent?.trim()) {
+      lines.push(buildRegenerateSection(previousContent, guidance))
+    } else if (guidance?.trim()) {
+      lines.push(buildGuidanceSection(guidance))
+    }
 
     return lines.join("\n\n")
   }
@@ -109,7 +143,11 @@ export function buildPostPrompt(instructions: Instructions, options: BuildPostPr
 
   sections.push("Write one complete, ready-to-publish post following the above.")
 
-  if (previousContent?.trim()) sections.push(buildRegenerateSection(previousContent))
+  if (previousContent?.trim()) {
+    sections.push(buildRegenerateSection(previousContent, guidance))
+  } else if (guidance?.trim()) {
+    sections.push(buildGuidanceSection(guidance))
+  }
 
   return sections.join("\n\n")
 }

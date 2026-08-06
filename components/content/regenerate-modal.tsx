@@ -1,0 +1,183 @@
+"use client"
+
+import * as React from "react"
+import { CaretDown, PlugCharging, SpinnerGap } from "@phosphor-icons/react"
+
+import { SelectPill, type SelectPillOption } from "@/components/generate/select-pill"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { PillTextarea } from "@/components/ui/pill-textarea"
+import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/generate"
+import { readPreferredModel } from "@/lib/generate-settings"
+import { withNetworkStatus } from "@/lib/network-status"
+import { createClient } from "@/lib/supabase/client"
+import { fetchUserAiModels } from "@/lib/supabase/queries"
+
+const BADGE_CORNER_RADIUS = 8 // rad-md
+
+// Same two no-setup models as generate-card.tsx's own BUILTIN_MODEL_OPTIONS
+// (kept in sync by hand, same as that file already does against
+// lib/ai/generate.ts) — a user's own Connections models are appended once
+// the fetch below resolves.
+const BUILTIN_MODEL_OPTIONS: SelectPillOption[] = [
+  { value: BUILTIN_MODEL_ID, label: "Gemini 3.6 Flash" },
+  { value: TASTE_TEST_MODEL_ID, label: "TasteTest" },
+]
+
+// design-sync/regeneratemodal — a title, an optional free-text note on what
+// the new version should do differently, a model picker ("Using X"), a
+// single primary action (its label switches on whether that note is empty),
+// and a static badge confirming the project's own Instructions are always
+// part of the brief regardless. Left-aligned title (unlike ConfirmationModal's
+// centered layout — this export isn't the same "icon + centered copy" shape).
+export function RegenerateModal({
+  open,
+  onOpenChange,
+  projectId,
+  onConfirm,
+  isPending = false,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  // For seeding the model pill with whichever model the Generate page last
+  // ran on (lib/generate-settings.ts) — the same "no model picker of its
+  // own, reuse the Generate page's preference" default day-deck.tsx's own
+  // regenerate already uses, just now overridable per regenerate instead of
+  // fixed.
+  projectId: string
+  // The trimmed guidance text ("" when left blank) and the chosen model id
+  // (either a BUILTIN_MODEL_OPTIONS value or a user_ai_models row id).
+  onConfirm: (guidance: string, model: string) => void
+  isPending?: boolean
+}) {
+  // Cleared on a successful confirm (see the button below), not on every
+  // open/close — closing via the X without submitting keeps the draft, same
+  // as CreateProjectModal preserves its own field across a close.
+  const [guidance, setGuidance] = React.useState("")
+
+  // Read through useSyncExternalStore rather than an effect that calls
+  // setState (react-hooks/set-state-in-effect) — localStorage doesn't exist
+  // during this "use client" component's server-rendered first pass, so the
+  // server snapshot is the safe built-in default and the real preference
+  // only shows up once the client snapshot runs post-hydration. Same "server
+  // snapshot differs from the client one" shape as lib/network-status.ts.
+  const preferredModel = React.useSyncExternalStore(
+    () => () => {},
+    () => readPreferredModel(projectId) ?? BUILTIN_MODEL_ID,
+    () => BUILTIN_MODEL_ID
+  )
+  // Picking a different model here is a one-off for this regenerate only —
+  // it deliberately does not write back to the stored preference, so this
+  // stays local override state rather than replacing preferredModel above.
+  // null (not yet touched) falls back to whatever was actually preferred.
+  const [modelOverride, setModelOverride] = React.useState<string | null>(null)
+  const model = modelOverride ?? preferredModel
+
+  // Connections models the user added — fetched with the browser client
+  // since this modal (like generate-card.tsx) has no server-rendered props
+  // to receive them through. The built-ins render immediately; these append
+  // once the fetch resolves. Non-fatal on failure: the built-ins stay
+  // selectable, and Connections is where a broken model list actually gets
+  // diagnosed (a connectivity failure never reaches the catch — withNetworkStatus
+  // turns it into a null result and raises the toast instead).
+  const [userModelOptions, setUserModelOptions] = React.useState<SelectPillOption[]>([])
+  React.useEffect(() => {
+    let cancelled = false
+    void withNetworkStatus(fetchUserAiModels(createClient()))
+      .then((models) => {
+        if (models === null || cancelled) return
+        setUserModelOptions(
+          models.map((userModel) => ({ value: userModel.id, label: userModel.label }))
+        )
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const modelOptions = React.useMemo(
+    () => [...BUILTIN_MODEL_OPTIONS, ...userModelOptions],
+    [userModelOptions]
+  )
+  // Falls back to the first built-in rather than a non-null assertion: the
+  // restored `model` above could in principle name a since-deleted
+  // Connections model before this list finishes loading.
+  const selectedModel =
+    modelOptions.find((option) => option.value === model) ?? BUILTIN_MODEL_OPTIONS[0]
+
+  const { ref: badgeRef, style: badgeStyle } = useSquircleClipPath<HTMLDivElement>(
+    { cornerRadius: BADGE_CORNER_RADIUS }
+  )
+
+  const hasGuidance = guidance.trim().length > 0
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent popupClassName="w-90">
+        <DialogTitle>Regenerate post</DialogTitle>
+        <PillTextarea
+          name="guidance"
+          placeholder="Anything you’d like to see in the new version? (Optional)"
+          value={guidance}
+          onChange={(event) => setGuidance(event.target.value)}
+          disabled={isPending}
+        />
+        {/* The export's own pill is a bordered surface-4 capsule, not the
+            Generate page's borderless surface-3 one — SelectPill's default
+            stays unchanged for that page; this is the one call site so far
+            that overrides it. The hover tint is overridden alongside the
+            fill for the same reason: SelectPill's own hover mixes toward
+            surface-3, which would look wrong against a surface-4 rest state. */}
+        <SelectPill
+          options={modelOptions}
+          value={model}
+          onChange={setModelOverride}
+          ariaLabel="AI model"
+          className="h-10 w-full justify-center border-[length:var(--stroke-lg)] border-border-subtle bg-surface-4 hover:bg-[color-mix(in_oklch,var(--surface-4),var(--foreground)_5%)]"
+        >
+          <span className="text-text-subtle">Using</span>
+          <span className="text-text-bold">{selectedModel.label}</span>
+          <CaretDown className="size-4 text-icon-subtle transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180" />
+        </SelectPill>
+        <Button
+          variant="brand"
+          size="xl"
+          className="w-full"
+          disabled={isPending}
+          onClick={() => {
+            onConfirm(guidance.trim(), model)
+            setGuidance("")
+            // Reverts back to the preferred default next time this opens,
+            // rather than staying stuck on a one-off pick from just now.
+            setModelOverride(null)
+          }}
+        >
+          {isPending ? (
+            <SpinnerGap weight="bold" className="animate-spin" />
+          ) : hasGuidance ? (
+            "Regenerate"
+          ) : (
+            "Just regenerate"
+          )}
+        </Button>
+        {/* Always on — this app's Instructions are never optional, so this is
+            purely reassurance that the note above is *additional* guidance,
+            not a replacement for the project's own voice/rules. -mt-px is the
+            export's own -1 gap: the icon sits slightly tucked into the pill's
+            top edge rather than flush above it. */}
+        <div className="flex flex-col items-center">
+          <PlugCharging weight="bold" className="z-10 size-5 text-icon-minimal" />
+          <div
+            ref={badgeRef}
+            style={badgeStyle}
+            className="-mt-px rounded-rad-md border-[length:var(--stroke-lg)] border-gray-200 bg-surface-4 px-pad-md py-pad-2xs text-body-md text-text-minimal"
+          >
+            Instructions plugged in
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}

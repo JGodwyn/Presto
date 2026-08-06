@@ -117,6 +117,20 @@ interface ToastProps {
   // (surface, radius, padding, body-sm type) belongs to the toast; callers pass
   // only the content.
   extraInfo?: React.ReactNode
+  // A second pill beside the toast (Figma "ToastWithActionBtnVariant",
+  // design-sync/toastwithactionbtnvariant — an "undo" arrow next to "Moved to
+  // draft" is the export this was built from). Same surface-4/rad-rd/shadow
+  // recipe as the extraInfo capsule, just laid out beside the toast instead of
+  // tucked underneath it. The export's own toast half also renders its label
+  // one size down (title-md, not this component's usual title-lg) — the
+  // pill's fixed 32px height doesn't fit title-lg's 28px line-height plus
+  // this component's standard py-pad-xs, so the smaller size is the variant's
+  // own, not an approximation.
+  action?: {
+    icon: React.ReactNode
+    label: string
+    onClick: () => void
+  }
   className?: string
   children: React.ReactNode
 }
@@ -130,6 +144,7 @@ function Toast({
   showIcon = true,
   icon,
   extraInfo,
+  action,
   className,
   children,
 }: ToastProps) {
@@ -211,28 +226,57 @@ function Toast({
             opacity: { duration: ENTER.fade, ease: STRONG_EASE_OUT },
           }}
         >
-          <div
-            className={cn(
-              // relative + z-10 so the toast paints over the extra-info
-              // capsule pulled up under it — both carry a drop-shadow filter,
-              // which makes them stacking contexts painted in DOM order unless
-              // z-index says otherwise, and DOM order alone would put the
-              // capsule on top.
-              "relative z-10 flex items-center gap-dist-sm rounded-full px-pad-md py-pad-xs",
-              // Figma shadow (0 4 16, 25% black) as a filter rather than a
-              // box-shadow so it traces the painted silhouette.
-              "drop-shadow-[0px_4px_16px_rgba(0,0,0,0.25)]",
-              variantClassName
+          <div className="flex items-center gap-dist-sm">
+            <div
+              className={cn(
+                // relative + z-10 so the toast paints over the extra-info
+                // capsule pulled up under it — both carry a drop-shadow filter,
+                // which makes them stacking contexts painted in DOM order unless
+                // z-index says otherwise, and DOM order alone would put the
+                // capsule on top.
+                "relative z-10 flex items-center gap-dist-sm rounded-full px-pad-md py-pad-xs",
+                // Figma shadow (0 4 16, 25% black) as a filter rather than a
+                // box-shadow so it traces the painted silhouette.
+                "drop-shadow-[0px_4px_16px_rgba(0,0,0,0.25)]",
+                variantClassName
+              )}
+            >
+              {showIcon && (
+                <span className="flex shrink-0 items-center justify-center text-icon-inverse [&_svg]:size-5">
+                  {icon ?? <VariantIcon weight="fill" />}
+                </span>
+              )}
+              <p
+                className={cn(
+                  "font-display font-bold text-text-inverse uppercase",
+                  action
+                    ? "text-[length:var(--text-title-md)] leading-[var(--text-title-md--line-height)] tracking-[var(--text-title-md--letter-spacing)]"
+                    : "text-[length:var(--text-title-lg)] leading-[var(--text-title-lg--line-height)] tracking-[var(--text-title-lg--letter-spacing)]"
+                )}
+              >
+                {children}
+              </p>
+            </div>
+            {action && (
+              <button
+                type="button"
+                onClick={() => {
+                  action.onClick()
+                  onOpenChange(false)
+                }}
+                aria-label={action.label}
+                // Every call site wraps its Toast in a pointer-events-none
+                // shell so the toast doesn't block clicks on the page behind
+                // it (see post-details.tsx/day-deck.tsx) — pointer-events is
+                // inherited, so without this override a real mouse click
+                // would hit-test straight through the button to whatever's
+                // underneath. This is the first Toast variant with anything
+                // clickable inside it, so nothing needed this before.
+                className="pointer-events-auto flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-surface-4 text-icon-bold outline-none drop-shadow-[0px_4px_16px_rgba(0,0,0,0.25)] transition-[background-color,scale] duration-150 ease-out hover:bg-[color-mix(in_oklch,var(--surface-4),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97] [&_svg]:size-5"
+              >
+                {action.icon}
+              </button>
             )}
-          >
-            {showIcon && (
-              <span className="flex shrink-0 items-center justify-center text-icon-inverse [&_svg]:size-5">
-                {icon ?? <VariantIcon weight="fill" />}
-              </span>
-            )}
-            <p className="text-[length:var(--text-title-lg)] leading-[var(--text-title-lg--line-height)] tracking-[var(--text-title-lg--letter-spacing)] font-display font-bold text-text-inverse uppercase">
-              {children}
-            </p>
           </div>
           {extraInfo && (
             // Two elements again, and for a filter reason like the shadow/clip

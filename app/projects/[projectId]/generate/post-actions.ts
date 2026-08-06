@@ -4,7 +4,11 @@ import { revalidatePath } from "next/cache"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
-import { resolveAttachment, type ResolvedAttachment } from "@/lib/ai/attachments"
+import {
+  resolveAttachment,
+  resolveAttachmentInputs,
+  type ResolvedAttachment,
+} from "@/lib/ai/attachments"
 import { buildPostPrompt, pickTopicForIndex } from "@/lib/ai/build-prompt"
 import {
   classifyGenerationError,
@@ -28,7 +32,7 @@ import type { Post, PostPlatform, PostStatus } from "@/types/post"
 const WRITING_STYLE_FILES_BUCKET = "writing-style-files"
 const CONTENT_REFERENCE_FILES_BUCKET = "content-reference-files"
 
-type PostRow = {
+export type PostRow = {
   id: string
   project_id: string
   platform: PostPlatform
@@ -57,7 +61,7 @@ function mapRow(row: PostRow): Post {
 // couldn't be reached, and the two deserve different messages — "you've been
 // signed out" sends someone off to log in again over what was a dropped
 // connection.
-async function requireUser(supabase: SupabaseClient) {
+export async function requireUser(supabase: SupabaseClient) {
   const { data, error } = await supabase.auth.getUser()
   if (data.user) return { user: data.user } as const
   return {
@@ -78,7 +82,7 @@ interface GenerationContext {
   batchContextId: string | undefined
 }
 
-async function resolveGenerationContext(
+export async function resolveGenerationContext(
   supabase: SupabaseClient,
   projectId: string,
   userId: string,
@@ -171,14 +175,7 @@ async function runGeneration(
   prompt: string,
   attachments: ResolvedAttachment[]
 ): Promise<string> {
-  const fileParts = attachments
-    .filter((attachment): attachment is Extract<ResolvedAttachment, { kind: "file" }> => attachment.kind === "file")
-    .map((attachment) => ({
-      mediaType: attachment.mediaType,
-      data: attachment.data,
-      filename: attachment.fileName,
-    }))
-  const useUrlContext = attachments.some((attachment) => attachment.kind === "url")
+  const { fileParts, useUrlContext } = resolveAttachmentInputs(attachments)
 
   const result = await generatePost({
     prompt,
@@ -219,7 +216,9 @@ const generateAndSavePostSchema = z.object({
   model: z.string().min(1).max(200),
   batchIndex: z.number().int().min(0),
   batchTotal: z.number().int().min(1),
-  scheduledFor: z.string().datetime().nullable(),
+  // { offset: true } — see updatePostSchema below for why a bare
+  // z.string().datetime() is wrong for this app.
+  scheduledFor: z.string().datetime({ offset: true }).nullable(),
   // Carries the resolved writing-style/reference context across the calls in
   // one batch run (generating-view.tsx's loop calls this once per post) so
   // it only gets resolved — including any Storage file downloads — once
@@ -340,6 +339,9 @@ const regeneratePostSchema = z.object({
   id: z.string().uuid(),
   model: z.string().min(1).max(200),
   batchContextId: z.string().uuid().optional(),
+  // RegenerateModal's own optional note (design-sync/regeneratemodal) — on
+  // top of, not instead of, the project's Instructions (see buildPostPrompt).
+  guidance: z.string().trim().max(500).optional(),
 })
 
 // The Regenerate button on a generated card: same prompt builder, same
@@ -426,6 +428,7 @@ export async function regeneratePost(
       writingStyles: context.writingStyles,
       references: context.references,
       previousContent: row.content,
+      guidance: parsed.data.guidance,
     })
 
     try {
@@ -464,7 +467,17 @@ const updatePostSchema = z.object({
   patch: z.object({
     platform: z.enum(["linkedin", "x"]).optional(),
     status: z.enum(["draft", "scheduled", "published"]).optional(),
-    scheduledFor: z.string().datetime().nullable().optional(),
+    // { offset: true }, not a bare z.string().datetime(): Zod's default only
+    // accepts a 'Z'-suffixed UTC string, but Postgres/PostgREST always
+    // serializes timestamptz with an explicit numeric offset instead (e.g.
+    // "2026-07-31T23:00:00+00:00" — confirmed directly against this
+    // project's DB). A freshly-built `date.toISOString()` (handleDateChange)
+    // is always 'Z' and passed either way, but a value round-tripped from a
+    // server-fetched post — e.g. post-details.tsx's Undo, which resends the
+    // pre-move scheduledFor it already had in state — carries the DB's own
+    // offset format and was failing this parse every time, silently
+    // reported to the user as "Couldn't restore that post."
+    scheduledFor: z.string().datetime({ offset: true }).nullable().optional(),
     content: z.string().trim().min(1).optional(),
   }),
 })
@@ -502,6 +515,7 @@ export async function updatePost(
   }
 
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)
+  revalidatePath(`/projects/${parsed.data.projectId}/calendar`)
 
   return { ok: true }
 }
@@ -532,6 +546,7 @@ export async function deletePost(
   }
 
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)
+  revalidatePath(`/projects/${parsed.data.projectId}/calendar`)
 
   return { ok: true }
 }

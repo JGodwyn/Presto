@@ -14,6 +14,7 @@ import {
   type SocialPlatform,
 } from "@/components/generate/social-platform-options"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { getCaretOffsetFromPoint } from "@/lib/caret"
 import { formatShortDate } from "@/lib/format-date"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
@@ -64,22 +65,6 @@ function buildContentFadeMask(topFadePx: number, bottomFadePx: number): string |
   const topStop = topFadePx > 0 ? `transparent, black ${topFadePx}px` : "black 0"
   const bottomStop = bottomFadePx > 0 ? `black calc(100% - ${bottomFadePx}px), transparent` : "black 100%"
   return `linear-gradient(to bottom, ${topStop}, ${bottomStop})`
-}
-
-// Cross-browser: Chrome/Safari ship caretRangeFromPoint, Firefox ships the
-// newer caretPositionFromPoint — both resolve a screen point to a text
-// node + character offset, which is what places the cursor at the actual
-// double-click position rather than always at the start/end of the text.
-function getCaretOffsetFromPoint(x: number, y: number): { node: Node; offset: number } | null {
-  if (typeof document.caretPositionFromPoint === "function") {
-    const position = document.caretPositionFromPoint(x, y)
-    return position ? { node: position.offsetNode, offset: position.offset } : null
-  }
-  if (typeof document.caretRangeFromPoint === "function") {
-    const range = document.caretRangeFromPoint(x, y)
-    return range ? { node: range.startContainer, offset: range.startOffset } : null
-  }
-  return null
 }
 
 // The short form (lib/format-date.ts): this header has one line to spend, and

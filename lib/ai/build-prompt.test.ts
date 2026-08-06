@@ -134,6 +134,25 @@ describe("buildPostPrompt", () => {
     expect(prompt).toContain("Write a different post")
   })
 
+  it("makes guidance the priority instruction instead of demanding a broadly different post", () => {
+    const instructions = makeInstructions({ tone: "Friendly", topics: ["Remote work"] })
+
+    const prompt = buildPostPrompt(instructions, {
+      platform: "linkedin",
+      topic: "Remote work",
+      previousContent: "The old post nobody liked.",
+      guidance: "Make the opening line punchier.",
+    })
+
+    expect(prompt).toContain("Previous attempt:")
+    expect(prompt).toContain("The old post nobody liked.")
+    expect(prompt).toContain("Specific request: Make the opening line punchier.")
+    // The generic "be different" framing only applies when there's no
+    // specific ask — with guidance present it would otherwise compete with
+    // it, so it's dropped rather than layered alongside.
+    expect(prompt).not.toContain("Write a different post")
+  })
+
   it("omits the regeneration section for a first generation or a blank previous post", () => {
     const instructions = makeInstructions({ tone: "Friendly" })
 

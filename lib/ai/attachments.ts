@@ -57,3 +57,24 @@ export async function resolveAttachment(
     data: Buffer.from(bytes).toString("base64"),
   }
 }
+
+// Turns a resolved attachment list into the two things generatePost/streamPost
+// actually need: the file parts to send inline, and whether the prompt
+// mentions a URL the model should fetch itself (google.tools.urlContext(),
+// wired in lib/ai/generate.ts). Shared by post-actions.ts's runGeneration and
+// the streaming regenerate route so both derive it the same way.
+export function resolveAttachmentInputs(attachments: ResolvedAttachment[]): {
+  fileParts: { mediaType: string; data: string; filename?: string }[]
+  useUrlContext: boolean
+} {
+  return {
+    fileParts: attachments
+      .filter((attachment): attachment is Extract<ResolvedAttachment, { kind: "file" }> => attachment.kind === "file")
+      .map((attachment) => ({
+        mediaType: attachment.mediaType,
+        data: attachment.data,
+        filename: attachment.fileName,
+      })),
+    useUrlContext: attachments.some((attachment) => attachment.kind === "url"),
+  }
+}
