@@ -2,11 +2,11 @@
 
 import * as React from "react"
 
-import { deleteUserAiModel } from "@/app/projects/[projectId]/connections/model-actions"
+import { deleteUserAiModel } from "@/app/projects/[projectId]/settings/model-actions"
 import { Toast } from "@/components/ui/toast"
 import { withNetworkStatus } from "@/lib/network-status"
-import { AddModelModal } from "@/components/connections/add-model-modal"
-import { AiModelEntry } from "@/components/connections/ai-model-entry"
+import { AddModelModal } from "@/components/settings/add-model-modal"
+import { AiModelEntry } from "@/components/settings/ai-model-entry"
 import { DottedDivider } from "@/components/instructions/dotted-divider"
 import { InstructionsCard } from "@/components/instructions/instructions-card"
 import type { UserAiModel } from "@/types/ai-model"

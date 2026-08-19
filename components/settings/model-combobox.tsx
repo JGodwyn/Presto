@@ -4,7 +4,7 @@ import * as React from "react"
 import { createPortal } from "react-dom"
 import { MagnifyingGlass } from "@phosphor-icons/react"
 
-import type { GatewayModelOption } from "@/app/projects/[projectId]/connections/model-actions"
+import type { GatewayModelOption } from "@/app/projects/[projectId]/settings/model-actions"
 import { Menu, MenuItem } from "@/components/ui/menu"
 import { PillInput } from "@/components/ui/pill-input"
 

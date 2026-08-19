@@ -9,7 +9,7 @@ import {
   listGatewayProviders,
   type GatewayModelOption,
   type GatewayProviderOption,
-} from "@/app/projects/[projectId]/connections/model-actions"
+} from "@/app/projects/[projectId]/settings/model-actions"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -21,7 +21,7 @@ import {
 import { PillInput } from "@/components/ui/pill-input"
 import { withNetworkStatus } from "@/lib/network-status"
 import { FieldError } from "@/components/instructions/field-error"
-import { ModelCombobox } from "@/components/connections/model-combobox"
+import { ModelCombobox } from "@/components/settings/model-combobox"
 import { SelectPill } from "@/components/generate/select-pill"
 import type { UserAiModel } from "@/types/ai-model"
 

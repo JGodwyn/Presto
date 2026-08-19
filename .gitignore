@@ -41,6 +41,16 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# figma bridge
+# figma bridge (external tool — writes exports here)
 /design-sync/
-/figma-bridge/plugin/code.js
+
+# task-log guard (per-session counters, disposable)
+/.claude/.task-log-state/
+
+# python bytecode (task-log guard hook)
+__pycache__/
+*.pyc
+
+# parallel-branch workflow (scripts/worktree.sh)
+/.worktree
+/presto-worktrees/

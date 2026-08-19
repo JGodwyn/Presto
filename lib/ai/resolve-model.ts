@@ -11,7 +11,7 @@ import { decryptApiKey } from "@/lib/ai/key-crypto"
 //   <uuid>             → a user_ai_models row id
 //
 // Not a server action (it takes a SupabaseClient, which can't cross that
-// boundary) — it lives here rather than in connections/model-actions.ts for
+// boundary) — it lives here rather than in settings/model-actions.ts for
 // that reason alone.
 //
 // Returns null for a model the user can't use: an id that doesn't exist, or

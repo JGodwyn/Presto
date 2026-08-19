@@ -6,10 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "preview": "next build && next start",
     "lint": "eslint",
     "test": "vitest run",
-    "figma:bridge": "node figma-bridge/server.mjs",
-    "figma:plugin": "tsc -p figma-bridge/plugin/tsconfig.json"
+    "figma:bridge": "figma-bridge start"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.24",
@@ -38,7 +38,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@figma/plugin-typings": "^1.130.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
