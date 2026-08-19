@@ -64,6 +64,43 @@ file is too long to hold:
 more files it nudges mid-task, and the `Stop` hook refuses to end the turn until
 EXECUTIONS.md has been updated. Threshold override: `PRESTO_LARGE_TASK_FILES`.
 
+## Parallel work — branches and worktrees
+
+Several workstreams can be in flight at once, each on its own branch in its own
+worktree. Sometimes there are three; often none. The rules:
+
+- **Never write to `main` directly.** Start work with `/branch <slug>` — it
+  creates the branch, a worktree at `../presto-worktrees/<slug>`, symlinks the
+  gitignored-but-required files (`.env.local`, `design-sync/`,
+  `.claude/settings.local.json`), clones `node_modules` copy-on-write, and
+  assigns a free dev-server port from 3001 up.
+- **One branch per task you could describe in one sentence.** If the brief needs
+  an "and", it is two branches.
+- **`/handoff`** in the worktree when the work is done: gates, logs, commit,
+  mark ready. It does not merge.
+- **`/integrate`** in the main checkout to land what's ready — runs the
+  senior-engineer agent, which reviews, merges the clean branches, deletes what
+  is spent, and flags conflicts for you. It never resolves a conflict and never
+  pushes.
+- **Schema changes are serialized.** Migrations apply straight to the live remote
+  Supabase project and *cannot be unmerged*, so only one in-flight branch may own
+  the DB at a time (`/branch <slug> feat --schema`; `./scripts/worktree.sh
+  schema-owner` says who holds it). While branches are in flight, prefer additive
+  changes — a drop or rename takes down every other running dev server at once.
+- **Hot files** — `components/ui/*`, `lib/*`, `types/*`, `hooks/*`,
+  `components/shared/*`, `app/globals.css`. Two live branches editing these will
+  conflict. A cross-cutting branch (one whose whole job is these files) should be
+  short-lived and merge *before* feature branches.
+- **Say the port out loud** when working in a worktree. Verification here is
+  browser-driven, and screenshotting :3000 while the change is on :3002 is the
+  easiest way to conclude a working change is broken.
+- `EXECUTIONS.md`, `LEARNINGS.md`, `INTERFACE.md` and this file merge with git's
+  `union` strategy (`.gitattributes`) so branches can all append without
+  conflicting. **Append; never restructure another branch's section.** On a
+  `package-lock.json` conflict, regenerate rather than merge:
+  `git checkout --ours package-lock.json && npm install`.
+
+
 ## Where the full specs live
 
 - `Presto_PRD_v1_1.docx` — what the product does, feature by feature

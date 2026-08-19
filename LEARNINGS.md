@@ -240,6 +240,37 @@ single-instance component needs an explicit `id`.
 **Tuned motion values get frozen into constants and the dial panel deleted** —
 git history holds it if it ever needs re-tuning.
 
+## Git worktrees (parallel branches)
+
+**Turbopack refuses a symlinked `node_modules` and takes `next dev` down with
+it.** A worktree with `node_modules` symlinked to the main checkout panics on
+boot: *"Symlink [project]/node_modules is invalid, it points out of the
+filesystem root"*. The trap is that it looks fine right up until you run the
+app — `tsc --noEmit` and `vitest` both resolve through the symlink happily
+(vitest even picks up a symlinked `.env.local`), so every cheap check passes.
+→ **Clone `node_modules` instead of linking it**: `cp -Rc` on APFS is
+copy-on-write, so it costs ~10s and shares the blocks rather than another
+657 MB. Only `node_modules` needs this; `.env.local`, `design-sync/` and
+`.claude/settings.local.json` are fine as symlinks and *should* stay symlinks so
+a new Figma export is visible everywhere at once.
+
+**A gitignore pattern with a trailing slash does not match a symlink to a
+directory.** `/design-sync/` matches a real directory only — to git a symlink is
+a symlink, not a dir, so the linked `design-sync` in every new worktree showed
+up as untracked and made the tree permanently dirty (which then blocked
+`worktree.sh remove`, which refuses to tear down dirty trees). → **Drop the
+trailing slash** (`/design-sync`) for anything that might be symlinked.
+
+**A worktree must live outside the repo.** Nested under the project root it gets
+walked by `next build`, eslint and vitest globs, silently duplicating every file
+in the project. `../presto-worktrees/<slug>` — a sibling directory, not a child.
+
+**`git worktree remove` and `git branch -d` are the safety, so never work around
+them.** `remove` refuses a worktree with uncommitted changes and `-d` refuses a
+branch whose work is not in `main`. Both refusals are the feature. `-D` is never
+the answer — it deletes work that exists nowhere else.
+
+
 ## Browser automation (verifying in-browser)
 
 **Every `javascript_tool` eval backgrounds the tab** (`visibilityState:

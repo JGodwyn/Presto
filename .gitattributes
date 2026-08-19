@@ -1,0 +1,19 @@
+# Append-only project logs and docs.
+#
+# Every branch appends to the tail of these four files, so without a merge
+# strategy they would conflict on literally every merge. `union` is a git
+# built-in (no driver to install): both sides' added lines survive, in some
+# order, with no conflict marker.
+#
+# The trade-off is that union NEVER conflicts, so it never asks — two branches
+# editing the same region can leave a duplicated or oddly ordered entry. The
+# senior-engineer agent tidies the merged tail as part of the merge commit,
+# since it is the only actor that sees both sides.
+EXECUTIONS.md  merge=union
+LEARNINGS.md   merge=union
+INTERFACE.md   merge=union
+AGENTS.md      merge=union
+
+# package-lock.json is deliberately left on the default strategy: on conflict
+# the fix is regeneration, not a textual merge.
+#   git checkout --ours package-lock.json && npm install

@@ -160,3 +160,56 @@ both squircle-clipped at radius 16, `#fffffe` on `#00a600`, "Expires in 60
 days". `formatExpiry` boundaries checked in Node (60d, 60d+3s, 59.6d, 1.4d,
 12h, 4h, 0, past). `tsc` and `eslint` clean.
 **Logged:** LEARNINGS.md (Next private folders) · INTERFACE.md §2, §10a
+
+## 2026-08-19 — Parallel branch workflow + senior engineer agent
+**Asked:** "simulate a real programming set up in companies" — work on several
+parts of the project at once in branches, with a senior engineer agent that
+checks branches when work's done, merges the ones that check out, deletes stale
+branches, and flags merge conflicts to resolve by hand.
+
+- `07:05` Surveyed the repo for what parallelism would actually cost here. Four
+  findings shaped everything after: migrations go straight to the **live remote
+  Supabase project** (no local `supabase/` dir, so schema is global state
+  branches cannot isolate); `.env.local`, `design-sync/` and
+  `.claude/settings.local.json` are gitignored, so a fresh worktree has none of
+  them; `EXECUTIONS/LEARNINGS/INTERFACE.md` were untracked; nothing in source
+  hardcodes `localhost:3000`, so per-worktree ports are safe.
+- `07:10` Asked the four decisions that change the shape of the thing. Answers:
+  serialize schema changes rather than pay for Supabase branching; local
+  `--no-ff` merges rather than PRs; the agent merges when green and stops when
+  not; and the workflow has to be there when wanted and invisible when not.
+- `07:15` **Phase 0.** Committed the 29 accumulated dirty files as the baseline
+  (`e526b64`) — worktrees branch from a commit, so anything left uncommitted
+  strands in the main checkout. Tracked the three logs in the same commit.
+  Added `__pycache__/` to `.gitignore` first; it was about to be swept in.
+- `07:16` `.gitattributes` with `merge=union` on the four append-only docs.
+  Without it every merge conflicts, because every branch appends to the same
+  tail.
+- `07:17` Wrote `scripts/worktree.sh` (`new` / `list` / `remove` /
+  `schema-owner`). Locates the main checkout via `--git-common-dir` rather than
+  `--show-toplevel`, which would return the *worktree* root when run inside one.
+- `07:18` First worktree came up dirty on a `design-sync` symlink: `/design-sync/`
+  in `.gitignore` has a trailing slash, which matches a real directory but not a
+  symlink to one. Dropped the slash.
+- `07:19` `tsc --noEmit` clean and all 56 vitest tests passed in the worktree —
+  the symlinked `node_modules` looked fine.
+- `07:20` **It was not fine.** `next dev` panicked: *"Symlink
+  [project]/node_modules is invalid, it points out of the filesystem root"*.
+  Turbopack rejects it outright. Every cheap check passing is what makes this
+  one nasty. Replaced the symlink with an APFS copy-on-write clone (`cp -Rc`,
+  ~10s, blocks shared) — dev server then came up in 322ms and served a real
+  middleware redirect on its own port. The other three stay symlinks.
+- `07:25` Wrote the three skills (`/branch`, `/handoff`, `/integrate`) and
+  `.claude/agents/senior-engineer.md`. Split deliberately: `/handoff` prepares a
+  branch and never merges; `/integrate` merges and never resolves a conflict.
+- `07:30` Added `.claude/hooks/main-branch-guard.py` (PreToolUse) — denies source
+  edits on `main`, exempts docs/logs/tooling, escape hatch `PRESTO_ALLOW_MAIN=1`,
+  fails open if git is unreadable.
+- `07:35` Added the "Parallel work" section to AGENTS.md.
+
+**Verified:** worktree created, `tsc`/`lint`/`test`/`build` run inside it, dev
+server booted on :3001 and answered; teardown via `worktree.sh remove` refused a
+dirty tree as designed; guard hook denies `components/ui/button.tsx` on main,
+allows `EXECUTIONS.md`, and allows under `PRESTO_ALLOW_MAIN=1`. Two-branch merge
+and deliberate-conflict rehearsal: see the follow-up entry below.
+**Logged:** LEARNINGS.md §Git worktrees
