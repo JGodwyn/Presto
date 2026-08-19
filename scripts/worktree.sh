@@ -6,7 +6,7 @@
 #
 #   worktree.sh new <slug> [type] [--schema]   create branch + worktree
 #   worktree.sh list                           every worktree, port and state
-#   worktree.sh remove <slug>                  safe teardown
+#   worktree.sh remove <slug> [--force]        safe teardown
 #   worktree.sh schema-owner                   print the branch owning the DB slot
 #
 # Worktrees live OUTSIDE the repo (../presto-worktrees/<slug>) on purpose: a
@@ -200,7 +200,7 @@ cmd_list() {
 # --- remove ------------------------------------------------------------------
 
 cmd_remove() {
-  local slug="${1-}"
+  local slug="${1-}" force="${2-}"
   [ -n "$slug" ] || usage
   local path branch
   path="$(wt_path "$slug")"
@@ -210,6 +210,17 @@ cmd_remove() {
   local dirty
   dirty="$(git -C "$path" status --porcelain | wc -l | tr -d ' ')"
   [ "$dirty" != "0" ] && die "$slug has $dirty uncommitted change(s) — commit or discard first"
+
+  # Refuse before touching anything if the branch still holds work that is not
+  # in main. The commits would survive on the branch, but tearing down the
+  # working directory of unfinished work is not what "remove" should mean.
+  if [ -n "$branch" ] && [ "$force" != "--force" ]; then
+    if ! git -C "$MAIN_ROOT" merge-base --is-ancestor "$branch" main 2>/dev/null; then
+      die "$branch is not merged into main — nothing removed.
+Run /integrate to land it, or re-run with --force to discard the worktree
+(the branch and its commits are kept either way)."
+    fi
+  fi
 
   git -C "$MAIN_ROOT" worktree remove "$path"
   info "removed" "$path"

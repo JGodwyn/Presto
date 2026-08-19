@@ -213,3 +213,43 @@ dirty tree as designed; guard hook denies `components/ui/button.tsx` on main,
 allows `EXECUTIONS.md`, and allows under `PRESTO_ALLOW_MAIN=1`. Two-branch merge
 and deliberate-conflict rehearsal: see the follow-up entry below.
 **Logged:** LEARNINGS.md §Git worktrees
+
+## 2026-08-19 — Parallel workflow: verification rehearsal
+**Asked:** prove the branch/merge machinery works before trusting it with real
+work.
+
+- `07:40` Two clean parallel worktrees (`scratch-a`/`scratch-b`, ports 3001/3002,
+  0 dirty each, all 54 Figma exports visible through the symlink). Distinct
+  source files in each, plus an appended `EXECUTIONS.md` section in both — the
+  union-merge test.
+- `07:42` `git config branch.<b>.prestoStatus ready` set from *inside* a worktree
+  was readable from the main checkout, confirming `.git/config` is shared across
+  worktrees and needs nothing merged.
+- `07:44` Both merged `--no-ff`. `EXECUTIONS.md` came out with both entries and
+  **zero conflict markers** — but with the blank line between them collapsed.
+  That is exactly the union-strategy caveat, and why the senior engineer tidies
+  the merged tail as part of the merge.
+- `07:46` **The finding that justifies the agent's re-probe.** For the conflict
+  rehearsal, `scratch-c` and `scratch-d` both edited the same line.
+  `git merge-tree --write-tree` reported **both CLEAN against the original
+  `main`**; `scratch-d` only conflicted once `scratch-c` had merged. A single
+  up-front probe would have declared both safe. Hence: re-run the probe and the
+  gates against the new `main` after *every* merge, never trust the first pass.
+- `07:48` With `d` conflicted: `main` stayed clean and carried only `c`'s
+  content, and `d`'s branch and worktree were untouched. Resolved by hand in the
+  main checkout, committed, merged.
+- `07:50` **Bug found in teardown.** `remove` tore down the worktree of an
+  unmerged branch — `git branch -d` correctly refused the branch, but the working
+  directory was already gone. Added a `merge-base --is-ancestor` check that
+  refuses *before* touching anything, with `--force` as the deliberate override.
+  Re-tested: refused.
+- `07:52` Schema serialization: a second `--schema` branch is refused while one
+  is open, a non-schema branch alongside it is created normally, and `list`
+  marks who holds the slot.
+- `07:54` Removed all rehearsal worktrees and reset `main` back to `a81e1c4`, so
+  none of the scratch files or merge commits stay in history.
+
+**Verified:** as above — union merge (2 entries, 0 markers), conflict detection
+before/after an intervening merge, `main` untouched by a conflicted branch,
+hand-resolution, unmerged-branch and dirty-tree refusals, schema-slot refusal,
+and full teardown back to `main` alone.
