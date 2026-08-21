@@ -7,7 +7,11 @@ import { cn } from "@/lib/utils"
 // they're given:
 //
 //   icon      48px, fill weight, icon-minimal — the export's own #cac2bf
-//   caption   body-md / text-subtle — names the state in one short phrase
+//   caption   body-md / text-subtle — names the state in one short phrase.
+//             A node rather than a string, since some screens name their state
+//             with a badge instead of a line of text (Connections' "1
+//             connection active" pill) — anything passed inherits the caption's
+//             own type styles unless it sets its own.
 //   title     heading-sm / Phudu — the substantive message, and the loudest
 //             thing on screen despite sitting under a smaller label
 //
@@ -24,7 +28,7 @@ export function EmptyState({
   className,
 }: {
   icon: Icon
-  caption: string
+  caption: React.ReactNode
   title: string
   action?: React.ReactNode
   className?: string

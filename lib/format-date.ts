@@ -67,3 +67,24 @@ export function formatExpiry(expiresAt: Date, now: Date): string {
   const days = Math.max(1, Math.round(remaining / MS_PER_DAY))
   return `Expires in ${days} ${days === 1 ? "day" : "days"}`
 }
+
+// How close to expiry a connection starts asking to be renewed. The Figma
+// "ExpiringSoon" frame draws the warning state at "Expires in 7 days", and 7
+// is also a sensible window on its own: renewing inside it is a silent
+// redirect (LinkedIn skips the consent screen while the current token is
+// still alive), so the warning exists to catch people *before* the cliff.
+export const EXPIRY_WARNING_DAYS = 7
+
+export type ExpiryStatus = "active" | "expiring" | "expired"
+
+// Which of the three connected-row treatments a token is in — green and quiet,
+// amber with a Renew prompt, or red and dead. Shares formatExpiry's rounding
+// so the label and the colour can never disagree: a row reading "Expires in 7
+// days" is always the warning one.
+export function expiryStatus(expiresAt: Date, now: Date): ExpiryStatus {
+  const remaining = expiresAt.getTime() - now.getTime()
+  if (remaining <= 0) return "expired"
+
+  const days = Math.max(1, Math.round(remaining / MS_PER_DAY))
+  return days <= EXPIRY_WARNING_DAYS ? "expiring" : "active"
+}

@@ -56,6 +56,12 @@ max" check in the action is dead code. → 1MB is the real limit; enforce it
 client-side too. Raising it means moving the client check **and**
 `next.config.js` together.
 
+**`route.ts` may export only route handlers.** Next type-checks that file's
+exports, so a shared `const` parked next to `GET` (the LinkedIn OAuth state
+cookie name, shared by the authorize and callback legs) fails the build as an
+invalid route export. → Shared values belong in a lib module both routes
+import, never in one of the route files.
+
 **A layout's own errors are caught by the boundary one segment up.**
 `[projectId]/layout.tsx` throwing is caught by `app/projects/error.tsx`, not the
 sibling `error.tsx` inside it.
@@ -173,6 +179,36 @@ keyframe is the resting state, so nothing moves.
 **macOS overlay scrollbars silently ignore `::-webkit-scrollbar`.** → Hide the
 native scrollbar and render a real thumb element.
 
+## Third-party APIs
+
+**LinkedIn serves profile pictures from two hosts**, and its own docs
+disagree: the Sign In with OpenID Connect page samples
+`media.licdn-ei.com`, the media guides use `media.licdn.com`. → next/image's
+`remotePatterns` must list **both**, or an unlucky share of members get a
+400 and a broken avatar. Symptom would have been intermittent and
+member-specific, i.e. nearly impossible to reproduce locally.
+
+**Those URLs are also time-limited and dynamically keyed** — LinkedIn tells you
+to re-fetch them periodically. Anything that *stores* one (we hold it for the
+life of a connection, up to 60 days) needs an `onError` fallback, not a
+guarantee.
+
+**LinkedIn returns granted scopes comma-delimited, though you send them space-
+delimited.** A live exchange for `openid profile email` comes back as
+`email,openid,profile` — reordered and re-separated. → Anything testing whether
+a scope was granted must split on both, or it will report a granted scope as
+missing.
+
+**Plain `http://localhost` redirect URIs are accepted** by the developer portal
+and the authorization endpoint, despite the docs saying HTTPS. Verified live on
+`http://localhost:3001/...` — no tunnel needed for local development.
+
+**LinkedIn access tokens: 60 days, no refresh for ordinary apps.** Programmatic
+refresh tokens are MDP-partner-only. Re-auth before expiry skips the consent
+screen; after expiry it doesn't. And **changing the requested scope invalidates
+every previously issued token** — so adding a scope is a migration, not an
+edit.
+
 ## Supabase & auth
 
 **"Request failed" and "request rejected" are indistinguishable at the call
@@ -281,6 +317,14 @@ meaningless**. → Read initial/settled values via eval; catch frames with
 `computer` screenshots (which foreground the tab); trust a MutationObserver's
 **ordering**, never its clock; run spring math in Node against Motion's own
 `spring()` generator.
+
+**A short-lived, auto-dismissing element can vanish between two standalone tool
+calls.** A 4s toast read as "never rendered" across several navigate →
+screenshot pairs, and the eval sent to check the DOM had itself backgrounded
+the tab, freezing the toast at `opacity: 0` — which looked like confirmation.
+Both readings were artifacts, and the code they indicted was fine. → Put the
+navigate, the wait and the screenshot in **one `browser_batch`**, and before
+blaming a mechanism, revert to it and re-measure the same way.
 
 **A Base UI element measured through an eval shows `transition: none` and
 `data-starting-style` still attached** — that's not a bug, it's the starting style
