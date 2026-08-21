@@ -103,11 +103,9 @@ interface GeneratedPostCardProps {
   social: SocialPlatform
   onSocialChange: (social: SocialPlatform) => void
   // Forwarded straight through to the GeneratingPostCard this renders in
-  // place of itself while regenerating — same live DialKit values
-  // GeneratingView already threads into the "real" active generating card.
-  // Optional, defaulting to that panel's own defaults, so a call site with no
-  // dials of its own (the Content page's day deck) doesn't have to invent
-  // six numbers it never intends to change.
+  // place of itself while regenerating. Optional, and these defaults are that
+  // component's own frozen values repeated — so no call site has to invent six
+  // numbers it never intends to change, and nothing currently overrides them.
   textOpacityMin?: number
   textOpacityDuration?: number
   rotationEnabled?: boolean

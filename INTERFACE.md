@@ -281,8 +281,32 @@ account. Onboarding completion is global, not per project
 - Dates render with an ordinal suffix via `lib/format-date.ts`
   (`formatFullDate` "July 5th, 2026", `formatShortDate` "Sept 15th, 2026",
   chips "5th"). `Intl` has no ordinal, hence the hand-built string.
+- **Motion values get tuned on a DialKit panel and then frozen in code.** The
+  panel is a means, not a fixture: once the feel is right the numbers become
+  named constants in the file that animates them, and the panel is deleted (git
+  history holds it for re-tuning). Done for `toast.tsx`, `use-shake.ts`,
+  `day-deck.tsx` and now the generating page. Where a component already carries
+  the value as a prop default, freezing means *removing* the prop from the call
+  site rather than passing a constant into it.
 - Pluralisation follows plain English, not the exports (which are inconsistent).
 - Copy typos in exports are corrected ("view it's content" → "its").
+- **Restart rewrites the batch it already produced; it doesn't add a second
+  one.** Each slot of a re-run rerolls the post that slot generated
+  (`regeneratePost` — an UPDATE, so the row keeps its id, its day and its
+  platform) and only inserts where that row is gone, e.g. the card was deleted
+  first. A calendar-based batch therefore stays at one post per day however many
+  times it's restarted. Resume is not a restart — it's the same run continuing,
+  and it still inserts.
+- **An emptied results grid isn't a screen.** Deleting the last generated post
+  returns to the Generate page rather than leaving a Restart button for a batch
+  that no longer exists, and it leaves **on the click** — not after the exit
+  animation or the server's answer, which together put about a second of dead
+  screen between the two. The page hands over to the same centered
+  `SectionSpinner` every other in-project navigation uses while the router
+  fetches Generate, so the emptied grid is never on screen. Only applies once
+  the batch is finished (a running one has more cards coming) and only when it
+  actually produced posts — a batch that generated nothing keeps its "Nothing to
+  show" modal instead.
 
 ---
 
