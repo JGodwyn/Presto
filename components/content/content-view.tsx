@@ -1,8 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { ArrowsClockwise, Eyes, Info } from "@phosphor-icons/react"
+import {
+  ArrowsClockwise,
+  Eyes,
+  Info,
+  MagnifyingGlass,
+} from "@phosphor-icons/react"
 
+import { ContentSearch } from "@/components/content/content-search"
 import { DayDeck, type DeckOrigin } from "@/components/content/day-deck"
 import { MonthBoard } from "@/components/content/month-board"
 import { MonthSection } from "@/components/content/month-section"
@@ -14,6 +20,7 @@ import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import {
   CONTENT_TABS,
   dayKeyForPost,
+  filterPostsByQuery,
   formatDayLabel,
   groupPostsByMonth,
   type ContentTab,
@@ -50,6 +57,11 @@ const SHOW_AS_ICON_SPIN_DEG = 180
 const SHOW_AS_ICON_SPIN_MS = 300
 const SHOW_AS_ICON_SPIN_EASING = "cubic-bezier(0.23, 1, 0.32, 1)"
 
+// How much of the query the "nothing found" message echoes back. The empty
+// state's text blocks are a fixed 272px wide by design, and an unbroken string
+// longer than that would run straight out of the block.
+const ECHOED_QUERY_MAX_CHARS = 32
+
 // One line per tab, in the export's own caption/title split (the small grey
 // line names the state, the big Phudu line carries the message). Only the
 // Queued pair is from the export — the other two are written to match it,
@@ -58,6 +70,16 @@ const EMPTY_STATE_TITLES: Record<ContentTab, string> = {
   queued: "your posts for a later date show up here.",
   published: "your posts from a past date show up here.",
   draft: "your posts without a date show up here.",
+}
+
+// Trimmed to the field's own trailing ellipsis rather than CSS truncation:
+// the query sits mid-sentence inside the empty state's heading, where an
+// overflowing line-clamp would cut the rest of the sentence off with it.
+function echoQuery(query: string): string {
+  const trimmed = query.trim()
+  return trimmed.length > ECHOED_QUERY_MAX_CHARS
+    ? `${trimmed.slice(0, ECHOED_QUERY_MAX_CHARS)}…`
+    : trimmed
 }
 
 // The Content page, from the Figma "Content / Empty state" and "Content /
@@ -98,6 +120,11 @@ export function ContentView({
   // chips and their counts straight away rather than after a refresh — same
   // pattern as the Instructions cards.
   const [posts, setPosts] = React.useState(initialPosts)
+  // Owned here rather than inside ContentSearch: it filters the months below,
+  // so the page is what has to know it. It deliberately survives a tab switch
+  // — searching, finding nothing on Queued and checking Draft is the same
+  // search, not a new one.
+  const [query, setQuery] = React.useState("")
   // Which day's deck is open, plus the chip it opened from: the deck animates
   // out of that element's box, and focus returns to it on close. The origin
   // rect is measured once, at click time, rather than per render — it feeds
@@ -110,8 +137,8 @@ export function ContentView({
   } | null>(null)
 
   const months = React.useMemo(
-    () => groupPostsByMonth(posts, tab, now),
-    [posts, tab, now]
+    () => groupPostsByMonth(filterPostsByQuery(posts, query), tab, now),
+    [posts, query, tab, now]
   )
 
   // Re-derived from `months` rather than captured at click time, so a deck
@@ -132,6 +159,13 @@ export function ContentView({
   const handleTabChange = (value: ContentTab) => {
     setOpenDay(null)
     setContentTab(projectId, value)
+  }
+
+  // Same reason: a query that filters the open day's posts away would leave
+  // the deck pointing at a day the page no longer lists.
+  const handleQueryChange = (value: string) => {
+    setOpenDay(null)
+    setQuery(value)
   }
 
   const { ref: showAsRef, style: showAsStyle } =
@@ -195,7 +229,14 @@ export function ContentView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-dist-xl p-pad-2xl">
-      <h1 className="text-heading-md font-display text-text-bold">Content</h1>
+      {/* The search control sits at the header's opposite end, and is what
+          the panel's info marker used to be on this page (see the page's
+          `showInfoMarker={false}`) — the corner marker had no behavior, this
+          does. */}
+      <div className="flex items-center justify-between gap-dist-lg">
+        <h1 className="text-heading-md font-display text-text-bold">Content</h1>
+        <ContentSearch value={query} onValueChange={handleQueryChange} />
+      </div>
 
       <div className="flex flex-col gap-dist-md">
         <div className="flex items-center justify-between">
@@ -248,11 +289,33 @@ export function ContentView({
           item's automatic minimum is its content, which would otherwise push
           the column past the panel and take the whole page with it. */}
       {months.length === 0 ? (
-        <EmptyState
-          icon={Eyes}
-          caption="Nothing to show here"
-          title={EMPTY_STATE_TITLES[tab]}
-        />
+        // A search that matched nothing reads differently from a tab that has
+        // nothing in it: one is something to correct, the other is just the
+        // state of things. The caption echoes the query back in bold, which is
+        // what makes the first one actionable — you can see what you actually
+        // typed — while the big line stays the instruction.
+        query.trim() !== "" ? (
+          <EmptyState
+            icon={MagnifyingGlass}
+            caption={
+              <>
+                No matches for{" "}
+                {/* Bold, but it stays in the caption's own text-subtle —
+                    weight is enough to pick the query out, and darkening it
+                    would make the small grey line compete with the heading
+                    below it. */}
+                <strong className="font-bold">{echoQuery(query)}</strong>
+              </>
+            }
+            title="Check what you typed and try again"
+          />
+        ) : (
+          <EmptyState
+            icon={Eyes}
+            caption="Nothing to show here"
+            title={EMPTY_STATE_TITLES[tab]}
+          />
+        )
       ) : view === "kanban" ? (
         <div
           ref={setMonthsNode}

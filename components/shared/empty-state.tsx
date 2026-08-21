@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils"
 // they're given:
 //
 //   icon      48px, fill weight, icon-minimal — the export's own #cac2bf
-//   caption   body-md / text-subtle — names the state in one short phrase
+//   caption   body-md / text-subtle — names the state in one short phrase.
+//             Takes a node, not just a string, so a caption can carry a bold
+//             fragment (Content's search echoes the query back that way).
 //   title     heading-sm / Phudu — the substantive message, and the loudest
 //             thing on screen despite sitting under a smaller label
 //
@@ -24,7 +26,7 @@ export function EmptyState({
   className,
 }: {
   icon: Icon
-  caption: string
+  caption: React.ReactNode
   title: string
   action?: React.ReactNode
   className?: string

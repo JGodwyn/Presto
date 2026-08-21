@@ -333,6 +333,78 @@ account. Onboarding completion is global, not per project
   Also unspecified — a pending state on Connect (the click leaves the page, so
   it needs one), and whether Disconnect confirms.
 
+## 9b. Content — expanding search
+
+`components/content/content-search.tsx`. Sits at the **right end of the Content
+page's header row**, aligned with the "Content" title, and is what that page has
+instead of `GlowPanel`'s corner info marker (`showInfoMarker={false}`) — the
+marker had no behaviour, this does.
+
+- **Collapsed** it is a 40×32 chip: `bg-surface-3`, rad-xmd squircle, 24px
+  `MagnifyingGlass` at `icon-subtle`, plus the app's standard hover tint and
+  150ms press scale. That is deliberately the "Show as" pill's own surface and
+  radius — they stack down the same edge and read as one cluster.
+- **Expanded** it is a 280px field at the same height, radius and surface.
+  `px-pad-xs` applies in **both** states, which with the 4px each icon has
+  inside its own 32px button puts every glyph 8px in from its edge — so the
+  padding never animates, only the width, and the icon's offset from the
+  leading edge is identical open or closed.
+- Width is the animated property (200ms, the strong ease-in-out this app uses
+  for on-screen morphs). Animating width is against the usual
+  transform/opacity-only rule and is the right call here: a scale would stretch
+  the icon and text, where what's wanted is a field growing out from behind an
+  icon that keeps its size and its offset from the leading edge. The squircle
+  clip-path follows the transition frame by frame — `useSquircleClipPath`
+  re-measures on every resize.
+- **Clear button** (`PaintBrushHousehold` at 20px, a size down from the search
+  glyph — it's the secondary control of the two) appears at the trailing edge
+  once anything is typed. It **blurs in and out**: opacity + `scale(0.8)` +
+  `blur(4px)`, 150ms, through `AnimatePresence` rather than the `starting:`
+  mount-in used for conditional adornments elsewhere, because this one has to
+  animate *out* too and React unmounts an element the moment it stops being
+  rendered. It clears and returns the caret to the field — clearing is for
+  typing something else, not for putting the control away.
+- **Opens** on tap; focus moves to the input in a layout *effect*, after the
+  commit — focusing inside the click handler would land focus in a subtree
+  still marked `aria-hidden`, which Chrome blocks and warns about.
+- **Closes** on Escape (clearing the field and returning focus to the icon
+  button) or on blurring an empty field. A field with something typed in it
+  stays open on blur — the query is still filtering what you're looking at, and
+  it's also what stops the field collapsing out from under a click aimed at the
+  clear button (blur runs first, while the value is still there).
+- Collapsed, the input is `tabIndex={-1}` + `aria-hidden` and the icon button is
+  the only control; the input stays mounted regardless, since the box has to
+  have something to expand around.
+
+**What search matches** — `filterPostsByQuery` (lib/content-grouping.ts): a
+case-insensitive substring of the post's **content only**, no tokenising or
+ranking. Not topics, platform or date: topics are already chips on every card
+and a date has its own tab and chip. The filter runs *before* the tab split, so
+searching stays "within what I'm looking at" rather than jumping tabs, and **the
+query survives a tab switch** — searching, finding nothing on Queued and
+checking Draft is the same search. The query lives in `ContentView` (it filters
+the page, so the page owns it); open/closed stays inside the control. Changing
+it closes any open day deck, same as switching tabs.
+
+**No results** uses the standard `EmptyState`: `MagnifyingGlass`, caption
+`No matches for **{query}**` — bold, but **still in the caption's own
+`text-subtle`**: weight alone picks the query out, and darkening it would make
+the small grey line compete with the heading under it — title "Check what you
+typed and try again", no action button. The query is echoed in the *caption* — the small line names the
+state, which here includes what was searched for — while the big line stays the
+instruction, matching how the template's inversion works everywhere else. It's
+trimmed to 32 characters, since the template's text blocks are a fixed 272px and
+an unbroken longer string would run out of the block. `EmptyState`'s `caption`
+takes a `ReactNode` (widened from `string`) so the query can be bold.
+
+**Recent searches: deliberately not built.** The corpus is one person's own
+posts in one project and the queries are single words they remember writing, so
+a stored list mostly saves retyping "culture". The cost is a dropdown with its
+own keyboard navigation, dismissal and per-project persistence, plus a second
+thing competing for the space under the field. Revisit if search grows ranking
+or cross-project scope; the pieces (`Menu`, the lib/content-view.ts storage
+shape) are already there if so.
+
 ## 10a. Publishing — hard constraint
 
 **No UI may trigger a real post.** A publish/share call to a live social account

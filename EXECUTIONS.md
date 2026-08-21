@@ -253,3 +253,153 @@ work.
 before/after an intervening merge, `main` untouched by a conflicted branch,
 hand-resolution, unmerged-branch and dirty-tree refusals, schema-slot refusal,
 and full teardown back to `main` alone.
+
+## 2026-08-20 — Content: newest post first within a day
+
+**Task:** "The most recent post should stay on the top of the day. Currently
+posts get added to the bottom, so the most recent might not even be visible on
+a day with a lot of posts."
+
+- Traced the order to `groupPostsByMonth` (lib/content-grouping.ts): day groups
+  are built by pushing posts in the order `fetchPosts` returns them, which is
+  `created_at` **ascending** — so a newly generated post landed at the bottom of
+  its Kanban column (below the fold on a busy day) and at the far end of its
+  day deck. Only the *months* and *days* were ever sorted; a day's own posts
+  were not.
+- Fixed in that one function: each `DayGroup.posts` is now sorted
+  `byNewestFirst` (createdAt descending) after the day sort. Every consumer —
+  `KanbanColumn`, `MonthBoard`'s tallest-column height, `DayDeck` via
+  `openEntry.day.posts` — reads the same array, so one change covers all three.
+- Sorted by **creation**, not by the scheduled time the day is keyed on: posts
+  generated into the same day usually share a time (and drafts have none at
+  all), which would leave the order arbitrary. Applied on every tab, Queued
+  included — its *days* still read forwards ("what goes out next"), but the
+  order inside one day answers "what did I just add".
+- Test added to lib/content-grouping.test.ts covering Queued (day order forward,
+  post order newest-first) and Draft. `vitest` 10/10, `tsc --noEmit` and
+  `eslint` clean.
+- Verified in-browser on :3002 (this worktree's dev server) against the real DB:
+  the 27th August column holds three posts created Aug 20 / Aug 12 / Jul 31, and
+  both the Kanban column (top→bottom) and the day deck (left→right) now render
+  them in exactly that order — previously the reverse.
+
+## 2026-08-20 — Content: expanding search in the header
+
+**Task:** "add a search icon at the opposite end of the content header. replace
+the info icon with it. when tapped, it should expand into a search bar with the
+magnifying icon."
+
+- No Figma export exists for this (checked all 50 in design-sync/), so it's
+  built from what the page already uses: the collapsed chip borrows the "Show
+  as" pill's surface/radius (bg-surface-3, rad-xmd squircle) at the info
+  marker's 32px size, so the two right-edge controls read as one cluster.
+- New `components/content/content-search.tsx`; header row in content-view.tsx
+  became `flex justify-between` around the h1; the page passes
+  `showInfoMarker={false}` to GlowPanel so the corner marker is gone on Content
+  only (Generate keeps its own).
+- Collapsed = the icon's own 32px well with no horizontal padding, so expanding
+  moves *only* the box's right edge and the icon never shifts. Width animates
+  (200ms, strong ease-in-out) — against the standards' transform/opacity-only
+  rule, and deliberately: a scale would stretch the icon and the text.
+- Focus is moved in a `useLayoutEffect` keyed on `open`, not in the click
+  handler — focusing before the commit lands focus inside the still
+  `aria-hidden` collapsed subtree, which Chrome blocks and logs. Verified: no
+  console warnings across open/close cycles.
+- Escape clears + collapses + returns focus to the icon button; blurring an
+  empty field collapses; a field with text stays open on blur.
+- Verified in-browser on :3002 — collapsed chip 32×32 with its right edge at
+  1768px, exactly the "Show as" pill's (aligned to the same column padding);
+  expanded 280×32 with the clip-path recomputed for the new width; focus,
+  typing, Escape (value cleared, focus back on the button, input back to
+  tabIndex -1 / aria-hidden) and blur-to-collapse all confirmed.
+- **The query is intentionally not wired to filtering** — the ask was the
+  affordance, and what search should match (content, topics, both; behaviour
+  across tabs; empty-result state) is the next call to make.
+- `tsc --noEmit` and `eslint` clean.
+
+## 2026-08-20 — Content search: padding, clear, filtering, empty state
+
+Five items off a list; four built, one argued against.
+
+- **Horizontal padding.** The expanded field went from "icon flush at 4px, bare
+  right edge" to `px-pad-sm`, which with each icon's own 4px inside its 32px
+  button puts both glyphs exactly 12px in from their edge (verified in-browser:
+  `searchGlyphLeftInset: 12`, `clearGlyphRightInset: 12`). Collapsed keeps zero
+  padding — the chip *is* the icon button's box — so padding animates alongside
+  the width.
+- **Clear button**, `PaintBrushHousehold` per request (the icon Generate's reset
+  already uses), mounted only when there's a value, with the `starting:`
+  fade+scale used for conditionally-mounted adornments. It clears and refocuses
+  the field rather than closing it. The existing blur rule already covers the
+  ordering trap here: blur fires before the click, and it only collapses on an
+  *empty* value, so the field can't vanish out from under the button.
+- **Search itself** is `filterPostsByQuery` (lib/content-grouping.ts):
+  case-insensitive substring over `post.content` only, per instruction — not
+  topics (already chips on the card) or platform/date (each has its own tab and
+  chip). Applied before the tab split, so it reads as "search within what I'm
+  looking at", and the query deliberately survives a tab switch. No debounce:
+  it's an in-memory filter over a few hundred posts inside a `useMemo`.
+- The query moved up into `ContentView` (it filters the page, so the page owns
+  it); the control keeps only open/closed. Changing it closes an open day deck
+  for the same reason a tab switch does — the deck would be pointing at a day
+  the page no longer lists.
+- **Empty state** reuses `components/shared/empty-state.tsx`: MagnifyingGlass,
+  caption "No matches", title `Nothing found for "…". Check what you typed and
+  try again.`, no action. The echoed query is trimmed to 32 chars — the
+  template's text blocks are a fixed 272px and a longer unbroken string would
+  run straight out of the block.
+- **Recent searches: not built, on purpose** — the item was asked as a question
+  ("does this make sense?"). Argument in INTERFACE.md §9b: single-word queries
+  over one's own posts are cheaper to retype than a dropdown is to build, keyboard
+  navigate and persist. Easy to add later if search grows ranking or scope.
+- Tests: four cases for `filterPostsByQuery` in lib/content-grouping.test.ts
+  (case/whitespace, empty query, non-matching on topics/platform, no matches) —
+  14/14 passing. `tsc --noEmit` and `eslint` clean.
+- Verified in-browser on :3002: field geometry above; "culture" filters both
+  Kanban and the day chips (27th August 3 posts → 1) and the counts follow; the
+  query survives a Queued↔Published switch; a no-match query renders the empty
+  state with the query echoed; the clear button empties the field, keeps it open
+  and focused, and unmounts itself; Escape collapses back to 32px with padding
+  gone and focus on the icon button. No console warnings.
+
+## 2026-08-20 — Content search: padding pass, clear-icon blur, empty-state copy
+
+- **Padding, both states.** `px-pad-xs` now applies open *and* closed, so with
+  the 4px each icon has inside its own 32px button every glyph sits 8px in from
+  its edge. Collapsed grew 32→40px wide (was the icon button's bare box, glyph
+  wedged at 4px); expanded came down from 12px to 8px of glyph inset. Side
+  effect worth having: padding no longer animates at all — only width — and the
+  icon's offset from the leading edge is identical in both states. Measured:
+  collapsed 40×32 with 8px either side, expanded 280 with the search glyph 8px
+  in and its right edge still flush with the "Show as" pill's.
+- **Clear icon** down to 20px (a size below the search glyph — it's the
+  secondary of the two), and it now blurs in and out: opacity + scale 0.8 +
+  blur(4px), 150ms on the app's strong ease-out. That needed `AnimatePresence`
+  (motion/react, already a dep) rather than the `starting:` mount-in used for
+  conditional adornments elsewhere — `@starting-style` has nothing to say about
+  *leaving*, and React unmounts the element the moment it stops being rendered.
+- **Empty-state copy** split per request: caption `No matches for **{query}**`
+  (query bold), title "Check what you typed and try again". Echoing the query in
+  the small line is the better fit for the template's own inversion — the
+  caption names the state, the big line is the instruction.
+  `components/shared/empty-state.tsx`'s `caption` widened from `string` to
+  `ReactNode` for the bold fragment; the other two call sites are unaffected.
+- Verified in-browser on :3002: geometry above; the empty state renders
+  "No matches for **kubernetes**" over "CHECK WHAT YOU TYPED AND TRY AGAIN"; the
+  clear button was caught mid-blur on its way out in a zoom capture and had
+  unmounted by the following screenshot. Note the usual trap while checking the
+  exit — `javascript_tool` backgrounds the tab, which suspends rAF, so Motion
+  freezes and the element reads as "still mounted" indefinitely; only the
+  screenshot path (which foregrounds) advances it. `tsc` and `eslint` clean.
+
+## 2026-08-21 — Content search: echoed query stays subtle
+
+- The bold query in the "no matches" caption was also carrying `text-text-bold`.
+  Dropped, so it inherits the caption's `text-subtle` and only the weight sets
+  it apart — verified in-browser: query and caption both `rgb(146, 138, 135)`,
+  weights 700 vs 500.
+- Automation note: `computer` left_click by *coordinate* stopped landing on this
+  page mid-session — three clicks in a row left `document.activeElement` on
+  `<body>` with no console errors and HMR connected, so the page was hydrated
+  and fine. Clicking by `ref` (from `find`) worked first time. Worth reaching
+  for the ref path rather than assuming the change under test is broken.

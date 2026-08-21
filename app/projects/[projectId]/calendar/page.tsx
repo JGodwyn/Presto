@@ -33,7 +33,9 @@ export default async function ContentPage({
     // other section relies on being able to outgrow (they page-scroll).
     <div className="relative flex-1">
       <div className="absolute inset-0 flex flex-col">
-        <GlowPanel>
+        {/* No info marker: the header's own search control replaces it on
+            this page (components/content/content-search.tsx). */}
+        <GlowPanel showInfoMarker={false}>
           {/* The queued/published split needs a "now", and it has to be the same
           one on the server and during hydration or a post scheduled seconds
           away could change tabs mid-hydration — so it's stamped once, here,
