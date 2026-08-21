@@ -403,3 +403,166 @@ Five items off a list; four built, one argued against.
   `<body>` with no console errors and HMR connected, so the page was hydrated
   and fine. Clicking by `ref` (from `find`) worked first time. Worth reaching
   for the ref path rather than assuming the change under test is broken.
+
+## 2026-08-21 — Content: filter menu from the Figma exports
+
+Built from design-sync/content-filter-1 (nothing selected) and content-filter-2
+(LinkedIn + two topics ticked) — two states of one popover.
+
+- Read both frames with the figma-bridge skill. The menu is the app's existing
+  `Menu` card down to the numbers: 216 wide, surface-4, border-subtle at
+  stroke-lg, rad-lg, drop shadow 0/2/16 at 10%. Rows are the `_menu-item`
+  shape `MenuItem` already implements (40px, gap-dist-md, body-lg), so both
+  were reused rather than rebuilt — `MenuItem` only needed `px-pad-sm` and a
+  full-width divider (`before:inset-x-0`) at the call site, since the export's
+  list is already inset from the card edge.
+- Measured the header chips off the export's SVGs rather than trusting the
+  declared padding tokens: the frames are FIXED 44×32 with pad-md/pad-sm
+  declared, but the glyph ink centres at 22,16 and spans 17px, which is a 24px
+  icon centred in the box (10px either side — not a token, so the centring
+  produces it). The search chip was resized to match (40→44) and its glyph
+  moved from `icon-subtle` to `icon-bold`, which the export specifies (#181210).
+- `lib/content-filter.ts` holds the shape and the predicate: platform ANDs with
+  topics, topics OR among themselves, empty topics means all. Topics offered
+  come from `topicsInPosts(posts)` — the whole project's posts, not the current
+  tab/query, so the list can't reshuffle while you use it. 9 tests.
+- Social is a cycling row (All → LinkedIn → X) rather than a dropdown, per the
+  export's ArrowsClockwise — the same icon the "Show as" pill uses.
+- The popover is portaled to `<body>`: GlowPanel's squircle is a clip-path, and
+  clip-path clips every descendant including absolutely positioned ones (the
+  trap already documented in topic-picker.tsx). Pinned right-aligned to the
+  chip, 8px below, re-measured on scroll/resize.
+- Three departures from the export, all in INTERFACE.md §9c: the chip's glyph
+  goes `icon-brand` while a filter is on (the export only draws the rest
+  state, and a silent filter reads as missing posts); a filter with no matches
+  gets the no-matches EmptyState rather than the plain tab one the export
+  draws; and the filter is deliberately *not* persisted, unlike the tab and
+  layout.
+- Verified in-browser on :3002 against the export's own numbers: menu 216×382
+  (the export's exact height), right edge flush with the chip's at 1768, top
+  8px under it, chips 44×32 with an 8px gap, rows 40px, list capped at 240px
+  with 400px of content scrolling under the thumb. Behaviour: platform cycling
+  (156 → 154 LinkedIn → 2 X on Queued), topic tick (79), untick returning to
+  All topics, reset restoring everything and disabling itself, chip tint
+  following active state, Escape/click-away/chip-toggle closing, and search
+  composing with the filter (culture 16, +LinkedIn 16, +X 0 → empty state).
+- Two automation notes, both cost time. (1) `npx prettier --write` on a file
+  here reformats to semicolons — **this project has no prettier config and the
+  codebase is semicolon-free**; don't run it. Rewrote the file by hand.
+  (2) The Chrome extension's ref-click on the chip left it closed (it appears
+  to deliver the gesture such that the toggle fires twice); a full synthesized
+  pointerdown/mousedown/pointerup/mouseup/click sequence opens it correctly and
+  a second one closes it, which is what the component is actually doing.
+
+## 2026-08-21 — Content filter: padding, width, spin, fade
+
+Four adjustments, all per direct feedback.
+
+- **Padding** — every section in the menu went to `pad-lg` (16) both ways, from
+  the export's `pad-md`/`pad-sm` (12/8). The ask was "+8", which lands on 20px;
+  that isn't in the token scale (…md 12, lg 16, xl 24), so this takes the step
+  that is, and the vertical outer padding does get exactly +8. Flagged to the
+  user in case they want pad-xl instead.
+- **Width** 216 → 240 (`w-60`, +24 as asked). `MENU_WIDTH_PX` moves with it —
+  the portal's right-alignment maths needs the literal number, so the two are
+  hand-synced like `EDGE_FADE_PX` elsewhere. Section content is now 208 wide,
+  so "Artificial intelligence" fits without truncating (it didn't before).
+- **Spin** — the Social row's ArrowsClockwise now turns half a rotation per
+  tap. Rather than duplicating the "Show as" pill's implementation, that logic
+  moved into `hooks/use-icon-spin.ts` (angle state + WAAPI animate + the
+  resting inline `rotate`) and both call sites use it. The hook returns `ref`,
+  so it must be destructured at the call site or `react-hooks/refs` fires.
+- **Fade mask** on the topics list — `useScrollFade` (16 top / 32 bottom)
+  composed with the existing `useScrollThumb` into one callback ref and one
+  scroll handler, the same pairing content-view.tsx already uses for the page's
+  month list.
+- Verified in-browser on :3002: menu 240 wide, still right-aligned to the chip
+  with an 8px gap; section padding computed as 16px 16px 8px / 8px 16px / 8px
+  16px 16px; list 208 wide inset 16 either side, 400px of content in 240px;
+  mask at rest is bottom-only 32px and becomes 16px top + 32px bottom once
+  scrolled; the Social icon's inline rotate accumulates 360 → 540 → 720 with a
+  running 300ms `cubic-bezier(0.23, 1, 0.32, 1)` animation attached, and the
+  "Show as" pill still steps 0 → 180 after the extraction.
+- Suite note: `lib/ai/generate.test.ts` is flaky *independently of this work* —
+  it makes a real model call and intermittently hits vitest's 30s timeout
+  (confirmed by running that file alone twice: pass, then timeout). Everything
+  else is 69/69 green on every run.
+
+## 2026-08-21 — Content filter: full-bleed topic dividers
+
+- The topics section stopped padding its own sides; the rows carry `px-pad-xl`
+  instead (16 + 8 = the same place the labels already sat, so nothing moved),
+  which lets the list — and each row's divider — span the card's full 240px.
+  Bleeding a divider *out* of a narrower list was never an option: the list is
+  `overflow-y: auto`, which forces `overflow-x` to a scrolling value, so
+  anything past its box is clipped.
+- Two things fought back, both now commented at the call site. (1)
+  `before:inset-x-0` did not win over MenuItem's `before:inset-x-pad-md` —
+  tailwind-merge doesn't recognise `pad-md` as an inset value, so both classes
+  ship and CSS order decides, and the shorthand is ordered last. Fixed with the
+  `left`/`right` longhands, which Tailwind orders after the shorthand.
+  (2) That got the divider to 232px, not 240: a pseudo-element is positioned
+  against the *padding* box, and MenuItem carries a 4px transparent border for
+  its highlight state. Negative `stroke-xl` offsets cancel it — the same
+  cancellation MenuItem's own `-top-[…stroke-xl]` already does vertically.
+- Verified in-browser: dividers computed at 240px wide starting at -4px, i.e.
+  flush with both card edges; labels unchanged at 28px from the edge; ticking
+  Design still filters (155 → 75) and unticking restores All topics.
+- Automation note for this menu: a programmatic `chip.click()` doesn't show up
+  in the DOM within the same `javascript_tool` eval — the eval backgrounds the
+  tab, so React's commit lands later. Poll for the dialog inside the eval
+  (100ms steps) rather than clicking in one call and measuring in the next,
+  which just toggles it back shut.
+- Follow-up: the topic rows' labels now line up with the "Topics" heading (and
+  with "Social" and "Filter"). That meant *removing* the `px-pad-xl` added a
+  step earlier and letting the rows keep MenuItem's own `px-pad-md` — 12px of
+  padding plus its 4px transparent border puts the text at exactly 16, which is
+  where the section headings sit. Verified with a Range over each text node
+  (the section labels carry their padding on the span itself, so a
+  getBoundingClientRect on the element measures the padded box, not the text):
+  Filter / Social / Topics / All topics / every topic row all at 16, checkboxes
+  16 from the right edge, dividers still 240px at -4px.
+- The topics list's scroll thumb moved from 4px to 8px off the card's right
+  edge — with the list running to the card's edges, 4px sat almost on the
+  border. Verified: 8px gap, 4px thumb.
+- Operational note, after the user asked why their dev server kept dying: one
+  `pkill -f "next-server"` here is not scoped to this worktree — it kills the
+  dev server in *every* worktree (main on 3000, connections-page on 3001,
+  generate-page on 3003). Kill only the PID on this worktree's own port
+  (`.worktree`'s PORT=3002), or better, leave it running between verifications
+  rather than paying for a cold restart each time.
+
+## 2026-08-21 — Content filter: persisted per project
+
+- The filter now rides in lib/content-view.ts alongside the tab and the layout
+  (`presto:content-filter:<projectId>`), by request — it must survive a tab
+  switch *and* a refresh. ContentView reads it through the same
+  `useSyncExternalStore`, so there's no local copy: writing is what re-renders.
+- Two details the store needed. (1) **Snapshot identity**: that hook re-renders
+  on any change of snapshot identity, so parsing JSON on every read would loop
+  forever. `getContentFilter` caches the parsed object against the raw stored
+  string per project, and `setContentFilter` invalidates that entry. (2)
+  "Nothing selected" is stored as the *absence* of an entry and every unusable
+  read returns the shared `NO_CONTENT_FILTER` instance, so the default is one
+  object rather than a new equal one each time. `parseContentFilter` lives in
+  lib/content-filter.ts so it can be tested without stubbing localStorage.
+- **A restored filter is reconciled against the topics that still exist**
+  (`reconcileContentFilter`, derived at render rather than written back). A
+  topic filter saved before those posts were deleted or retagged would empty
+  the page with nothing in the menu to explain it — the menu is built from the
+  posts that remain, so the culprit row can't be shown. Derived, not repaired,
+  so the selection returns if its posts do.
+- Six new tests (parse round-trip, parse fallbacks by identity, unknown
+  platform/non-string topics dropped, reconcile drop/no-op/collapse) — 15 in
+  content-filter.test.ts, 76 across the suite.
+- Verified in-browser on :3002: applying LinkedIn + Design writes
+  `{"platform":"linkedin","topics":["Design"]}`; switching Queued → Published
+  keeps it (67 posts, chip still brand-tinted); a full reload comes back on
+  Published with the chip tinted and only LinkedIn/Design cards on the board.
+- **Measurement trap worth remembering**: right after a reload in this
+  automation environment the page reads as *un*restored — Queued, no filter —
+  because the tab is backgrounded and React hasn't run the post-hydration store
+  read yet. It isn't a bug (the tab and layout, which predate this work, look
+  equally unrestored at that moment); waiting ~3s and screenshotting shows
+  everything restored. Don't diagnose persistence from the first eval after a
+  navigate.

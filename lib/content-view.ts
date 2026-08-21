@@ -1,3 +1,9 @@
+import {
+  NO_CONTENT_FILTER,
+  isContentFilterActive,
+  parseContentFilter,
+  type ContentFilter,
+} from "@/lib/content-filter"
 import { CONTENT_TABS, type ContentTab } from "@/lib/content-grouping"
 
 // How the Content page lays out a day's posts. Kanban is first, which makes it
@@ -99,5 +105,59 @@ export function setContentTab(projectId: string, tab: ContentTab) {
   } catch {
     // As above — it still switches, it just won't be remembered.
   }
+  for (const listener of listeners) listener()
+}
+
+// The filter rides in the same store as the tab and the layout, by request: it
+// should survive both a tab switch and a refresh. It's the one of the three
+// that *hides* posts, so a stale one is worth guarding against — hence the
+// reconciliation against the topics that still exist (see
+// reconcileContentFilter) at the point of use.
+function filterStorageKey(projectId: string): string {
+  return `presto:content-filter:${projectId}`
+}
+
+// `useSyncExternalStore` compares snapshots by identity, so parsing on every
+// read would hand back a new object each time and re-render forever. The last
+// raw string and the object it parsed to are cached per project; an unchanged
+// string returns the very same object.
+const parsedFilters = new Map<string, { raw: string | null; value: ContentFilter }>()
+
+export function getContentFilter(projectId: string): ContentFilter {
+  const key = filterStorageKey(projectId)
+  let raw: string | null
+  try {
+    raw = window.localStorage.getItem(key)
+  } catch {
+    return NO_CONTENT_FILTER
+  }
+  const cached = parsedFilters.get(key)
+  if (cached && cached.raw === raw) return cached.value
+  const value = parseContentFilter(raw)
+  parsedFilters.set(key, { raw, value })
+  return value
+}
+
+export function getServerContentFilter(): ContentFilter {
+  return NO_CONTENT_FILTER
+}
+
+export function setContentFilter(projectId: string, filter: ContentFilter) {
+  const key = filterStorageKey(projectId)
+  try {
+    // "Nothing selected" is stored as the absence of an entry rather than a
+    // serialized empty filter — one representation of the default, and the
+    // next read is a plain miss.
+    if (isContentFilterActive(filter)) {
+      window.localStorage.setItem(key, JSON.stringify(filter))
+    } else {
+      window.localStorage.removeItem(key)
+    }
+  } catch {
+    // As above — the page still filters, it just won't be remembered.
+  }
+  // The cache is keyed on the raw string, so a write has to invalidate it:
+  // otherwise the next read compares against a stale pairing.
+  parsedFilters.delete(key)
   for (const listener of listeners) listener()
 }

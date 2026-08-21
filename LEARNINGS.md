@@ -290,3 +290,16 @@ first, then measure.
 **`useLayoutEffect` with no dependency array is right for a fixed-size scroller**
 observed by a ResizeObserver — content changing what's scrollable doesn't resize
 anything, so there'd be nothing to depend on.
+
+## Tooling: prettier is not this project's formatter
+
+**Symptom:** a new component came back reformatted with semicolons and different
+line breaks, matching nothing else in the codebase.
+
+**Cause:** `npx prettier --write <file>` was run to tidy a hand-edited file.
+There is no `.prettierrc` in the repo and prettier isn't in `package.json` — so
+it ran with its own defaults (semicolons on), not this project's style.
+
+**Rule:** don't run prettier here. Formatting is whatever ESLint enforces plus
+the existing files' conventions (no semicolons, double quotes). If a file needs
+tidying, edit it by hand and check it against a neighbouring file.

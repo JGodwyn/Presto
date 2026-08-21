@@ -12,12 +12,15 @@ import { cn } from "@/lib/utils"
 // of controls down the panel's right edge rather than two unrelated chips.
 const CORNER_RADIUS = 12
 
-// pad-xs either side in *both* states, which with the 4px each icon already
-// has inside its own 32px button puts every glyph 8px in from its edge — the
-// collapsed chip included, so the icon isn't wedged against the chip's sides.
-// Since the padding is the same either way, only the width animates.
+// The collapsed chip is the Figma "Content / Filter" header chip exactly —
+// 44×32 around a centred 24px glyph (design-sync/content-filter-1), the same
+// box the filter chip beside it uses. The 10px that centring leaves either
+// side isn't a padding token, which is why the icon wells below carry no
+// padding of their own: each is that same 44×32 box, so the glyphs sit 10px in
+// from their edge in both states and the container never needs padding that
+// would have to animate.
 const EXPANDED_CLASSNAME = "w-70"
-const COLLAPSED_CLASSNAME = "w-10"
+const COLLAPSED_CLASSNAME = "w-11"
 
 // The clear button blurs in and out rather than just fading: it appears and
 // disappears while the eye is on the text right beside it, and a blur reads as
@@ -82,7 +85,7 @@ export function ContentSearch({
       className={cn(
         // rounded-rad-xmd is the fallback shape until the squircle clip-path
         // is measured on mount, same as everywhere else in the app.
-        "flex h-8 items-center rounded-rad-xmd bg-surface-3 px-pad-xs transition-[width,background-color,scale] duration-200 ease-[cubic-bezier(0.77,0,0.175,1)]",
+        "flex h-8 items-center rounded-rad-xmd bg-surface-3 transition-[width,background-color,scale] duration-200 ease-[cubic-bezier(0.77,0,0.175,1)]",
         // Collapsed it's a button, so it takes the app's hover tint and press
         // scale (`:active` matches the ancestors of the pressed element, so
         // the whole chip scales rather than just the icon inside it).
@@ -106,9 +109,9 @@ export function ContentSearch({
         onClick={() => (open ? inputRef.current?.focus() : setOpen(true))}
         aria-label="Search posts"
         aria-expanded={open}
-        className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-rad-xmd outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        className="flex h-8 w-11 shrink-0 cursor-pointer items-center justify-center rounded-rad-xmd outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
       >
-        <MagnifyingGlass className="size-6 text-icon-subtle" />
+        <MagnifyingGlass className="size-6 text-icon-bold" />
       </button>
 
       <input
@@ -171,7 +174,7 @@ export function ContentSearch({
             animate={CLEAR_VISIBLE}
             exit={CLEAR_HIDDEN}
             transition={CLEAR_TRANSITION}
-            className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-rad-xmd text-icon-subtle transition-colors duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
+            className="flex h-8 w-11 shrink-0 cursor-pointer items-center justify-center rounded-rad-xmd text-icon-subtle transition-colors duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
           >
             <PaintBrushHousehold className="size-5" />
           </motion.button>
