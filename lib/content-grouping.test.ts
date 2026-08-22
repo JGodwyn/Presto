@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   dayKeyForPost,
+  filterPostsByQuery,
   groupPostsByMonth,
   postsForTab,
 } from "@/lib/content-grouping"
@@ -48,6 +49,38 @@ describe("postsForTab", () => {
 
     expect(postsForTab([post], "queued", NOW)).toEqual([post])
     expect(postsForTab([post], "published", NOW)).toEqual([])
+  })
+})
+
+describe("filterPostsByQuery", () => {
+  const culture = makePost({ content: "Company CULTURE isn't the snacks." })
+  const freelancing = makePost({ content: "Freelancing taught me a lot." })
+  const posts = [culture, freelancing]
+
+  it("matches the post's content, ignoring case and surrounding whitespace", () => {
+    expect(filterPostsByQuery(posts, "  culture ")).toEqual([culture])
+    expect(filterPostsByQuery(posts, "SNACKS")).toEqual([culture])
+    expect(filterPostsByQuery(posts, "taught")).toEqual([freelancing])
+  })
+
+  it("returns everything for an empty or whitespace-only query", () => {
+    expect(filterPostsByQuery(posts, "")).toEqual(posts)
+    expect(filterPostsByQuery(posts, "   ")).toEqual(posts)
+  })
+
+  it("does not match on topics, platform or date", () => {
+    const tagged = makePost({
+      content: "Nothing relevant here.",
+      topics: ["Design"],
+      platform: "linkedin",
+    })
+
+    expect(filterPostsByQuery([tagged], "Design")).toEqual([])
+    expect(filterPostsByQuery([tagged], "linkedin")).toEqual([])
+  })
+
+  it("returns nothing when the query matches no post", () => {
+    expect(filterPostsByQuery(posts, "kubernetes")).toEqual([])
   })
 })
 
@@ -117,6 +150,30 @@ describe("groupPostsByMonth", () => {
 
     expect(months).toHaveLength(1)
     expect(months[0].days.map((day) => day.day)).toEqual([30, 28])
+  })
+
+  it("puts the most recently created post first within a day, on every tab", () => {
+    const older = makePost({
+      scheduledFor: localIso(2026, 8, 3),
+      createdAt: localIso(2026, 7, 28),
+    })
+    const newer = makePost({
+      scheduledFor: localIso(2026, 8, 3),
+      createdAt: localIso(2026, 7, 30),
+    })
+
+    // Queued reads its *days* forwards, but a day's own posts still lead with
+    // the newest — otherwise a freshly generated post lands out of sight at
+    // the bottom of a busy day.
+    const queued = groupPostsByMonth([older, newer], "queued", NOW)
+    expect(queued[0].days[0].posts).toEqual([newer, older])
+
+    const drafts = [
+      makePost({ scheduledFor: null, createdAt: localIso(2026, 7, 30, 9) }),
+      makePost({ scheduledFor: null, createdAt: localIso(2026, 7, 30, 17) }),
+    ]
+    const draft = groupPostsByMonth(drafts, "draft", NOW)
+    expect(draft[0].days[0].posts).toEqual([drafts[1], drafts[0]])
   })
 
   it("returns no months for a tab with nothing in it", () => {

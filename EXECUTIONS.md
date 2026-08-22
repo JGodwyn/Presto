@@ -689,3 +689,315 @@ with these changes. They are `react-hooks/refs` and
 `projects-navbar.tsx`, `generate-calendar-column.tsx` and `generating-view.tsx`.
 Not introduced here and mostly in hot shared files, so left alone rather than
 widening this branch — see the note to the user at handoff.
+## 2026-08-20 — Content: newest post first within a day
+
+**Task:** "The most recent post should stay on the top of the day. Currently
+posts get added to the bottom, so the most recent might not even be visible on
+a day with a lot of posts."
+
+- Traced the order to `groupPostsByMonth` (lib/content-grouping.ts): day groups
+  are built by pushing posts in the order `fetchPosts` returns them, which is
+  `created_at` **ascending** — so a newly generated post landed at the bottom of
+  its Kanban column (below the fold on a busy day) and at the far end of its
+  day deck. Only the *months* and *days* were ever sorted; a day's own posts
+  were not.
+- Fixed in that one function: each `DayGroup.posts` is now sorted
+  `byNewestFirst` (createdAt descending) after the day sort. Every consumer —
+  `KanbanColumn`, `MonthBoard`'s tallest-column height, `DayDeck` via
+  `openEntry.day.posts` — reads the same array, so one change covers all three.
+- Sorted by **creation**, not by the scheduled time the day is keyed on: posts
+  generated into the same day usually share a time (and drafts have none at
+  all), which would leave the order arbitrary. Applied on every tab, Queued
+  included — its *days* still read forwards ("what goes out next"), but the
+  order inside one day answers "what did I just add".
+- Test added to lib/content-grouping.test.ts covering Queued (day order forward,
+  post order newest-first) and Draft. `vitest` 10/10, `tsc --noEmit` and
+  `eslint` clean.
+- Verified in-browser on :3002 (this worktree's dev server) against the real DB:
+  the 27th August column holds three posts created Aug 20 / Aug 12 / Jul 31, and
+  both the Kanban column (top→bottom) and the day deck (left→right) now render
+  them in exactly that order — previously the reverse.
+
+## 2026-08-20 — Content: expanding search in the header
+
+**Task:** "add a search icon at the opposite end of the content header. replace
+the info icon with it. when tapped, it should expand into a search bar with the
+magnifying icon."
+
+- No Figma export exists for this (checked all 50 in design-sync/), so it's
+  built from what the page already uses: the collapsed chip borrows the "Show
+  as" pill's surface/radius (bg-surface-3, rad-xmd squircle) at the info
+  marker's 32px size, so the two right-edge controls read as one cluster.
+- New `components/content/content-search.tsx`; header row in content-view.tsx
+  became `flex justify-between` around the h1; the page passes
+  `showInfoMarker={false}` to GlowPanel so the corner marker is gone on Content
+  only (Generate keeps its own).
+- Collapsed = the icon's own 32px well with no horizontal padding, so expanding
+  moves *only* the box's right edge and the icon never shifts. Width animates
+  (200ms, strong ease-in-out) — against the standards' transform/opacity-only
+  rule, and deliberately: a scale would stretch the icon and the text.
+- Focus is moved in a `useLayoutEffect` keyed on `open`, not in the click
+  handler — focusing before the commit lands focus inside the still
+  `aria-hidden` collapsed subtree, which Chrome blocks and logs. Verified: no
+  console warnings across open/close cycles.
+- Escape clears + collapses + returns focus to the icon button; blurring an
+  empty field collapses; a field with text stays open on blur.
+- Verified in-browser on :3002 — collapsed chip 32×32 with its right edge at
+  1768px, exactly the "Show as" pill's (aligned to the same column padding);
+  expanded 280×32 with the clip-path recomputed for the new width; focus,
+  typing, Escape (value cleared, focus back on the button, input back to
+  tabIndex -1 / aria-hidden) and blur-to-collapse all confirmed.
+- **The query is intentionally not wired to filtering** — the ask was the
+  affordance, and what search should match (content, topics, both; behaviour
+  across tabs; empty-result state) is the next call to make.
+- `tsc --noEmit` and `eslint` clean.
+
+## 2026-08-20 — Content search: padding, clear, filtering, empty state
+
+Five items off a list; four built, one argued against.
+
+- **Horizontal padding.** The expanded field went from "icon flush at 4px, bare
+  right edge" to `px-pad-sm`, which with each icon's own 4px inside its 32px
+  button puts both glyphs exactly 12px in from their edge (verified in-browser:
+  `searchGlyphLeftInset: 12`, `clearGlyphRightInset: 12`). Collapsed keeps zero
+  padding — the chip *is* the icon button's box — so padding animates alongside
+  the width.
+- **Clear button**, `PaintBrushHousehold` per request (the icon Generate's reset
+  already uses), mounted only when there's a value, with the `starting:`
+  fade+scale used for conditionally-mounted adornments. It clears and refocuses
+  the field rather than closing it. The existing blur rule already covers the
+  ordering trap here: blur fires before the click, and it only collapses on an
+  *empty* value, so the field can't vanish out from under the button.
+- **Search itself** is `filterPostsByQuery` (lib/content-grouping.ts):
+  case-insensitive substring over `post.content` only, per instruction — not
+  topics (already chips on the card) or platform/date (each has its own tab and
+  chip). Applied before the tab split, so it reads as "search within what I'm
+  looking at", and the query deliberately survives a tab switch. No debounce:
+  it's an in-memory filter over a few hundred posts inside a `useMemo`.
+- The query moved up into `ContentView` (it filters the page, so the page owns
+  it); the control keeps only open/closed. Changing it closes an open day deck
+  for the same reason a tab switch does — the deck would be pointing at a day
+  the page no longer lists.
+- **Empty state** reuses `components/shared/empty-state.tsx`: MagnifyingGlass,
+  caption "No matches", title `Nothing found for "…". Check what you typed and
+  try again.`, no action. The echoed query is trimmed to 32 chars — the
+  template's text blocks are a fixed 272px and a longer unbroken string would
+  run straight out of the block.
+- **Recent searches: not built, on purpose** — the item was asked as a question
+  ("does this make sense?"). Argument in INTERFACE.md §9b: single-word queries
+  over one's own posts are cheaper to retype than a dropdown is to build, keyboard
+  navigate and persist. Easy to add later if search grows ranking or scope.
+- Tests: four cases for `filterPostsByQuery` in lib/content-grouping.test.ts
+  (case/whitespace, empty query, non-matching on topics/platform, no matches) —
+  14/14 passing. `tsc --noEmit` and `eslint` clean.
+- Verified in-browser on :3002: field geometry above; "culture" filters both
+  Kanban and the day chips (27th August 3 posts → 1) and the counts follow; the
+  query survives a Queued↔Published switch; a no-match query renders the empty
+  state with the query echoed; the clear button empties the field, keeps it open
+  and focused, and unmounts itself; Escape collapses back to 32px with padding
+  gone and focus on the icon button. No console warnings.
+
+## 2026-08-20 — Content search: padding pass, clear-icon blur, empty-state copy
+
+- **Padding, both states.** `px-pad-xs` now applies open *and* closed, so with
+  the 4px each icon has inside its own 32px button every glyph sits 8px in from
+  its edge. Collapsed grew 32→40px wide (was the icon button's bare box, glyph
+  wedged at 4px); expanded came down from 12px to 8px of glyph inset. Side
+  effect worth having: padding no longer animates at all — only width — and the
+  icon's offset from the leading edge is identical in both states. Measured:
+  collapsed 40×32 with 8px either side, expanded 280 with the search glyph 8px
+  in and its right edge still flush with the "Show as" pill's.
+- **Clear icon** down to 20px (a size below the search glyph — it's the
+  secondary of the two), and it now blurs in and out: opacity + scale 0.8 +
+  blur(4px), 150ms on the app's strong ease-out. That needed `AnimatePresence`
+  (motion/react, already a dep) rather than the `starting:` mount-in used for
+  conditional adornments elsewhere — `@starting-style` has nothing to say about
+  *leaving*, and React unmounts the element the moment it stops being rendered.
+- **Empty-state copy** split per request: caption `No matches for **{query}**`
+  (query bold), title "Check what you typed and try again". Echoing the query in
+  the small line is the better fit for the template's own inversion — the
+  caption names the state, the big line is the instruction.
+  `components/shared/empty-state.tsx`'s `caption` widened from `string` to
+  `ReactNode` for the bold fragment; the other two call sites are unaffected.
+- Verified in-browser on :3002: geometry above; the empty state renders
+  "No matches for **kubernetes**" over "CHECK WHAT YOU TYPED AND TRY AGAIN"; the
+  clear button was caught mid-blur on its way out in a zoom capture and had
+  unmounted by the following screenshot. Note the usual trap while checking the
+  exit — `javascript_tool` backgrounds the tab, which suspends rAF, so Motion
+  freezes and the element reads as "still mounted" indefinitely; only the
+  screenshot path (which foregrounds) advances it. `tsc` and `eslint` clean.
+
+## 2026-08-21 — Content search: echoed query stays subtle
+
+- The bold query in the "no matches" caption was also carrying `text-text-bold`.
+  Dropped, so it inherits the caption's `text-subtle` and only the weight sets
+  it apart — verified in-browser: query and caption both `rgb(146, 138, 135)`,
+  weights 700 vs 500.
+- Automation note: `computer` left_click by *coordinate* stopped landing on this
+  page mid-session — three clicks in a row left `document.activeElement` on
+  `<body>` with no console errors and HMR connected, so the page was hydrated
+  and fine. Clicking by `ref` (from `find`) worked first time. Worth reaching
+  for the ref path rather than assuming the change under test is broken.
+
+## 2026-08-21 — Content: filter menu from the Figma exports
+
+Built from design-sync/content-filter-1 (nothing selected) and content-filter-2
+(LinkedIn + two topics ticked) — two states of one popover.
+
+- Read both frames with the figma-bridge skill. The menu is the app's existing
+  `Menu` card down to the numbers: 216 wide, surface-4, border-subtle at
+  stroke-lg, rad-lg, drop shadow 0/2/16 at 10%. Rows are the `_menu-item`
+  shape `MenuItem` already implements (40px, gap-dist-md, body-lg), so both
+  were reused rather than rebuilt — `MenuItem` only needed `px-pad-sm` and a
+  full-width divider (`before:inset-x-0`) at the call site, since the export's
+  list is already inset from the card edge.
+- Measured the header chips off the export's SVGs rather than trusting the
+  declared padding tokens: the frames are FIXED 44×32 with pad-md/pad-sm
+  declared, but the glyph ink centres at 22,16 and spans 17px, which is a 24px
+  icon centred in the box (10px either side — not a token, so the centring
+  produces it). The search chip was resized to match (40→44) and its glyph
+  moved from `icon-subtle` to `icon-bold`, which the export specifies (#181210).
+- `lib/content-filter.ts` holds the shape and the predicate: platform ANDs with
+  topics, topics OR among themselves, empty topics means all. Topics offered
+  come from `topicsInPosts(posts)` — the whole project's posts, not the current
+  tab/query, so the list can't reshuffle while you use it. 9 tests.
+- Social is a cycling row (All → LinkedIn → X) rather than a dropdown, per the
+  export's ArrowsClockwise — the same icon the "Show as" pill uses.
+- The popover is portaled to `<body>`: GlowPanel's squircle is a clip-path, and
+  clip-path clips every descendant including absolutely positioned ones (the
+  trap already documented in topic-picker.tsx). Pinned right-aligned to the
+  chip, 8px below, re-measured on scroll/resize.
+- Three departures from the export, all in INTERFACE.md §9c: the chip's glyph
+  goes `icon-brand` while a filter is on (the export only draws the rest
+  state, and a silent filter reads as missing posts); a filter with no matches
+  gets the no-matches EmptyState rather than the plain tab one the export
+  draws; and the filter is deliberately *not* persisted, unlike the tab and
+  layout.
+- Verified in-browser on :3002 against the export's own numbers: menu 216×382
+  (the export's exact height), right edge flush with the chip's at 1768, top
+  8px under it, chips 44×32 with an 8px gap, rows 40px, list capped at 240px
+  with 400px of content scrolling under the thumb. Behaviour: platform cycling
+  (156 → 154 LinkedIn → 2 X on Queued), topic tick (79), untick returning to
+  All topics, reset restoring everything and disabling itself, chip tint
+  following active state, Escape/click-away/chip-toggle closing, and search
+  composing with the filter (culture 16, +LinkedIn 16, +X 0 → empty state).
+- Two automation notes, both cost time. (1) `npx prettier --write` on a file
+  here reformats to semicolons — **this project has no prettier config and the
+  codebase is semicolon-free**; don't run it. Rewrote the file by hand.
+  (2) The Chrome extension's ref-click on the chip left it closed (it appears
+  to deliver the gesture such that the toggle fires twice); a full synthesized
+  pointerdown/mousedown/pointerup/mouseup/click sequence opens it correctly and
+  a second one closes it, which is what the component is actually doing.
+
+## 2026-08-21 — Content filter: padding, width, spin, fade
+
+Four adjustments, all per direct feedback.
+
+- **Padding** — every section in the menu went to `pad-lg` (16) both ways, from
+  the export's `pad-md`/`pad-sm` (12/8). The ask was "+8", which lands on 20px;
+  that isn't in the token scale (…md 12, lg 16, xl 24), so this takes the step
+  that is, and the vertical outer padding does get exactly +8. Flagged to the
+  user in case they want pad-xl instead.
+- **Width** 216 → 240 (`w-60`, +24 as asked). `MENU_WIDTH_PX` moves with it —
+  the portal's right-alignment maths needs the literal number, so the two are
+  hand-synced like `EDGE_FADE_PX` elsewhere. Section content is now 208 wide,
+  so "Artificial intelligence" fits without truncating (it didn't before).
+- **Spin** — the Social row's ArrowsClockwise now turns half a rotation per
+  tap. Rather than duplicating the "Show as" pill's implementation, that logic
+  moved into `hooks/use-icon-spin.ts` (angle state + WAAPI animate + the
+  resting inline `rotate`) and both call sites use it. The hook returns `ref`,
+  so it must be destructured at the call site or `react-hooks/refs` fires.
+- **Fade mask** on the topics list — `useScrollFade` (16 top / 32 bottom)
+  composed with the existing `useScrollThumb` into one callback ref and one
+  scroll handler, the same pairing content-view.tsx already uses for the page's
+  month list.
+- Verified in-browser on :3002: menu 240 wide, still right-aligned to the chip
+  with an 8px gap; section padding computed as 16px 16px 8px / 8px 16px / 8px
+  16px 16px; list 208 wide inset 16 either side, 400px of content in 240px;
+  mask at rest is bottom-only 32px and becomes 16px top + 32px bottom once
+  scrolled; the Social icon's inline rotate accumulates 360 → 540 → 720 with a
+  running 300ms `cubic-bezier(0.23, 1, 0.32, 1)` animation attached, and the
+  "Show as" pill still steps 0 → 180 after the extraction.
+- Suite note: `lib/ai/generate.test.ts` is flaky *independently of this work* —
+  it makes a real model call and intermittently hits vitest's 30s timeout
+  (confirmed by running that file alone twice: pass, then timeout). Everything
+  else is 69/69 green on every run.
+
+## 2026-08-21 — Content filter: full-bleed topic dividers
+
+- The topics section stopped padding its own sides; the rows carry `px-pad-xl`
+  instead (16 + 8 = the same place the labels already sat, so nothing moved),
+  which lets the list — and each row's divider — span the card's full 240px.
+  Bleeding a divider *out* of a narrower list was never an option: the list is
+  `overflow-y: auto`, which forces `overflow-x` to a scrolling value, so
+  anything past its box is clipped.
+- Two things fought back, both now commented at the call site. (1)
+  `before:inset-x-0` did not win over MenuItem's `before:inset-x-pad-md` —
+  tailwind-merge doesn't recognise `pad-md` as an inset value, so both classes
+  ship and CSS order decides, and the shorthand is ordered last. Fixed with the
+  `left`/`right` longhands, which Tailwind orders after the shorthand.
+  (2) That got the divider to 232px, not 240: a pseudo-element is positioned
+  against the *padding* box, and MenuItem carries a 4px transparent border for
+  its highlight state. Negative `stroke-xl` offsets cancel it — the same
+  cancellation MenuItem's own `-top-[…stroke-xl]` already does vertically.
+- Verified in-browser: dividers computed at 240px wide starting at -4px, i.e.
+  flush with both card edges; labels unchanged at 28px from the edge; ticking
+  Design still filters (155 → 75) and unticking restores All topics.
+- Automation note for this menu: a programmatic `chip.click()` doesn't show up
+  in the DOM within the same `javascript_tool` eval — the eval backgrounds the
+  tab, so React's commit lands later. Poll for the dialog inside the eval
+  (100ms steps) rather than clicking in one call and measuring in the next,
+  which just toggles it back shut.
+- Follow-up: the topic rows' labels now line up with the "Topics" heading (and
+  with "Social" and "Filter"). That meant *removing* the `px-pad-xl` added a
+  step earlier and letting the rows keep MenuItem's own `px-pad-md` — 12px of
+  padding plus its 4px transparent border puts the text at exactly 16, which is
+  where the section headings sit. Verified with a Range over each text node
+  (the section labels carry their padding on the span itself, so a
+  getBoundingClientRect on the element measures the padded box, not the text):
+  Filter / Social / Topics / All topics / every topic row all at 16, checkboxes
+  16 from the right edge, dividers still 240px at -4px.
+- The topics list's scroll thumb moved from 4px to 8px off the card's right
+  edge — with the list running to the card's edges, 4px sat almost on the
+  border. Verified: 8px gap, 4px thumb.
+- Operational note, after the user asked why their dev server kept dying: one
+  `pkill -f "next-server"` here is not scoped to this worktree — it kills the
+  dev server in *every* worktree (main on 3000, connections-page on 3001,
+  generate-page on 3003). Kill only the PID on this worktree's own port
+  (`.worktree`'s PORT=3002), or better, leave it running between verifications
+  rather than paying for a cold restart each time.
+
+## 2026-08-21 — Content filter: persisted per project
+
+- The filter now rides in lib/content-view.ts alongside the tab and the layout
+  (`presto:content-filter:<projectId>`), by request — it must survive a tab
+  switch *and* a refresh. ContentView reads it through the same
+  `useSyncExternalStore`, so there's no local copy: writing is what re-renders.
+- Two details the store needed. (1) **Snapshot identity**: that hook re-renders
+  on any change of snapshot identity, so parsing JSON on every read would loop
+  forever. `getContentFilter` caches the parsed object against the raw stored
+  string per project, and `setContentFilter` invalidates that entry. (2)
+  "Nothing selected" is stored as the *absence* of an entry and every unusable
+  read returns the shared `NO_CONTENT_FILTER` instance, so the default is one
+  object rather than a new equal one each time. `parseContentFilter` lives in
+  lib/content-filter.ts so it can be tested without stubbing localStorage.
+- **A restored filter is reconciled against the topics that still exist**
+  (`reconcileContentFilter`, derived at render rather than written back). A
+  topic filter saved before those posts were deleted or retagged would empty
+  the page with nothing in the menu to explain it — the menu is built from the
+  posts that remain, so the culprit row can't be shown. Derived, not repaired,
+  so the selection returns if its posts do.
+- Six new tests (parse round-trip, parse fallbacks by identity, unknown
+  platform/non-string topics dropped, reconcile drop/no-op/collapse) — 15 in
+  content-filter.test.ts, 76 across the suite.
+- Verified in-browser on :3002: applying LinkedIn + Design writes
+  `{"platform":"linkedin","topics":["Design"]}`; switching Queued → Published
+  keeps it (67 posts, chip still brand-tinted); a full reload comes back on
+  Published with the chip tinted and only LinkedIn/Design cards on the board.
+- **Measurement trap worth remembering**: right after a reload in this
+  automation environment the page reads as *un*restored — Queued, no filter —
+  because the tab is backgrounded and React hasn't run the post-hydration store
+  read yet. It isn't a bug (the tab and layout, which predate this work, look
+  equally unrestored at that moment); waiting ~3s and screenshotting shows
+  everything restored. Don't diagnose persistence from the first eval after a
+  navigate.

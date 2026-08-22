@@ -8,10 +8,12 @@ import { cn } from "@/lib/utils"
 //
 //   icon      48px, fill weight, icon-minimal — the export's own #cac2bf
 //   caption   body-md / text-subtle — names the state in one short phrase.
-//             A node rather than a string, since some screens name their state
-//             with a badge instead of a line of text (Connections' "1
-//             connection active" pill) — anything passed inherits the caption's
-//             own type styles unless it sets its own.
+//             A node rather than a string, since a caption is not always a
+//             plain line of text: some screens name their state with a badge
+//             (Connections' "1 connection active" pill) and some carry a bold
+//             fragment (Content's search echoes the query back that way).
+//             Anything passed inherits the caption's own type styles unless it
+//             sets its own.
 //   title     heading-sm / Phudu — the substantive message, and the loudest
 //             thing on screen despite sitting under a smaller label
 //

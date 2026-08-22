@@ -53,6 +53,22 @@ export function postsForTab(posts: Post[], tab: ContentTab, now: number): Post[]
   return posts.filter((post) => belongsToTab(post, tab, now))
 }
 
+// Free-text search over the posts themselves. Matches the post's **content**
+// only (per direct instruction) — not topics, platform or date: the topics are
+// already visible as chips on every card, and a date has its own tab and its
+// own chip to find it by, so widening the net here would mostly return posts
+// whose text has nothing to do with what was typed.
+//
+// Case-insensitive substring, no tokenising or ranking: the corpus is one
+// person's own posts and the queries are the words they remember writing.
+// Applied before the tab split, so a search still reads as "search within what
+// I'm looking at" rather than jumping tabs on its own.
+export function filterPostsByQuery(posts: Post[], query: string): Post[] {
+  const needle = query.trim().toLowerCase()
+  if (needle === "") return posts
+  return posts.filter((post) => post.content.toLowerCase().includes(needle))
+}
+
 function dayKey(year: number, month: number, day: number): string {
   return `${year}-${month}-${day}`
 }
@@ -86,6 +102,19 @@ function groupingDate(post: Post, tab: ContentTab): Date {
 // drafts both want their most recent entries first.
 function isAscending(tab: ContentTab): boolean {
   return tab === "queued"
+}
+
+// Within a day, the most recently added post sits first — on every tab,
+// including Queued, whose *days* still read forwards. The day ordering answers
+// "what goes out next"; the order inside one day answers "what did I just
+// add", and a post appended to the bottom of a busy day can sit below the fold
+// of its Kanban column or off the end of its deck.
+//
+// Sorted by creation, not by the scheduled time the day itself is keyed on:
+// posts generated into the same day usually share a time (or have none at
+// all, on Draft), so that would leave the order arbitrary.
+function byNewestFirst(a: Post, b: Post): number {
+  return Date.parse(b.createdAt) - Date.parse(a.createdAt)
 }
 
 // Groups a tab's posts into month sections, each holding one entry per day
@@ -136,6 +165,9 @@ export function groupPostsByMonth(posts: Post[], tab: ContentTab, now: number): 
   )
   for (const monthGroup of sorted) {
     monthGroup.days.sort((a, b) => (a.day - b.day) * direction)
+    for (const dayGroup of monthGroup.days) {
+      dayGroup.posts.sort(byNewestFirst)
+    }
   }
 
   return sorted

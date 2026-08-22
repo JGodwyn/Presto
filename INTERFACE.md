@@ -421,6 +421,170 @@ account. Onboarding completion is global, not per project
   `window.history.replaceState` (no refetch). A cancelled consent screen gets
   no toast at all — it's a decision, not a failure.
 
+## 9b. Content — expanding search
+
+`components/content/content-search.tsx`. Sits at the **right end of the Content
+page's header row**, aligned with the "Content" title, and is what that page has
+instead of `GlowPanel`'s corner info marker (`showInfoMarker={false}`) — the
+marker had no behaviour, this does.
+
+- **Collapsed** it is a 40×32 chip: `bg-surface-3`, rad-xmd squircle, 24px
+  `MagnifyingGlass` at `icon-subtle`, plus the app's standard hover tint and
+  150ms press scale. That is deliberately the "Show as" pill's own surface and
+  radius — they stack down the same edge and read as one cluster.
+- **Expanded** it is a 280px field at the same height, radius and surface.
+  `px-pad-xs` applies in **both** states, which with the 4px each icon has
+  inside its own 32px button puts every glyph 8px in from its edge — so the
+  padding never animates, only the width, and the icon's offset from the
+  leading edge is identical open or closed.
+- Width is the animated property (200ms, the strong ease-in-out this app uses
+  for on-screen morphs). Animating width is against the usual
+  transform/opacity-only rule and is the right call here: a scale would stretch
+  the icon and text, where what's wanted is a field growing out from behind an
+  icon that keeps its size and its offset from the leading edge. The squircle
+  clip-path follows the transition frame by frame — `useSquircleClipPath`
+  re-measures on every resize.
+- **Clear button** (`PaintBrushHousehold` at 20px, a size down from the search
+  glyph — it's the secondary control of the two) appears at the trailing edge
+  once anything is typed. It **blurs in and out**: opacity + `scale(0.8)` +
+  `blur(4px)`, 150ms, through `AnimatePresence` rather than the `starting:`
+  mount-in used for conditional adornments elsewhere, because this one has to
+  animate *out* too and React unmounts an element the moment it stops being
+  rendered. It clears and returns the caret to the field — clearing is for
+  typing something else, not for putting the control away.
+- **Opens** on tap; focus moves to the input in a layout *effect*, after the
+  commit — focusing inside the click handler would land focus in a subtree
+  still marked `aria-hidden`, which Chrome blocks and warns about.
+- **Closes** on Escape (clearing the field and returning focus to the icon
+  button) or on blurring an empty field. A field with something typed in it
+  stays open on blur — the query is still filtering what you're looking at, and
+  it's also what stops the field collapsing out from under a click aimed at the
+  clear button (blur runs first, while the value is still there).
+- Collapsed, the input is `tabIndex={-1}` + `aria-hidden` and the icon button is
+  the only control; the input stays mounted regardless, since the box has to
+  have something to expand around.
+
+**What search matches** — `filterPostsByQuery` (lib/content-grouping.ts): a
+case-insensitive substring of the post's **content only**, no tokenising or
+ranking. Not topics, platform or date: topics are already chips on every card
+and a date has its own tab and chip. The filter runs *before* the tab split, so
+searching stays "within what I'm looking at" rather than jumping tabs, and **the
+query survives a tab switch** — searching, finding nothing on Queued and
+checking Draft is the same search. The query lives in `ContentView` (it filters
+the page, so the page owns it); open/closed stays inside the control. Changing
+it closes any open day deck, same as switching tabs.
+
+**No results** uses the standard `EmptyState`: `MagnifyingGlass`, caption
+`No matches for **{query}**` — bold, but **still in the caption's own
+`text-subtle`**: weight alone picks the query out, and darkening it would make
+the small grey line compete with the heading under it — title "Check what you
+typed and try again", no action button. The query is echoed in the *caption* — the small line names the
+state, which here includes what was searched for — while the big line stays the
+instruction, matching how the template's inversion works everywhere else. It's
+trimmed to 32 characters, since the template's text blocks are a fixed 272px and
+an unbroken longer string would run out of the block. `EmptyState`'s `caption`
+takes a `ReactNode` (widened from `string`) so the query can be bold.
+
+**Recent searches: deliberately not built.** The corpus is one person's own
+posts in one project and the queries are single words they remember writing, so
+a stored list mostly saves retyping "culture". The cost is a dropdown with its
+own keyboard navigation, dismissal and per-project persistence, plus a second
+thing competing for the space under the field. Revisit if search grows ranking
+or cross-project scope; the pieces (`Menu`, the lib/content-view.ts storage
+shape) are already there if so.
+
+## 9c. Content — filter
+
+`components/content/content-filter.tsx` + `lib/content-filter.ts`, from
+design-sync/content-filter-1 (nothing selected) and content-filter-2 (LinkedIn
++ two topics). A second 44×32 chip sits beside the search one — `FunnelSimple`,
+same surface and radius — and opens a 216px menu.
+
+**The header pair.** Both chips are 44×32 around a centred 24px glyph in
+`icon-bold`, 8px apart, right-aligned to the page's own padding. The 10px the
+centring leaves either side is not a padding token, which is why neither chip
+declares padding: the box does it. The search control's collapsed state was
+resized to match (it had been 40px with a `icon-subtle` glyph).
+
+**The menu** is the shared `Menu` (its squircle, ring and shadow) at **240px —
+24 wider than the export**, by request, which is what lets a label like
+"Artificial intelligence" sit unabbreviated. Every section carries `pad-lg`
+rather than the export's `pad-md`/`pad-sm` (also by request: "+8"; 20px isn't
+on the token scale, so this is the step that is). `MENU_WIDTH_PX` and the
+card's `w-60` are hand-synced — the positioning maths needs the number.
+It is portaled to `<body>` and pinned under the chip with its right edges
+aligned, 8px below — portaled for the reason topic-picker.tsx spells out: GlowPanel's
+squircle is a clip-path, and clip-path clips *every* descendant, including
+absolutely positioned ones. Closes on Escape, on the chip, and on a pointerdown
+anywhere outside.
+
+- **Header row** — "Filter" (`body-md-bold`) and an `ArrowCounterClockwise`
+  reset, disabled while nothing is selected.
+- **Social** is a *cycling* row, not a dropdown: All → LinkedIn → X, carrying
+  the same `ArrowsClockwise` the "Show as" pill uses, since with three values a
+  tap-through beats open-then-pick. "All" draws both brand marks. The icon
+  **turns half a rotation per tap**, accumulating — `hooks/use-icon-spin.ts`,
+  extracted from the "Show as" pill so both cycling controls share one
+  implementation. It's a WAAPI animation rather than a transition on the inline
+  `rotate`, for the reason documented in that file: the tap also swaps the
+  content underneath, and a commit that big can apply the new value without a
+  transition ever starting.
+- **Topics** is `All topics` (a green `icon-success` check when nothing is
+  selected) over one `MenuItem` per topic with a 20px checkbox: `surface-3` +
+  inset `border-subtle` ring unchecked, `surface-brand` with a white check when
+  ticked. Rows are 40px and **span the card's full width** — the topics section
+  carries no horizontal padding of its own and the rows keep `MenuItem`'s own
+  `px-pad-md`, which with its transparent `stroke-xl` border lands every label
+  exactly 16px in: flush with "Topics", "Social" and "Filter" above them (and
+  the checkboxes 16px from the right edge, flush with the reset icon). Each
+  row's divider therefore runs edge to edge. Bleeding the divider out
+  of a narrower list can't work: `overflow-y: auto` forces `overflow-x` to a
+  scrolling value, so anything past the list's box is clipped. Two gotchas in
+  that override, both commented at the call site — `before:inset-x-0` loses to
+  MenuItem's own `before:inset-x-pad-md` (tailwind-merge doesn't recognise the
+  named spacing value, so both ship and CSS order picks the shorthand), hence
+  the `left`/`right` longhands; and they carry a negative `stroke-xl` offset to
+  cancel MenuItem's transparent border, which insets the padding box the
+  pseudo-element is positioned against. The list caps at six rows (240px) and
+  scrolls under the app's standard thumb, with `useScrollFade` on the same node (16px top,
+  32px bottom — deeper at the bottom for the same reason as everywhere else:
+  it's the only thing signalling there's more below). Both hooks are composed
+  into one callback ref and one scroll handler.
+- The offered topics are the ones **actually on this project's posts**
+  (`topicsInPosts`), taken from every post rather than the current tab or query
+  — an option that can only return nothing is worse than no option, and a list
+  that reshuffled as you typed would be unusable.
+
+**Semantics** (`filterPosts`): platform ANDs with topics, topics OR among
+themselves, and the whole thing ANDs with the search query. Empty topics means
+"all", so a topic appearing on a newly generated post can't fall outside an
+existing filter. Unticking the last topic lands back on All topics on its own.
+
+**Three deliberate departures from the export**, all noted because the export
+doesn't show them:
+
+- The chip's glyph turns `icon-brand` while a filter is active. A filter
+  narrows the page silently; without it, missing posts look like a bug.
+- A filter that matches nothing renders the no-matches `EmptyState`
+  (`FunnelSimple` / "No matches for this filter" / "Try another topic or social
+  account") rather than the plain tab empty state the export draws, which would
+  send you looking for posts that are merely hidden. A query, if there is one,
+  takes precedence in that message.
+- **The filter is persisted** per project alongside the tab and the layout
+  (lib/content-view.ts, key `presto:content-filter:<projectId>`), by request:
+  it survives a tab switch and a refresh. Two things make that safe. Reads are
+  cached on the raw stored string — `useSyncExternalStore` compares snapshots
+  by identity, so parsing fresh on every read would re-render forever — and
+  "nothing selected" is stored as the *absence* of an entry and always returns
+  the shared `NO_CONTENT_FILTER` instance. And a restored filter is
+  reconciled against the topics that still exist
+  (`reconcileContentFilter`, derived at render, not written back): a topic
+  filter saved before those posts were deleted or retagged would otherwise
+  empty the page with nothing in the menu to explain it, because the menu is
+  built from the posts that remain. It inherits the same one-frame behaviour
+  as the tab and layout — the first client render is unfiltered until the
+  stored value is read.
+
 ## 10a. Publishing — hard constraint
 
 **No UI may trigger a real post.** A publish/share call to a live social account
