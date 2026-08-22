@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { useDialKit } from "dialkit"
 import {
   ArrowClockwise,
   EyeClosed,
@@ -27,6 +26,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Toast } from "@/components/ui/toast"
 import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
+import { SectionSpinner } from "@/components/shared/section-spinner"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { useShake } from "@/hooks/use-shake"
@@ -46,6 +46,20 @@ const STATUS_PILL_CORNER_RADIUS = 8
 // animation.
 const DELETE_EXIT_MS = 300
 const DELETE_FALLBACK_BUFFER_MS = 50
+
+// The heading's elastic entrance, tuned live on a DialKit panel and frozen
+// here once the feel was right — same treatment as toast.tsx's entrance and
+// use-shake.ts (git history has the panel if this ever needs re-tuning).
+// These override AnimateText's own ELASTIC_DEFAULTS, which are a much larger
+// throw (offset 50, duration 0.5, bounce 0.2) than a heading this size wants,
+// so they do have to be passed rather than left to the component.
+const HEADING_ANIMATION = {
+  offset: 5,
+  stagger: 0.03,
+  duration: 0.3,
+  bounce: 0.4,
+  loopDelay: 800,
+}
 
 // How long the generation-failure message stays in place of "Double-tap to
 // edit posts" before reverting on its own (per direct request).
@@ -96,15 +110,24 @@ interface GeneratedPost {
   // (the `account` prop below); tapping the card's own social pill cycles
   // it independently from there.
   social: SocialPlatform
+  // Which slot of the batch produced this post — i.e. the loop index it was
+  // generated at, which for a calendar-based batch is also the index into
+  // scheduledDates that gave it its day. Restart uses this to line each slot
+  // back up with the row it already filled, so a second run rerolls that
+  // post's text instead of inserting a second post onto the same day (see
+  // restartTargetsRef below). Not the post's position in `posts`, which
+  // shifts as cards are deleted.
+  batchIndex: number
 }
 
-function toGeneratedPost(post: Post): GeneratedPost {
+function toGeneratedPost(post: Post, batchIndex: number): GeneratedPost {
   return {
     id: post.id,
     content: post.content,
     topics: post.topics,
     date: post.scheduledFor ? new Date(post.scheduledFor) : undefined,
     social: post.platform,
+    batchIndex,
   }
 }
 
@@ -236,6 +259,18 @@ export function GeneratingView({
   // and by ordinary loop continuation, both of which are the same logical
   // batch carrying on.
   const batchContextIdRef = React.useRef<string | undefined>(undefined)
+  // batchIndex → the post id that slot already filled, captured by
+  // handleRestart from whatever was on screen when Restart was clicked.
+  // A restarted run rerolls those rows in place (regeneratePost) instead of
+  // generating fresh ones, so a calendar-based batch can be re-run without
+  // stacking a second post onto every day it already scheduled — the row
+  // keeps its id, its date and its platform, and only its text changes.
+  // Empty on the first run (nothing to reroll), and for any slot whose post
+  // was deleted before the restart — those fall through to a real insert,
+  // since that day genuinely has no post anymore. A ref, not state: the
+  // batch loop reads it, nothing renders from it. Survives Resume
+  // untouched, which is the same run carrying on.
+  const restartTargetsRef = React.useRef(new Map<number, string>())
   React.useEffect(() => {
     isUnmountedRef.current = false
     return () => {
@@ -256,6 +291,21 @@ export function GeneratingView({
   const deleteFallbackTimeouts = React.useRef(
     new Map<string, ReturnType<typeof setTimeout>>()
   )
+  // Excludes ids mid-delete-exit so this drops the instant delete is clicked,
+  // not once the fade-out finishes — which is what lets the header's count and
+  // the leaving-the-page check below both react immediately.
+  const availablePostCount = posts.length - exitingPostIds.size
+  // Every post this batch produced has been deleted, so there's nothing left
+  // to review and the page is on its way back to Generate (see
+  // handleDeletePost). Derived rather than tracked: generatedSoFar minus
+  // failedCount is how many posts actually landed, so a positive count with an
+  // empty grid can only mean they were all deleted. That's also what separates
+  // this from a batch that generated *nothing* — same empty grid, but it keeps
+  // its "Nothing to show" modal instead of a spinner.
+  const isEmptiedByDeleting =
+    status === "completed" &&
+    availablePostCount === 0 &&
+    generatedSoFar > failedCount
 
   const finishDeletePost = React.useCallback((id: string) => {
     const timeout = deleteFallbackTimeouts.current.get(id)
@@ -277,6 +327,15 @@ export function GeneratingView({
   // anything, which can land either before or after the animation has
   // already removed the card from `posts`, so both cases are handled below.
   const handleDeletePost = (post: GeneratedPost) => {
+    // Deleting the last post empties this page, and an empty results grid
+    // isn't a screen worth standing on — so leave for the Generate page right
+    // away, in the same click. Deliberately not waiting on the exit animation
+    // or on the server's answer: both put roughly a second between the click
+    // and anything happening, and the app's optimistic-delete convention says
+    // the card is gone the moment you ask for it. A refused delete is the one
+    // case this can't undo, so it reports through the toast the delete call
+    // raises rather than by putting the card back.
+    if (status === "completed" && availablePostCount === 1) goBack()
     setExitingPostIds((prev) => new Set(prev).add(post.id))
     // Fallback in case onTransitionEnd never fires (e.g. the tab is
     // backgrounded mid-fade, which suspends transitions and their events) —
@@ -473,17 +532,29 @@ export function GeneratingView({
           return
         }
 
+        // A restarted slot rerolls the post it already produced rather than
+        // adding another one beside it — see restartTargetsRef. regeneratePost
+        // reads platform/topic/date off the stored row and returns the same
+        // shape this loop already handles, so everything below is unchanged.
+        const restartTargetId = restartTargetsRef.current.get(i)
         const scheduledFor = scheduledDates?.[i] ?? null
         const result = await withNetworkStatus(
-          generateAndSavePost({
-            projectId,
-            platform: account,
-            model,
-            batchIndex: i,
-            batchTotal: count,
-            scheduledFor: scheduledFor ? scheduledFor.toISOString() : null,
-            batchContextId: batchContextIdRef.current,
-          })
+          restartTargetId
+            ? regeneratePost({
+                projectId,
+                id: restartTargetId,
+                model,
+                batchContextId: batchContextIdRef.current,
+              })
+            : generateAndSavePost({
+                projectId,
+                platform: account,
+                model,
+                batchIndex: i,
+                batchTotal: count,
+                scheduledFor: scheduledFor ? scheduledFor.toISOString() : null,
+                batchContextId: batchContextIdRef.current,
+              })
         )
 
         if (isUnmountedRef.current || activeRunIdRef.current !== runId) return
@@ -507,7 +578,7 @@ export function GeneratingView({
           setLastFailureReason(result.reason)
           setFailedCount((c) => c + 1)
         } else {
-          setPosts((prev) => [...prev, toGeneratedPost(result.post)])
+          setPosts((prev) => [...prev, toGeneratedPost(result.post, i)])
         }
         setGeneratedSoFar((c) => c + 1)
       }
@@ -562,6 +633,16 @@ export function GeneratingView({
     setRunId((id) => id + 1)
   }
   const handleRestart = () => {
+    // Line every slot of the new run back up with the row that slot already
+    // filled, so a re-run rewrites those posts rather than adding a second
+    // one to each day they're scheduled on. Cards already mid-delete-exit
+    // are left out — their rows are on their way to being gone, so those
+    // slots should generate fresh.
+    restartTargetsRef.current = new Map(
+      posts
+        .filter((post) => !exitingPostIds.has(post.id))
+        .map((post) => [post.batchIndex, post.id] as const)
+    )
     deleteFallbackTimeouts.current.forEach(clearTimeout)
     deleteFallbackTimeouts.current.clear()
     clearTimeout(generationErrorTimeoutRef.current)
@@ -583,7 +664,10 @@ export function GeneratingView({
   // standard SpinnerGap-bold-animate-spin loading treatment, e.g.
   // logout-button.tsx) rather than sitting there unresponsive.
   const [isNavigatingBack, startNavigateBack] = React.useTransition()
-  const goBack = () => startNavigateBack(() => router.push(backHref))
+  const goBack = React.useCallback(
+    () => startNavigateBack(() => router.push(backHref)),
+    [router, backHref]
+  )
 
   // Warms backHref's route ahead of the click, same reasoning as
   // generate-card.tsx's own prefetch of this page — arriving here via a
@@ -592,39 +676,6 @@ export function GeneratingView({
   React.useEffect(() => {
     router.prefetch(backHref)
   }, [router, backHref])
-
-  // Live-tunable via the DialKit panel (top-right, dev only) instead of
-  // hand-editing values and reloading — same pattern as the calendar's
-  // "Error shake" dial (generate-calendar-column.tsx).
-  const headingDial = useDialKit("Generating heading (elastic)", {
-    offset: [5, 0, 150, 5],
-    stagger: [0.03, 0, 0.15, 0.005],
-    duration: [0.3, 0.1, 1.5, 0.05],
-    bounce: [0.4, 0, 1, 0.05],
-    loopDelay: [800, 300, 4000, 100],
-  })
-
-  // A second, separate panel (DialKit supports any number of named panels
-  // on one page) for everything on each placeholder card itself — grouped
-  // into "text"/"border" folders (a nested object becomes a collapsible
-  // folder) since both animate independently. rotationEnabled is a plain
-  // boolean, which DialKit renders as a toggle rather than a slider.
-  const cardDial = useDialKit("Generating card", {
-    text: {
-      opacityMin: [0.4, 0, 1, 0.05],
-      opacityDuration: [0.5, 0.2, 4, 0.05],
-    },
-    border: {
-      rotationEnabled: true,
-      rotationDuration: [0.8, 0.2, 10, 0.1],
-      opacityMin: [0.25, 0, 1, 0.05],
-      opacityDuration: [0.35, 0.2, 4, 0.05],
-    },
-  })
-
-  // Excludes ids mid-delete-exit so the header count drops the instant
-  // delete is clicked, not once the fade-out animation finishes.
-  const availablePostCount = posts.length - exitingPostIds.size
 
   // Smoothly closes the gap a deleted card leaves behind — without this,
   // the remaining cards would just snap into their new grid cell the
@@ -655,6 +706,21 @@ export function GeneratingView({
   // Same shared shake as the calendar-based date-selection error
   // (generate-calendar-column.tsx) — see hooks/use-shake.ts.
   const generationErrorRef = useShake<HTMLParagraphElement>(generationErrorMessage !== null)
+
+  // Deleting the last post starts the trip back to Generate immediately (see
+  // handleDeletePost), but the router still has to fetch and render that page
+  // — so the page it's leaving hands over to the same centered spinner every
+  // other in-project navigation uses (loading.tsx, section-content.tsx) rather
+  // than holding an empty grid up in the meantime. Safe as an early return:
+  // every hook above runs first, and this is the last thing the view does
+  // before it's replaced.
+  if (isEmptiedByDeleting) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <SectionSpinner />
+      </div>
+    )
+  }
 
   return (
     <>
@@ -733,12 +799,12 @@ export function GeneratingView({
             }
             type="elastic"
             className="text-heading-sm font-display text-text-bold"
-            offset={headingDial.offset}
-            stagger={headingDial.stagger}
-            duration={headingDial.duration}
-            bounce={headingDial.bounce}
+            offset={HEADING_ANIMATION.offset}
+            stagger={HEADING_ANIMATION.stagger}
+            duration={HEADING_ANIMATION.duration}
+            bounce={HEADING_ANIMATION.bounce}
             loop={status === "generating"}
-            loopDelay={headingDial.loopDelay}
+            loopDelay={HEADING_ANIMATION.loopDelay}
           />
 
           <div className="flex items-center gap-dist-md">
@@ -874,12 +940,6 @@ export function GeneratingView({
                 onRegenerate={() => handleRegeneratePost(post)}
                 social={post.social}
                 onSocialChange={(social) => handleSocialChange(post, social)}
-                textOpacityMin={cardDial.text.opacityMin}
-                textOpacityDuration={cardDial.text.opacityDuration}
-                rotationEnabled={cardDial.border.rotationEnabled}
-                rotationDuration={cardDial.border.rotationDuration}
-                borderOpacityMin={cardDial.border.opacityMin}
-                borderOpacityDuration={cardDial.border.opacityDuration}
               />
             </div>
           )
@@ -897,14 +957,7 @@ export function GeneratingView({
             key={generatedSoFar}
             className="transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]"
           >
-            <GeneratingPostCard
-              textOpacityMin={cardDial.text.opacityMin}
-              textOpacityDuration={cardDial.text.opacityDuration}
-              rotationEnabled={cardDial.border.rotationEnabled}
-              rotationDuration={cardDial.border.rotationDuration}
-              borderOpacityMin={cardDial.border.opacityMin}
-              borderOpacityDuration={cardDial.border.opacityDuration}
-            />
+            <GeneratingPostCard />
           </div>
         )}
       </div>

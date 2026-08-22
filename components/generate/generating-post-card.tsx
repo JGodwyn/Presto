@@ -12,19 +12,29 @@ const GAP = 12
 // much loops with no visible seam (the pattern lines back up with itself).
 const DASH_CYCLE = DASH + GAP
 
+// This card's two animations, tuned live on a DialKit panel and frozen here
+// once the feel was right — same treatment as toast.tsx's entrance and
+// use-shake.ts (git history has the panel if this ever needs re-tuning). They
+// stay overridable per prop because GeneratedPostCard forwards its own set
+// through while a regeneration is in flight.
+const TEXT_OPACITY_MIN = 0.4
+const TEXT_OPACITY_DURATION = 0.5
+const ROTATION_ENABLED = true
+const ROTATION_DURATION = 0.8
+const BORDER_OPACITY_MIN = 0.25
+const BORDER_OPACITY_DURATION = 0.35
+
 interface GeneratingPostCardProps {
-  // Live-tunable via the DialKit panel (see GeneratingView) — the
-  // "Generating…" text's own opacity pulse.
-  textOpacityMin: number
-  textOpacityDuration: number
-  // Live-tunable — turns the marching dashes on/off entirely.
-  rotationEnabled: boolean
-  // Live-tunable — seconds per full lap of the marching dashes.
-  rotationDuration: number
-  // Live-tunable — how low the border's opacity dips at the bottom of its
-  // own pulse.
-  borderOpacityMin: number
-  borderOpacityDuration: number
+  // The "Generating…" text's own opacity pulse.
+  textOpacityMin?: number
+  textOpacityDuration?: number
+  // Turns the marching dashes on/off entirely.
+  rotationEnabled?: boolean
+  // Seconds per full lap of the marching dashes.
+  rotationDuration?: number
+  // How low the border's opacity dips at the bottom of its own pulse.
+  borderOpacityMin?: number
+  borderOpacityDuration?: number
   // Merged last, so this placeholder can be sized to whatever the real card
   // next to it is — the two have to match exactly (the Generate grid's h-92,
   // the Content deck's h-98/w-68) or a card visibly changes size the moment
@@ -39,12 +49,12 @@ interface GeneratingPostCardProps {
 // entirely rather than freezing it in place, so mount/unmount alone starts
 // and stops every animation below.
 export function GeneratingPostCard({
-  textOpacityMin,
-  textOpacityDuration,
-  rotationEnabled,
-  rotationDuration,
-  borderOpacityMin,
-  borderOpacityDuration,
+  textOpacityMin = TEXT_OPACITY_MIN,
+  textOpacityDuration = TEXT_OPACITY_DURATION,
+  rotationEnabled = ROTATION_ENABLED,
+  rotationDuration = ROTATION_DURATION,
+  borderOpacityMin = BORDER_OPACITY_MIN,
+  borderOpacityDuration = BORDER_OPACITY_DURATION,
   className,
 }: GeneratingPostCardProps) {
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({

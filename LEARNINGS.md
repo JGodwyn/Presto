@@ -44,6 +44,16 @@ survive a route remount, which is why the Content tab had to move to storage.
 `window.fetch` never sees server-action calls. → Wrap explicitly at the call site
 (`withNetworkStatus`).
 
+**Clearing a list in state doesn't clear what it wrote to the DB.** The
+Generating page's Restart reset `posts` to `[]` and re-ran the batch, but the
+loop's only verb was an INSERT — so every previous row stayed, orphaned, and a
+calendar-based re-run stacked a second post onto every day it had already
+scheduled (visible in the live DB as duplicate pairs sharing a `scheduled_for`
+to the second). → A "start over" over persisted rows needs a slot → row id map
+so the re-run can UPDATE what that slot already produced, with the INSERT as the
+fallback for slots whose row is genuinely gone. Key the map on the **batch
+index**, never the array position — deletes shift the latter.
+
 ## Next.js
 
 > This is **not** the Next.js in your training data. Read
@@ -334,3 +344,13 @@ first, then measure.
 **`useLayoutEffect` with no dependency array is right for a fixed-size scroller**
 observed by a ResizeObserver — content changing what's scrollable doesn't resize
 anything, so there'd be nothing to depend on.
+
+**Don't drive a verification run with `location.href`.** Assigning it while
+React's ViewTransition is still running a client-side push throws
+`InvalidStateError: Transition was aborted because of invalid state` — which
+reads exactly like a bug in whatever you just changed, and it isn't. It also
+races a slow dev server: the forced load can land before the previous page
+finished resolving, so the clicks that follow hit a page that isn't there yet
+and the run silently tests nothing. → Navigate with the `navigate` tool or a
+real click, wait for the screenshot to show what you expect, and compare
+against the stashed build before believing a console error is yours.

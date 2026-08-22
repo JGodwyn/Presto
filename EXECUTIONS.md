@@ -426,6 +426,102 @@ connections active"; +60 days → green badge, `text-subtle` countdown measured 
 16px/700 (body-lg-bold, the updated type). Test row deleted afterwards. tsc
 clean, vitest 62/62, lint at the HEAD baseline.
 
+## 2026-08-20 — Generate: empty-batch exit + restart edits in place
+
+Two items, both in `components/generate/generating-view.tsx`.
+
+- `14:00` **Restart was inserting a second post onto every day it had already
+  scheduled.** `handleRestart` cleared `posts` client-side and reset
+  `generatedSoFar` to 0, but the batch loop only knows one verb —
+  `generateAndSavePost`, an INSERT — so the previous run's rows were orphaned in
+  the DB and a fresh set landed on the same dates. Confirmed against the live
+  DB before touching anything: `Design content` had duplicate pairs sharing a
+  `scheduled_for` down to the second (2027-03-02, -03-09, -03-24, …), each pair
+  a restart from an earlier session.
+- `14:02` Fix: `GeneratedPost` gained `batchIndex` (the loop slot that produced
+  it, *not* its position in `posts`, which shifts on delete), and
+  `restartTargetsRef` maps slot → post id, captured by `handleRestart` from
+  whatever is still on screen. The loop consults it per index and calls
+  `regeneratePost` (an UPDATE, keeping id/date/platform) where a row exists,
+  falling back to `generateAndSavePost` where it doesn't. Reusing
+  `regeneratePost` also gets the "different angle from `previousContent`"
+  framing for free, which is what a restart wants anyway. Resume is untouched —
+  it's the same run carrying on, so the map stays.
+- `14:05` **Deleting the last post left you on an empty grid** with a Restart
+  button for a batch that no longer existed. Added an effect that calls
+  `goBack()` once the grid empties, gated on three things: `status ===
+  "completed"` (a running batch has more cards coming), `hasDeletedRef` (a
+  total-failure batch also has zero posts, and it owns the "Nothing to show"
+  modal), and `deletesInFlight === 0` (a refused delete restores its card
+  instead of navigating away from a post that still exists). `goBack` became a
+  `useCallback` so the effect isn't re-entered every render.
+- `14:06` Dead end worth recording: an `InvalidStateError: Transition was
+  aborted` kept showing in the console mid-verification. Not the feature — it
+  was the test harness setting `location.href` while React's ViewTransition was
+  still running the client-side push. Re-ran the same sequence patiently
+  (clicks + waits, no forced navigation) and it never appeared, on either build.
+
+**Verified** in-browser on :3003 with the TasteTest model and a calendar-based
+2-post batch, checking the DB after each step:
+- Two restarts in a row: same two row ids, same `created_at`, same
+  `scheduled_for`, content rerolled each time. No new rows.
+- Delete one card, then Restart: the surviving day's row was rerolled in place
+  (`created_at` unchanged) and the deleted day got a fresh insert — one post per
+  day either way, which is the fallback branch doing its job.
+- Delete the last card: lands on `/generate` with the Number/Calendar control,
+  both rows gone from the DB, no console errors. Deleting the second-to-last
+  card does *not* navigate.
+- `eslint` on the file reports the same single pre-existing
+  `react-hooks/set-state-in-effect` (the completion effect) and nothing new;
+  `tsc --noEmit` clean.
+- Test rows created during verification were deleted afterwards by id.
+
+## 2026-08-20 — Generate: make the empty-batch exit immediate + a loader
+
+Follow-up on the item above, per direct feedback ("it takes a little time
+before it goes back… I don't know why there's a delay though").
+
+- `14:15` **Where the delay came from.** Three things in series, none of them
+  visible: the card's 300ms exit animation had to finish before `posts`
+  emptied, the `deletePost` round-trip had to come back (400–650ms in dev), and
+  only *then* did the effect call `goBack()` — after which the router still had
+  to fetch and render `/generate`. So ~1s of a completely static screen before
+  anything moved. The first two were my own gate: I'd made the navigation wait
+  on `deletesInFlight === 0` so a refused delete could put its card back.
+- `14:18` Both waits removed. `handleDeletePost` now calls `goBack()` in the
+  same click when `status === "completed" && availablePostCount === 1`, which is
+  the app's ordinary optimistic-delete convention — the card is gone the moment
+  you ask for it. A refused delete is the one case this can't undo; it reports
+  through the toast the delete call already raises.
+- `14:20` `hasDeletedRef` and `deletesInFlight` are both gone, replaced by a
+  derived `isEmptiedByDeleting` (`status === "completed" && availablePostCount
+  === 0 && generatedSoFar > failedCount`). `generatedSoFar - failedCount` is how
+  many posts the batch actually produced, so a positive count over an empty grid
+  can only mean they were all deleted — which is also what keeps a
+  total-failure batch (same empty grid, zero produced) on its "Nothing to show"
+  modal. Being derived, it can drive the render as well as the navigation
+  without a second piece of state or a ref read during render.
+- `14:22` The loader: an early return of `SectionSpinner` in the same
+  `flex flex-1 items-center justify-center` box `loading.tsx` and
+  `section-content.tsx` use, so the page hands over to the identical spinner in
+  the identical place. Safe as an early return — every hook runs above it.
+
+**Verified** in-browser on :3003, MutationObserver on `<main>` (ordering only —
+absolute times are meaningless once an eval backgrounds the tab):
+- delete → **spinner up with `cards: 0` while still on `/generating`** → path
+  flips to `/generate`, spinner down. The spinner and the emptied grid land in
+  the same commit, so there's no frame showing an empty results page.
+- The screenshot taken immediately after the delete click already shows the
+  Generate page; before this change the same screenshot still showed the card
+  and needed a 3s wait.
+- Deleting the second-to-last card still just fades that card out — no spinner,
+  no navigation.
+- Total failure (a uuid model id that resolves to no row, count 2) still lands
+  on the "Nothing to show" modal, not the spinner.
+- `tsc --noEmit` clean; eslint unchanged at the one pre-existing
+  `set-state-in-effect`. Test posts deleted by id afterwards.
+
+
 ## 2026-08-21 — LinkedIn flow verified against the real API
 
 Credentials landed (they'd been pasted under LinkedIn's portal labels —
@@ -550,3 +646,46 @@ dismisses it with the row untouched. tsc and eslint clean on branch files.
 reports `[role=dialog]` still present after Escape, because backgrounding the
 tab suspends the exit animation — the same trap already in LEARNINGS. Screenshot
 to check; it foregrounds.
+
+## 2026-08-21 — Generate: DialKit off the generating page
+
+Per direct request, and the last item in this worktree's own stated purpose.
+
+- Both panels are gone from `generating-view.tsx` — "Generating heading
+  (elastic)" and "Generating card" — frozen at the values they were already
+  sitting on, same treatment as `toast.tsx`, `use-shake.ts` and `day-deck.tsx`
+  (git history has the panels if any of this needs re-tuning).
+- The heading's five values became a `HEADING_ANIMATION` constant at the top of
+  the file. They **have** to be passed rather than dropped: `AnimateText`'s own
+  `ELASTIC_DEFAULTS` are a much bigger throw (offset 50 / duration 0.5 / bounce
+  0.2) than this heading wants (5 / 0.3 / 0.4).
+- The card's six values needed no constant at the call site at all — they were
+  already `GeneratedPostCard`'s defaults, exactly. `GeneratingPostCard`'s were
+  required props, so they became optional with the same six defaults declared
+  as named constants in that file, and both call sites in `generating-view.tsx`
+  now pass nothing. Net effect: the numbers live with the component that
+  animates them instead of being threaded down from a panel that no longer
+  exists.
+- Comments reworded off "Live-tunable via the DialKit panel", which would
+  otherwise have been describing a panel that isn't there.
+- **DialKit itself stays installed** — `app/layout.tsx` still mounts `DialRoot`
+  and `components/content/post-details.tsx` still has three live panels
+  (Regenerating heading / body reveal / line entrance). That's the Content
+  section, not this branch.
+
+**Verified** on the running dev server: no panel renders on the generating
+page, the heading still animates in and the cards still show the marching-dash
+border and text pulse. One false alarm worth noting — a screenshot showed the
+heading missing and an eval reported every character at `opacity: 0`; that's
+the documented eval-backgrounds-the-tab trap (LEARNINGS → Browser automation),
+not a regression. A `zoom` (which foregrounds) showed it rendered in full.
+
+**Gates at handoff time:** `tsc --noEmit` clean, `npm run test` 56/56 in 7
+files, `npm run build` clean. `npm run lint` **fails with 17 errors — all
+pre-existing**, confirmed by counting them on a stashed tree: 17 on HEAD, 17
+with these changes. They are `react-hooks/refs` and
+`react-hooks/set-state-in-effect` across `switch.tsx`,
+`create-project-modal.tsx`, `onboarding-context.tsx`, `project-sidebar.tsx`,
+`projects-navbar.tsx`, `generate-calendar-column.tsx` and `generating-view.tsx`.
+Not introduced here and mostly in hot shared files, so left alone rather than
+widening this branch — see the note to the user at handoff.
