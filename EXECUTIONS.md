@@ -1044,3 +1044,28 @@ and find places it can create content for social media from."
 confirmed as the same six directories the agent is told never to touch. Cold-start
 run not yet executed — held for the user.
 **Logged:** EXECUTIONS.md only (no new rule or interface decision).
+
+## 2026-08-22 — ContentCurator: durability without version control
+**Asked:** "as far as it can be written to without being versioned and not
+forget it's content or rewrite what's been written."
+
+- `22:4x` Audited the failure modes of an unversioned dump dir. Two were live:
+  the brief filename `YYYY-MM-DD-<slug>.md` claimed "two runs can never
+  conflict" — untrue, same day + same slug and `Write` replaces the file whole;
+  and the ledger was rewritten wholesale each run, which would silently discard
+  the user's own hand edits (marking entries `mined` is their job).
+- `22:4x` Added a "Never lose or overwrite what is already there" protocol to
+  the agent: existence-check + numeric suffix before writing a brief; `cp` to
+  `LEDGER.bak.md` before any ledger write; ledger rows append-only (add rows,
+  change status cells, never delete/reword/reorder); post-write row-count
+  verification against the backup, restore-and-report on a decrease.
+- `22:4x` Made the ledger **reconstructible** rather than merely backed up —
+  every brief must carry every fact its ledger rows assert, so the ledger is an
+  index over append-only briefs. If it is lost, only "which entries were
+  posted" is unrecoverable. No versioning needed for the content itself.
+- `22:4x` Added a recovery header to `LEDGER.md` and took the first backup.
+
+**Verified:** frontmatter parses; 35 ledger rows identical across
+`LEDGER.md`/`LEDGER.bak.md`; the 13 surfaced entries intact after the header
+insertion.
+**Logged:** EXECUTIONS.md only.

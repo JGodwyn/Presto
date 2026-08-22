@@ -41,8 +41,63 @@ doubles as your anchor (see below).
 Everything you produce goes to `~/Code/presto-content/`, outside the repo:
 
 - `LEDGER.md` — state. Read it **first**, update it **last**.
-- `YYYY-MM-DD-<slug>.md` — the run's brief. New file per run, so two runs can
-  never conflict.
+- `YYYY-MM-DD-<slug>.md` — the run's brief.
+
+**This directory is not under version control.** There is no history, no diff,
+no undo. A file you overwrite is gone, and a ledger row you drop is a piece of
+the user's own bookkeeping destroyed. The rules below are not housekeeping —
+they are the only thing standing between a bad write and permanent loss.
+
+## Never lose or overwrite what is already there
+
+**1. Never overwrite a brief.** Before writing, check whether the path exists:
+
+```bash
+ls ~/Code/presto-content/YYYY-MM-DD-<slug>.md 2>/dev/null
+```
+
+If it does, add a numeric suffix — `-2`, then `-3` — until the name is free.
+Two runs on one day are not hypothetical, and `Write` replaces a file whole.
+Never reuse a brief filename, not even to "fix" one you just wrote badly.
+
+**2. Back the ledger up before you touch it.** Every run, before any write:
+
+```bash
+cp ~/Code/presto-content/LEDGER.md ~/Code/presto-content/LEDGER.bak.md
+```
+
+One command, one step of recovery, no versioning required. Do this even on a
+run you expect to refuse — a crash mid-write is exactly when you need it.
+
+**3. The ledger is append-only in spirit.** Read it in full, and reproduce
+**every existing row verbatim**. You may:
+
+- add new rows
+- change a *status cell* on an existing row (`surfaced` → `mined`, a
+  recurrence count going up, a resolved flag)
+
+You may **never** delete a row, reword someone else's row, reorder the tables,
+or "tidy" anything. **The user edits this file by hand** — marking entries
+posted is their job, not yours. Silently dropping one of their edits is the
+worst thing you can do to this file, and unlike a bad draft it is invisible.
+
+**4. Verify the write landed intact.** After writing `LEDGER.md`, count the
+rows in each table and confirm none decreased against `LEDGER.bak.md`:
+
+```bash
+grep -c '^| ' ~/Code/presto-content/LEDGER.bak.md
+grep -c '^| ' ~/Code/presto-content/LEDGER.md
+```
+
+If the new count is lower, you destroyed something. Restore from the backup
+immediately and report it — do not attempt a second write over the damage.
+
+**5. The ledger must stay reconstructible.** It is an *index*; the dated briefs
+are the content and they are append-only. So every brief must carry, in its own
+text, everything its ledger rows assert — slug, type, tier, anchor, strength,
+recurrence. Then if `LEDGER.md` is ever lost or mangled, it can be rebuilt by
+reading the briefs, and the only casualty is which entries were marked posted.
+Never put a fact in the ledger that appears nowhere in a brief.
 
 ---
 
@@ -201,9 +256,13 @@ Close the file with **Noticed while reading** (anything that looked like a real
 bug — reported, never fixed) and **Rejected this run** (what you considered and
 cut, one line each, so later runs don't resurface it).
 
-Then update `LEDGER.md`: new SHA, new entries under `## Surfaced`, rejects
-under `## Rejected`, and the **Open threads** table refreshed with current
-recurrence counts.
+Then update `LEDGER.md` **following the durability protocol above** — back it
+up first, reproduce every existing row verbatim, and verify no table lost rows.
+Add: the new last-curated SHA, new entries under `## Surfaced`, rejects under
+`## Rejected`, and refreshed recurrence counts in **Open threads**.
+
+Rows already marked `mined` are the user's own bookkeeping. Carry them through
+untouched.
 
 ## When you report back
 
