@@ -253,3 +253,300 @@ work.
 before/after an intervening merge, `main` untouched by a conflicted branch,
 hand-resolution, unmerged-branch and dirty-tree refusals, schema-slot refusal,
 and full teardown back to `main` alone.
+
+## 2026-08-19 — Connections: connected state from the `connection-connected` export
+
+- Read `design-sync/connection-connected/` (frame.json + screenshot) and diffed
+  it against `connect-base`. The two frames are the **same three-part
+  EmptyState layout** — 48px icon, caption, heading + action, gaps
+  dist-lg/dist-lg/dist-xl — with only three things swapped: the icon
+  (`Plugs` → `PlugsConnected`), the caption (grey line → green status pill),
+  and the title copy. The previous pass had guessed there was no design for the
+  connected header and stripped it; there is one.
+- `components/shared/empty-state.tsx`: `caption` widened `string` →
+  `React.ReactNode` so a screen can name its state with a badge instead of a
+  line of text. No other change — the pill inherits the caption slot's centring
+  and overrides its own type styles.
+- `components/connections/connections-panel.tsx`: connected branch now renders
+  the export's header rather than dropping it; new `ConnectionCountBadge`
+  (surface-success-light stadium, body-md-bold/text-success, pluralized). It
+  **skips the squircle clip** — rad-rd, same reasoning as toast.tsx (corner
+  smoothing needs a straight edge to blend into).
+- Row-list gap now follows each export: `dist-md` with plain rows, `dist-lg`
+  once the taller connected block (green strip + its own expiry line) is in the
+  list. Base was already dist-md and stays that way.
+- **One value is not a token**: the dot is a 12px circle with a 3px *inside*
+  stroke, and foundations.json stops at `stroke-lg` (2px). Used the export's
+  literal weight as `border-[3px]` with a comment rather than snapping to 2px.
+
+**Verified** in-browser on :3001 (this worktree's port), measured against the
+export: badge 162×24 / #d5fed5 / #00a600 / 14px-700 / pad 2-8 / gap 4; dot 12px
+with a 3px #6af26a ring over #00a600; badge→title 16, title→rows 24; rows 312
+wide at gap 16. tsc and eslint clean.
+
+## 2026-08-19 — LinkedIn connect flow (authorize → token → profile → disconnect)
+
+Decisions taken with the user before building: no LinkedIn app exists yet (build
+against env vars, they create it after); scopes are **sign-in only**; a
+connection is **project-scoped**.
+
+- **Schema** (this worktree holds the schema lock; additive, no drops):
+  migration `create_social_accounts_table` — `public.social_accounts`, one row
+  per (project, platform) via a `unique (project_id, platform)` that the
+  callback's upsert targets, so reconnecting replaces a stale token instead of
+  stacking rows. RLS is writing_styles' four per-command policies, project
+  ownership checked in the insert policy. `encrypted_access_token` reuses
+  key-crypto.ts's AES-256-GCM envelope and `MODEL_KEY_ENCRYPTION_KEY` — the
+  function is named for API keys, the property it provides is what a token
+  needs too.
+- **lib/linkedin/oauth.ts** — endpoints, `openid profile email`, authorize-URL
+  builder, token exchange, userinfo read, best-effort revoke. Every failure is
+  one of nine short codes; nothing from LinkedIn's own error response is echoed
+  into a URL. Redirect URI derives from the request origin (so localhost,
+  previews and prod all work unconfigured) with `LINKEDIN_REDIRECT_URI` as the
+  proxy override.
+- **Route handlers, not server actions**, and that's the "real reason" AGENTS.md
+  asks for: OAuth is a browser-redirect protocol, so the return leg has to be a
+  GET endpoint at a fixed path. `authorize` checks session + project ownership
+  (RLS makes someone else's project read as missing), sets an httpOnly
+  `sameSite: lax` state cookie carrying the project id, redirects out.
+  `callback` deletes the cookie first (one attempt per state), compares state,
+  exchanges, reads the profile, upserts, and returns with `?connected=` or
+  `?connect_error=`.
+- **Disconnect is a server action** — reads the token, deletes the row, *then*
+  revokes best-effort. A decrypt failure under a rotated key is swallowed: the
+  row is already gone, which is what was asked for.
+- **UI**: page is now an async server component (fetchSocialAccounts + the two
+  search params); the panel holds accounts as client state for the optimistic
+  delete, shows a spinner on Connect that ends when the browser leaves, and
+  seeds its toast from the URL at mount before stripping the params with
+  `window.history.replaceState`. Avatar prefers LinkedIn's `picture` claim
+  (next.config.ts gained `media.licdn.com`), falling back to the gradient.
+- `lib/linkedin/oauth.test.ts` pins the config resolution and, deliberately,
+  that `w_member_social` never appears in an authorization request.
+
+**Dead end worth recording:** the outcome toast read as "never rendering" over
+several navigate → screenshot round trips, and an eval sent to check the DOM
+showed it at `opacity: 0` — which looked like proof. Both were measurement
+artifacts (the eval backgrounds the tab and freezes Motion; the 4s toast had
+simply dismissed between calls). I had already written a comment blaming
+`router.replace` for it; reverting to `router.replace` and re-measuring in a
+single `browser_batch` showed it works identically. `replaceState` stayed —
+it's genuinely lighter (no segment refetch to drop two query params) — but the
+comment now says that instead of a fabricated bug. Logged in LEARNINGS.md.
+
+**Verified** on :3001: connected row renders from a real DB row (name, "Expires
+in 60 days"); Disconnect empties the row (`count → 0`) and returns the base
+state; Connect with no credentials round-trips through the authorize route and
+comes back with "LinkedIn isn't set up yet"; `?connected=linkedin` shows the
+success toast and the URL strips itself. `npm run build` compiles both routes,
+`vitest` 62/62, tsc and eslint clean. Untested end-to-end: the real LinkedIn
+round trip, which needs the user's app credentials.
+
+## 2026-08-20 — LinkedIn token facts checked against the official docs
+
+Added the Microsoft Learn MCP at **user scope** (LinkedIn's developer docs are
+hosted on learn.microsoft.com) and used it to verify the assumptions the
+connect flow was built on rather than leaving them as inference.
+
+**Confirmed, no change needed:** access tokens are issued with a 60-day
+lifespan and `expires_in` is in seconds (5184000) — the expiry is derived from
+the response anyway, so "Expires in 60 days" is real, not a guess. Programmatic
+refresh tokens are limited to approved Marketing Developer Platform partners,
+so a standard app genuinely has nothing to refresh with, which is what makes
+the countdown load-bearing. `email`/`email_verified` are documented as
+*optional* on the userinfo response — already handled. `sub` is pairwise
+(per-app), as the type comment claimed.
+
+**One real bug, found only because of the docs:** LinkedIn's own Sign In with
+OpenID Connect page returns its sample `picture` from **media.licdn-ei.com**,
+while the rest of its media documentation uses **media.licdn.com**.
+next.config.ts listed only the latter, so a member whose photo happened to be
+served from the other host would have hit next/image's host allowlist and got a
+broken avatar. Both hosts are now listed. Verified against the running server:
+an unlisted host is rejected by Next itself with a 400, both LinkedIn hosts get
+through to the upstream fetch (403 on a deliberately fake path).
+
+**A second, quieter hazard:** LinkedIn's profile-image URLs are dynamically
+keyed and time-limited — its media guide says to re-fetch them periodically —
+but this app stores one for as long as the connection lives, up to 60 days. So
+the URL can die well before the row does. `ConnectedAccountRow` now falls back
+to the gradient avatar `onError` rather than showing a broken image. Verified
+by seeding a row with a dead licdn-ei URL: the gradient renders, no broken
+image.
+
+**Recorded for the publishing phase, not acted on:** adding `w_member_social`
+later doesn't just re-prompt for consent — per the docs, requesting a different
+scope than the one previously granted **invalidates all existing access
+tokens**. Every connected account will need to reconnect on that day, and the
+UI has to say so rather than silently 401. Written into lib/linkedin/oauth.ts
+next to the scope list, where whoever adds it will read it.
+
+**Open, flagged to the user, deliberately not built:** re-authorising *before*
+expiry is a silent redirect (LinkedIn skips the consent screen if the member is
+still signed in and the current token hasn't lapsed); after expiry it's the
+full authorization screen. There's currently no Reconnect affordance and no
+Figma export covering one, so it stays a decision rather than an invention.
+
+**Gates:** tsc, eslint (at the HEAD baseline), vitest 62/62.
+
+## 2026-08-20 — Connected-row expiry states from the four new exports
+
+Read `connection-connectedstate{base,connected,expiringsoon,expired}`. Base and
+Connected match what was already built (one change: the countdown's type moved
+`body-md-bold` → `body-lg-bold` across the new set — applied). The other two are
+the states the previous round had flagged as undesigned.
+
+**Four things in the frames were ambiguous or stale; asked rather than
+guessed**, and all four were confirmed: the Expired frame's green "1 connection
+active" pill and its grey "Expires in 60 days" line are both leftovers from
+duplicating the Connected frame (badge now counts live connections only and
+drops to a subtle "No connections active"; the countdown is dropped once
+expired); the loose outlined "Renew" button parked below the X row in the
+ExpiringSoon frame is a canvas artifact, not a layout element; and losing
+Disconnect in the expired state is intended.
+
+- `expiryStatus` + `EXPIRY_WARNING_DAYS` (lib/format-date.ts) — shares
+  formatExpiry's rounding, so the label and the colour can never disagree: a
+  row reading "Expires in 7 days" is always the amber one.
+- `ConnectedAccountRow` now takes `pending` / `onReconnect` and renders the
+  three treatments. `RenewChip` is a local component, not a Button variant —
+  rad-md at pad-sm/pad-2xs is a shape no Button size renders, and it should
+  read quieter than the row's own action. It carries the export's tooltip,
+  which is the state's whole justification: renewing early is a silent
+  redirect, renewing late is a full re-authorisation.
+- Renew and Reconnect both call the same authorize redirect as Connect, so the
+  pending spinner and the callback's upsert are shared with no new plumbing.
+
+**Verified** in-browser at :3001 by moving one row's `expires_at` across all
+three thresholds: +5 days → amber countdown + Renew now chip, tooltip on hover
+reading "Renew now to avoid having to authorize all over again"; −2 days → red
+"Connection expired" strip, green Reconnect, no countdown, badge grey "No
+connections active"; +60 days → green badge, `text-subtle` countdown measured at
+16px/700 (body-lg-bold, the updated type). Test row deleted afterwards. tsc
+clean, vitest 62/62, lint at the HEAD baseline.
+
+## 2026-08-21 — LinkedIn flow verified against the real API
+
+Credentials landed (they'd been pasted under LinkedIn's portal labels —
+`Client ID=` / `Primary Client Secret=` — which aren't valid env var names, so
+Next ignored both lines and the flow kept reporting "LinkedIn isn't set up
+yet"; renamed by the user to `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET`).
+Checked first that nothing had leaked into the git-tracked
+`.env.local.example` — it was still template-only.
+
+**Connect, live:** the authorization request is accepted and its flow params
+confirm what had only been asserted — `scope: openid+profile+email` with no
+`w_member_social`, `redirectUri: http://localhost:3001/...` (so plain-http
+localhost *is* accepted, no tunnel needed), `OAUTH2_AUTHORIZATION_CODE`, our
+own `state` echoed back. The LinkedIn half was driven by the user: the
+extension has no site permission for linkedin.com, and entering credentials
+isn't something to automate.
+
+**Row written:** name and email from userinfo, avatar on `media.licdn.com`,
+token stored `v1.`-enveloped at 513 chars, scope recorded, `expires_at` exactly
+60 days out, `sub` 10 chars. The **real profile photo renders in the connected
+row** — the first live exercise of the `remotePatterns` fix.
+
+**Renew, live — the best test available, and it passed:** pushed `expires_at`
+to 3 days out, the row went amber with the "Renew now" chip, and clicking it
+round-tripped through LinkedIn **with no interaction at all** — straight back
+with `?connected=linkedin`. That confirms the docs' silent-renew claim
+end-to-end. The upsert behaved exactly as designed: still one row, **same id**
+(`f1b2a869…` — replaced in place, not delete+insert), `connected_at` bumped
+10:52:29 → 10:58:41, `expires_at` back to 60 days, token re-encrypted. URL
+params stripped afterwards (`location.search` empty), row back to green.
+
+**New finding, recorded in code and LEARNINGS:** LinkedIn returns granted
+scopes **comma**-delimited (`email,openid,profile`) though they're sent
+space-delimited. Nothing reads that column today, but whatever checks for a
+granted scope when publishing lands must split on both.
+
+**Still unexercised: `disconnectSocialAccount`'s decrypt-and-revoke path.** It
+is the only code that decrypts a stored token, and testing it necessarily ends
+the connection, so it was left for the user to trigger rather than run
+unilaterally. A scratch script that would have verified the decrypt directly
+was written and then deleted — the sandbox correctly blocked it from reading
+`.env.local`, and handling the user's credentials to prove a point was the
+wrong trade.
+
+**Nothing was published.** No share endpoint exists in this codebase and none
+was called; the token carries sign-in scopes only.
+
+## 2026-08-21 — Branch cleanup + parking the rest
+
+Split the outstanding items into "belongs to this branch" and "belongs to
+whoever picks up after the merge", on request.
+
+**Fixed here:**
+- `lib/format-date.test.ts` — `expiryStatus` was new threshold logic with no
+  tests. Six cases: the 7-day boundary from both sides (7.4 days rounds to
+  "7 days" and must be amber; 7.6 rounds to "8" and must not be), the
+  final-hours floor (30 minutes left is *expiring*, never *expired*), and that
+  the status can never disagree with the label rendered beside it.
+- Accessible names on Reconnect and "Renew now". Both replace their label with
+  a spinner while the redirect is in flight, which left them nameless mid-flight
+  — the Connect button already carried an `aria-label` for exactly this.
+- `searchParams` on the Connections page was typed `{ connected?: string }`,
+  but Next hands a repeated param through as `string[]`. The type was a lie a
+  crafted URL could expose; now typed as the union and narrowed by a `first()`
+  helper.
+
+**Audited, nothing to fix:** ran the Supabase advisors. `social_accounts` shows
+an unindexed `user_id` FK and `auth_rls_initplan` on all four policies — and so
+does every other user-facing table in the project. The table was written to
+match the house pattern and inherited the house's flaws with it, so this is not
+a regression from this branch; fixing it is cross-cutting work. The one security
+advisor finding (leaked-password protection disabled) is an Auth dashboard
+toggle, unrelated to any code.
+
+**Parked in the new `FOLLOWUPS.md`** (union-merged like the other logs, and
+announced in AGENTS.md's project-logs section so it's found): nothing consuming
+a connected account yet (the Generate account pill — deliberately not touched,
+since `generate-card.tsx` belongs to the live `feat/generate-page` worktree);
+detecting a token revoked at LinkedIn's end; the decision about locking down the
+encrypted-token column (recommendation: leave it — the fix needs either a
+service-role client or a security-definer function, both worse than the
+low-severity exposure they'd close); the cross-cutting advisor cleanup; the
+publishing-phase prerequisites; and the two small unverified items.
+
+## 2026-08-21 — Disconnect confirmation + success toast removed
+
+Both on direct request. (The user also confirmed disconnect → reconnect works
+against the real account, which closes the one item that was parked as
+unverified — removed from FOLLOWUPS.md rather than left to rot.)
+
+- **Confirmation modal on Disconnect.** No new component: `ConfirmationModal`
+  (components/ui/confirmation-modal.tsx, the Figma "DefaultConfirmationModal")
+  already existed for delete-post, so this is composition. Icon is `Plugs`, not
+  `PlugsConnected` — it should show the state the button leads to, the way the
+  delete modal's Trash does. The panel holds the pending *account* rather than a
+  boolean, so the modal can name its platform and the confirm handler can't act
+  on a row that changed underneath it; the title derives the label from
+  PLATFORMS rather than hardcoding "LinkedIn" in a component that already
+  renders two platforms. The delete stays optimistic — the confirmation moves
+  the moment of *intent*, not the moment of feedback, so there's still no
+  spinner.
+- **Copy came from a copy-editor pass** (no `copy-editor` agent exists in this
+  project — only `senior-engineer` — so a general-purpose agent was briefed as
+  one). Shipped its recommendation: "Presto will lose access to this account
+  until you reconnect it. Your posts and drafts aren't affected." It
+  deliberately omits the token revocation (implementation detail), any mention
+  of scheduled posts (untrue — publishing is unbuilt), and quantifying the undo
+  ("about two seconds"), which would read as the modal apologising for itself.
+  Its dissent is recorded in INTERFACE.md: it argued a reversible action doesn't
+  earn a modal at all and that optimistic-delete-plus-undo-toast is the better
+  instrument. Modal shipped as asked.
+- **"LinkedIn connected" toast removed.** `outcomeToast` is failures-only now,
+  and the toast's variant is fixed at danger. The URL params are still stripped
+  on arrival — that logic never depended on there being something to show.
+
+**Verified** in-browser: loading `?connected=linkedin` raises no toast and still
+strips the param; Disconnect opens the modal (Plugs icon, "DISCONNECT LINKEDIN"
+in Phudu caps, the copy above, full-width red "Disconnect", corner X); Escape
+dismisses it with the row untouched. tsc and eslint clean on branch files.
+
+**Note for anyone measuring a dialog through `javascript_tool`:** an eval
+reports `[role=dialog]` still present after Escape, because backgrounding the
+tab suspends the exit animation — the same trap already in LEARNINGS. Screenshot
+to check; it foregrounds.

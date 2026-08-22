@@ -328,10 +328,74 @@ account. Onboarding completion is global, not per project
   silently refresh them, so the countdown is load-bearing, not decoration.
   `formatExpiry` (lib/format-date.ts) rounds to nearest with a floor of one day.
 - The export writes "Linkedin"; the app writes **"LinkedIn"** everywhere.
-- Still unspecified: the connected *page* (only the row was exported), so the
-  empty-state icon/caption/title simply come off once anything is connected.
-  Also unspecified — a pending state on Connect (the click leaves the page, so
-  it needs one), and whether Disconnect confirms.
+- **The connected page is the same `EmptyState` as the empty one.** The
+  "Connection - connected" export resolves what was open above: identical
+  three-part layout (48px icon, caption, heading + action; gaps
+  dist-lg/dist-lg/dist-xl), with three swaps — `Plugs` → `PlugsConnected`, the
+  grey caption line → a `surface-success-light` stadium badge reading "n
+  connection(s) active", and the title → "Presto can post directly to your
+  social media account." `EmptyState`'s `caption` is a `ReactNode` for exactly
+  this: a screen may name its state with a badge instead of a line of text.
+- **The row list breathes more once something is connected** — `dist-lg`
+  instead of `dist-md`, per the connected export. The connected block is two
+  stacked pieces plus its own expiry line, and needs the air to read as one
+  unit rather than as three loose rows.
+- **Connect shows a pending spinner that never resolves on this side**, because
+  the click hands the browser to LinkedIn. It ends when the page leaves. The
+  same shape will apply to any other "this control navigates away" control.
+- **Disconnect does not confirm** — it follows the app's optimistic-delete
+  convention instead (row goes immediately, comes back with a danger toast only
+  if the server call actually failed).
+- **The connected row has three states, driven by the countdown**
+  (`expiryStatus`, lib/format-date.ts — exports
+  "Connection-ConnectedState{Connected,ExpiringSoon,Expired}"):
+  *active* is the green block with Disconnect and a `text-subtle` countdown;
+  *expiring* (≤ **7 days**, `EXPIRY_WARNING_DAYS`) keeps the green block but
+  turns the countdown `text-warning` and grows a quiet `surface-2` "Renew now"
+  chip beside it; *expired* turns the block `surface-danger` with a
+  WarningDiamond over "Connection expired", swaps the action for a
+  success-green **Reconnect**, and drops the countdown line entirely.
+- **The amber window is the whole point, and the tooltip explains why**:
+  renewing while the token is still alive is a silent redirect (LinkedIn skips
+  the consent screen); after it lapses it's a full re-authorisation. Hence
+  "Renew now to avoid having to authorize all over again".
+- **Renew and Reconnect are the same action as Connect** — one authorize
+  redirect. LinkedIn decides whether to show consent, and the callback's upsert
+  replaces the row in place.
+- **The badge counts live connections, not rows.** The Expired frame's green
+  "1 connection active" is a leftover from duplicating the connected frame; an
+  expired token is exactly what can't be used. At zero the pill holds its shape
+  and drops to `surface-2`/`text-subtle` ("No connections active") so the page
+  doesn't reflow.
+- **No Disconnect in the expired state** — the action slot holds Reconnect, per
+  the export. Removing an expired account means reconnecting first.
+- The countdown's type moved `body-md-bold` → **`body-lg-bold`** across the new
+  export set; the healthy state was updated to match.
+- **A stored avatar URL is not durable.** LinkedIn's profile-image URLs are
+  time-limited and dynamically keyed, so the connected row treats the photo as
+  best-effort and falls back to the gradient avatar `onError` — which is also
+  the no-photo case, so there's one visual fallback, not two.
+- **Disconnect confirms; connecting doesn't announce itself.** Disconnect opens
+  the shared `ConfirmationModal` (Figma "DefaultConfirmationModal") with the
+  `Plugs` icon — the icon shows the state the button leads to, as the
+  delete-post modal's Trash does. The copy states the consequence without
+  borrowing gravity the action hasn't earned: "Presto will lose access to this
+  account until you reconnect it. Your posts and drafts aren't affected."
+  *"until you reconnect it"* does the job *"You can't undo this"* does on the
+  delete modal, pointed the opposite way. The button says just "Disconnect"
+  rather than repeating the title, since a card with one button and an X has
+  nothing to disambiguate. **A considered alternative was optimistic-delete plus
+  an undo toast** — cheaper for a reversible action — but a confirmation was
+  asked for directly, and the modal is what shipped.
+- **Success is silent.** The "LinkedIn connected" toast is gone: a connection
+  that worked announces itself far better than a toast can, since the row it
+  produced is right there, green, carrying the member's name and photo. Every
+  toast this page raises is now a failure.
+- **The OAuth round trip reports itself in the URL**, since a redirect is the
+  only channel a callback has: `?connected=` / `?connect_error=<code>`. The
+  page seeds its toast from those at mount and then strips them with
+  `window.history.replaceState` (no refetch). A cancelled consent screen gets
+  no toast at all — it's a decision, not a failure.
 
 ## 10a. Publishing — hard constraint
 

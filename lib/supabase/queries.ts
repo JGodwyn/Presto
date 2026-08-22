@@ -6,6 +6,7 @@ import type { ContentReference } from "@/types/content-reference"
 import type { Instructions } from "@/types/instructions"
 import type { Post } from "@/types/post"
 import type { Project } from "@/types/project"
+import type { ConnectedSocialAccount } from "@/types/social-account"
 import type { WritingStyle } from "@/types/writing-style"
 
 // RLS on public.projects already scopes every query to the signed-in user,
@@ -245,4 +246,33 @@ export async function hasProjects(supabase: SupabaseClient): Promise<boolean> {
   if (error) throw error
 
   return (count ?? 0) > 0
+}
+
+// Connected social accounts for one project. The encrypted access token is
+// deliberately absent from the select — same contract as fetchUserAiModels'
+// encrypted_key: this runs from client components too, and a column that
+// never leaves the server can't leak from one.
+export async function fetchSocialAccounts(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<ConnectedSocialAccount[]> {
+  const { data, error } = await supabase
+    .from("social_accounts")
+    .select(
+      "id, platform, account_name, account_email, avatar_url, connected_at, expires_at"
+    )
+    .eq("project_id", projectId)
+    .order("connected_at", { ascending: true })
+
+  if (error) throw error
+
+  return data.map((row) => ({
+    id: row.id,
+    platform: row.platform,
+    accountName: row.account_name,
+    accountEmail: row.account_email,
+    avatarUrl: row.avatar_url,
+    connectedAt: row.connected_at,
+    expiresAt: row.expires_at,
+  }))
 }
