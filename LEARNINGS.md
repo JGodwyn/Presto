@@ -213,6 +213,20 @@ missing.
 and the authorization endpoint, despite the docs saying HTTPS. Verified live on
 `http://localhost:3001/...` — no tunnel needed for local development.
 
+**An OAuth callback registered from a worktree breaks the moment the branch
+merges.** `redirect_uri` is derived from the request's own origin, and each
+worktree owns its own dev-server port — so the flow verified on
+`http://localhost:3001/...` started sending `:3000` once the branch landed and
+`main` became the place it runs. LinkedIn matches the URI byte-for-byte (scheme,
+host, **port**, path, trailing slash) and answers *"The redirect_uri does not
+match the registered value"*, which reads like a code bug and isn't one — the
+origin-derived default is correct and is what makes previews and production work
+without per-environment config. → **Register `:3000` alongside the worktree's
+port** when a branch first registers a callback anywhere external; the portal
+accepts several. Don't "fix" it by pinning `LINKEDIN_REDIRECT_URI` to the
+worktree port — nothing is listening there once the worktree is gone. That
+variable is only for a proxy whose internal origin isn't the public one.
+
 **LinkedIn access tokens: 60 days, no refresh for ordinary apps.** Programmatic
 refresh tokens are MDP-partner-only. Re-auth before expiry skips the consent
 screen; after expiry it doesn't. And **changing the requested scope invalidates
@@ -306,6 +320,12 @@ a symlink, not a dir, so the linked `design-sync` in every new worktree showed
 up as untracked and made the tree permanently dirty (which then blocked
 `worktree.sh remove`, which refuses to tear down dirty trees). → **Drop the
 trailing slash** (`/design-sync`) for anything that might be symlinked.
+
+**A per-worktree port leaks into anything registered externally.** An OAuth
+callback URL, a webhook endpoint, an allowed origin — all pinned to the port the
+branch happened to own, and all wrong the moment it merges to `main` on :3000.
+→ Register both, at the time you register either. See the LinkedIn
+`redirect_uri` entry under Third-party APIs.
 
 **A worktree must live outside the repo.** Nested under the project root it gets
 walked by `next build`, eslint and vitest globs, silently duplicating every file
