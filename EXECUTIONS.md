@@ -1001,3 +1001,46 @@ Four adjustments, all per direct feedback.
   equally unrestored at that moment); waiting ~3s and screenshotting shows
   everything restored. Don't diagnose persistence from the first eval after a
   navigate.
+
+## 2026-08-22 — ContentCurator agent (build-in-public content from the logs)
+**Asked:** "i want to create a ContentCurator agent … it should read the project
+and find places it can create content for social media from."
+
+- `22:1x` Scoped it with two questions: source = this codebase (build-in-public),
+  form = Claude Code subagent. Not an in-app feature.
+- `22:2x` Measured the corpus before designing: `LEARNINGS.md` 21KB (already
+  `symptom → cause → rule`, near 1:1 entry→post), `AGENTS.md` 130KB (36
+  tension markers, densest), `EXECUTIONS.md` 64KB (19), 49 commits.
+- `22:2x` Measured production rate to answer "when should it run": 24
+  `EXECUTIONS.md` entries in 4 days. Supply outruns realistic posting cadence
+  ~4–5×, so the trigger is demand-driven, not supply-driven — and the ledger
+  caps `surfaced` at 8, refusing to run on unspent inventory.
+- `22:2x` Dead end: proposed "main only, nothing in flight" as a precondition,
+  on the assumption branch SHAs were unsafe to cite. **Wrong** — `/integrate`
+  makes real merge commits (`25f91af` has two parents), so branch-authored
+  commits sit in main's history verbatim and anchor permanently. Replaced with
+  three ripeness tiers keyed on `/handoff`, not on branch.
+- `22:2x` Dead end: tried computing time-spent from `EXECUTIONS.md`'s `HH:MM`
+  stamps for the "log when I spend a lot of time on issues" ask. Too sparse —
+  51 stamps across 24 entries, several with none, computable durations 6–50min
+  (work sessions, not hard problems). Switched the metric to **recurrence**:
+  skip-dates carousel 12 mentions / 6+ rounds, Content search 3 entries,
+  Content filter 3.
+- `22:2x` Found a real gap: an *unresolved* struggle is logged nowhere.
+  `LEARNINGS.md` is "solved once, never again" so no resolution → no rule → no
+  entry; `FOLLOWUPS.md` is deferred work, not stuck work. Added an **Open
+  threads** table to the ledger to carry recurrence counts across runs.
+- `22:2x` Ledger placed **outside the repo** (`~/Code/presto-content/`): the
+  curator reads in-flight branches, so a checked-in ledger would exist once per
+  worktree and dedup would silently break. Also keeps `git status` clean in
+  every worktree and needs no `LINKED=()` symlink.
+- `22:3x` Wrote `.claude/agents/content-curator.md` (`tools: Read, Grep, Glob,
+  Bash, Write` — no `Edit`/`MultiEdit`) + `~/Code/presto-content/LEDGER.md`.
+  Source-write protection is the existing `main-branch-guard.py`: the curator
+  runs from the main checkout and reads branches via `git show <branch>:<path>`,
+  never checking out.
+
+**Verified:** frontmatter parses; `GUARDED_PREFIXES` in main-branch-guard.py
+confirmed as the same six directories the agent is told never to touch. Cold-start
+run not yet executed — held for the user.
+**Logged:** EXECUTIONS.md only (no new rule or interface decision).
