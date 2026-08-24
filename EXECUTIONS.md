@@ -1069,3 +1069,114 @@ forget it's content or rewrite what's been written."
 `LEDGER.md`/`LEDGER.bak.md`; the 13 surfaced entries intact after the header
 insertion.
 **Logged:** EXECUTIONS.md only.
+
+## 2026-08-24 — Generate: real connected accounts in the account pill
+**Asked:** "show real connected accounts on the menu. unavailable accounts
+should be grayed out. i also want to add a test account… I called it 'Try out'."
+Export: design-sync/generate-page-modal. Worktree `generate-page`, **dev server
+on :3002** (the running one for this dir — `.worktree` says 3004, nothing was
+listening there and this one was already up, so it was left alone).
+
+- Read the export: a 200px Menu under the account pill with three rows — "Try
+  out" (Phosphor `Eyes`, icon-minimal), "LinkedIn" (brand mark), "Twitter"
+  greyed to `text-minimal` with its mark at **opacity 0.1**. Icons sit in a
+  trailing 24px "R.Slots" box at 20px; the trigger's own mark stays 16px and
+  leading.
+- Decided the two things the brief left open, before writing anything:
+  **"Try out" is the default** (generation needs no account, and nothing
+  connected is the common case — the pill must not rest on a greyed row), and
+  **an account's value is its platform**, since `social_accounts` is unique on
+  (project_id, platform). That keeps the localStorage value and the
+  `/generating?account=` param exactly the shape they already had. Kept the
+  user's own name for it; "Try out" pairs with the Eyes icon and matches the
+  export. Recorded in INTERFACE §9d.
+- `components/generate/account-options.tsx` (new): `TRY_OUT_ACCOUNT_ID`,
+  `buildAccountOptions(connectedPlatforms)`, each option carrying both its
+  20px menu icon and its 16px trigger icon. Labels are platform names per the
+  export, with "Twitter" corrected to "X (Twitter)" to match Connections.
+- `select-pill.tsx`: `SelectPillOption.disabled`, the export's label-fills /
+  icon-trails row, and keyboard nav that skips disabled rows
+  (`nextEnabledIndex`, wrapping, and returning `from` when only one row is
+  selectable so it can't spin). `pick` refuses a disabled option, and
+  `openMenu` starts the keyboard on a selectable row rather than on a stale
+  disabled selection.
+- `generate-card.tsx`: fetches with the existing `fetchSocialAccounts` (read
+  only — queries.ts is another branch's hot file and was not touched), behind
+  a `socialAccountsLoaded` flag mirroring `userModelsLoaded`. **Killed the
+  latent crash at the old line 358**: `ACCOUNT_OPTIONS.find(...)!` on an
+  unvalidated localStorage value now falls back to the Try-out option, with a
+  separate effect repairing the persisted value once the fetch has actually
+  resolved — the same shape as the model fix, and now genuinely reachable
+  since an account can be disconnected.
+- Dead end worth keeping: clicking a greyed row closed the whole menu. Not the
+  click handler — a disabled `<button>` dispatches no mouse events, so the
+  menu's focus-holding `onMouseDown` never ran and the trigger blurred. Fixed
+  with `pointer-events-none` on the disabled row (LEARNINGS).
+- Updated `social-platform-options.tsx`'s header comment, which still claimed
+  the account pill shared that list, and the `/generating` page's comment, so
+  "Try out" borrowing LinkedIn is a stated decision rather than a fallback
+  nobody meant.
+
+**Verified** in-browser on :3002. Project *Design Content* (LinkedIn connected
+as Godwin John): menu renders Try out / LinkedIn / greyed X (Twitter); a click
+on the greyed row selects nothing and leaves the menu open; ArrowDown steps Try
+out → LinkedIn → wraps past the disabled X back to Try out. Project
+*Megalomania* (nothing connected): both platforms greyed, and a persisted
+`account: "linkedin"` seeded into localStorage was repaired to `"tryout"` on
+load. DOM check on the greyed rows: `disabled`, `pointer-events: none`, colour
+`rgb(202,194,191)` (= text-minimal), icon opacity `0.1` — the export's values
+exactly. End to end: generated one post on TasteTest with Try out selected,
+URL `?count=1&account=tryout&model=tastetest`, card came back on LinkedIn as
+intended; test post deleted afterwards. `tsc --noEmit` and ESLint clean.
+**Logged:** EXECUTIONS.md, INTERFACE.md §9d, LEARNINGS.md.
+
+## 2026-08-24 — Generate: four polish items (same branch, :3002)
+**Asked:** cut the "How many posts…" → stepper gap by 8pt; tooltips on the
+model and social pills ("Model to use" / "Socials to generate for"), showing
+faster than usual; bold the Try-out eyes icon; drop the top-right info icon.
+
+- **Gap.** The column is `gap-dist-xl` (24px) and that gap also sets
+  box→pills→button→footer, so the heading and the stepper are now their own
+  nested `gap-dist-lg` (16px) group — a real token rather than a
+  `-mt-dist-md` cancelling margin. Measured live: heading→box 16px,
+  box→pills still 24px.
+- **Tooltips.** `SelectPill` gained an optional `tooltip` node and wraps its
+  own button as the `TooltipTrigger`, so the bubble anchors the capsule and
+  picks up focus as well as hover — rather than wrapping `<SelectPill>` in a
+  span, which would have anchored a box that isn't the control. `delay` is a
+  **Provider** prop in this Base UI version (not on `Tooltip.Root`), so one
+  `TooltipProvider delay={300}` wraps both pills in generate-card; that also
+  groups them, so the second pill's tooltip shows instantly after the first.
+  App default elsewhere is 600ms and is untouched.
+  - The tooltip is `disabled` while the menu is open. Both hang off the same
+    button, and left alone the bubble sat over the options.
+- **Eyes** → `weight="bold"` on both the 20px menu icon and the 16px trigger
+  icon in account-options.tsx.
+- **Info marker** off via `GlowPanel`'s existing `showInfoMarker={false}`.
+  Noticed on the way past that this was the last page rendering it — Content
+  and the post-details screens already pass false — so the prop's `true`
+  default is now unreachable. Left the shared component alone and wrote it up
+  in FOLLOWUPS rather than editing it here.
+
+**Verified** in-browser: gap measured at exactly 16/24; both tooltips open on
+hover, fully opaque, correctly positioned above their pill ("Socials to
+generate for" captured in a screenshot) and absent while the menu is open;
+the eyes icon reads bold in both the pill and the menu row; the Generate
+corner now holds only the reset button, and Content's corner is unchanged.
+Harness note: a `zoom` immediately after a `hover` can close a tooltip that
+had just opened, and since the pointer never leaves and re-enters it never
+reopens — the tooltip looked broken until it was read out of the DOM. Take
+the screenshot on a fresh hover.
+`tsc --noEmit` clean; ESLint clean on every touched file (the 10 errors under
+components/generate remain the pre-existing ones in generate-calendar-column
+and generating-view, both untouched).
+**Logged:** EXECUTIONS.md, INTERFACE.md §9d, FOLLOWUPS.md.
+
+**Closed out:** FOLLOWUPS entry 1 ("Nothing consumes a connected social account
+yet", parked by `feat/connections-page` on 2026-08-21) is exactly this branch's
+job and is now done — deleted from FOLLOWUPS per the file's own rule. Its three
+asks all landed: the pill reads `fetchSocialAccounts` with the browser client,
+the no-connection and expired-connection cases are decided and written up in
+INTERFACE §9d, and the persisted-value non-null-assert is gone. The remaining
+numbered entries were left as they are rather than renumbered — they belong to
+another branch's section.

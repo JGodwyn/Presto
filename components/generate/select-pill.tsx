@@ -4,6 +4,11 @@ import * as React from "react"
 import { createPortal } from "react-dom"
 
 import { Menu, MenuItem } from "@/components/ui/menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { cn } from "@/lib/utils"
 
@@ -15,6 +20,10 @@ export interface SelectPillOption {
   value: string
   label: string
   icon?: React.ReactNode
+  // Rendered as a dimmed, unselectable row (the export's own greyed state).
+  // The Generate page's account pill uses it for a platform this project
+  // hasn't connected.
+  disabled?: boolean
 }
 
 // Capsule-shaped dropdown trigger for the generate card's model/account
@@ -27,6 +36,7 @@ export function SelectPill({
   value,
   onChange,
   ariaLabel,
+  tooltip,
   className,
   children,
 }: {
@@ -34,6 +44,10 @@ export function SelectPill({
   value: string
   onChange: (value: string) => void
   ariaLabel: string
+  // What the pill is for, on hover. The trigger *is* the tooltip's anchor
+  // (rather than a wrapper around it) so the bubble points at the capsule
+  // itself and picks up focus as well as hover.
+  tooltip?: React.ReactNode
   // Merged onto the trigger button — the Generate page's own pills stay
   // borderless surface-3 (the default), but design-sync/regeneratemodal's
   // own model pill is a bordered surface-4 capsule instead.
@@ -66,13 +80,34 @@ export function SelectPill({
     [squircleRef]
   )
 
+  // Walks to the next selectable option in `delta`'s direction, wrapping.
+  // Returns `from` unchanged when nothing else is selectable, so a list that
+  // is entirely disabled can't spin forever.
+  const nextEnabledIndex = (from: number, delta: number) => {
+    const count = options.length
+    for (let step = 1; step <= count; step++) {
+      const index = (from + delta * step + count * count) % count
+      if (!options[index].disabled) return index
+    }
+    return from
+  }
+
   const openMenu = () => {
-    setActiveIndex(Math.max(0, options.findIndex((o) => o.value === value)))
+    const selectedIndex = options.findIndex((o) => o.value === value)
+    // A disabled selection is reachable — the account pill's value comes back
+    // from localStorage, and the account it names can have been disconnected
+    // since. Start the keyboard on something actually pickable instead.
+    const startIndex =
+      selectedIndex >= 0 && !options[selectedIndex].disabled
+        ? selectedIndex
+        : options.findIndex((o) => !o.disabled)
+    setActiveIndex(Math.max(0, startIndex))
     setKeyboardActive(false)
     setOpen(true)
   }
 
-  const pick = (option: SelectPillOption) => {
+  const pick = (option: SelectPillOption | undefined) => {
+    if (!option || option.disabled) return
     onChange(option.value)
     setOpen(false)
   }
@@ -107,11 +142,11 @@ export function SelectPill({
     if (event.key === "ArrowDown") {
       event.preventDefault()
       setKeyboardActive(true)
-      setActiveIndex((activeIndex + 1) % options.length)
+      setActiveIndex(nextEnabledIndex(activeIndex, 1))
     } else if (event.key === "ArrowUp") {
       event.preventDefault()
       setKeyboardActive(true)
-      setActiveIndex((activeIndex - 1 + options.length) % options.length)
+      setActiveIndex(nextEnabledIndex(activeIndex, -1))
     } else if (event.key === "Enter" || event.key === " ") {
       // preventDefault stops the button's own click from re-toggling the
       // menu right after we close it here.
@@ -122,31 +157,45 @@ export function SelectPill({
     }
   }
 
+  const trigger = (
+    <button
+      ref={setTriggerRef}
+      style={squircleStyle}
+      type="button"
+      aria-label={ariaLabel}
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      aria-controls={open ? listboxId : undefined}
+      onClick={() => (open ? setOpen(false) : openMenu())}
+      onKeyDown={handleKeyDown}
+      onBlur={() => setOpen(false)}
+      // Hover mixes a touch of foreground into the resting surface — same
+      // affordance recipe as Button's `secondary` variant. The group lets
+      // trigger content (e.g. the account pill's caret) restyle itself
+      // off this button's aria-expanded without SelectPill exposing its
+      // open state.
+      className={cn(
+        "group/select-pill flex h-8 cursor-pointer items-center gap-dist-sm rounded-full bg-surface-3 px-pad-md text-body-lg transition-colors duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50",
+        className
+      )}
+    >
+      {children}
+    </button>
+  )
+
   return (
     <>
-      <button
-        ref={setTriggerRef}
-        style={squircleStyle}
-        type="button"
-        aria-label={ariaLabel}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? listboxId : undefined}
-        onClick={() => (open ? setOpen(false) : openMenu())}
-        onKeyDown={handleKeyDown}
-        onBlur={() => setOpen(false)}
-        // Hover mixes a touch of foreground into the resting surface — same
-        // affordance recipe as Button's `secondary` variant. The group lets
-        // trigger content (e.g. the account pill's caret) restyle itself
-        // off this button's aria-expanded without SelectPill exposing its
-        // open state.
-        className={cn(
-          "group/select-pill flex h-8 cursor-pointer items-center gap-dist-sm rounded-full bg-surface-3 px-pad-md text-body-lg transition-colors duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50",
-          className
-        )}
-      >
-        {children}
-      </button>
+      {tooltip ? (
+        // `disabled` while the menu is open: the tooltip and the menu both
+        // hang off this button, and a bubble explaining a control the user
+        // has already opened is just something else covering the options.
+        <Tooltip disabled={open}>
+          <TooltipTrigger render={trigger} />
+          <TooltipContent>{tooltip}</TooltipContent>
+        </Tooltip>
+      ) : (
+        trigger
+      )}
       {open && menuRect
         ? createPortal(
             <div
@@ -181,10 +230,34 @@ export function SelectPill({
                     aria-selected={option.value === value}
                     highlighted={keyboardActive && index === activeIndex}
                     withDivider={index > 0}
+                    disabled={option.disabled}
+                    // A disabled <button> swallows mouse events instead of
+                    // bubbling them, so the Menu's own mousedown handler
+                    // never runs and the trigger blurs — clicking a greyed
+                    // row closed the whole menu. Taking the row out of
+                    // hit-testing entirely lets the click land on the menu
+                    // card itself, which keeps focus (and the menu) where it
+                    // was.
+                    className={option.disabled ? "pointer-events-none" : undefined}
                     onClick={() => pick(option)}
                   >
-                    {option.icon}
-                    {option.label}
+                    {/* Label fills, icon trails in its own 24px slot — the
+                      export's "R.Slots" layout. (The trigger keeps its icon
+                      leading; that content is the caller's own JSX.) A
+                      disabled row's icon drops to the export's 10% opacity,
+                      the text to text-minimal via MenuItem's own disabled
+                      styling. */}
+                    <span className="flex-1 truncate">{option.label}</span>
+                    {option.icon ? (
+                      <span
+                        className={cn(
+                          "flex size-6 shrink-0 items-center justify-center",
+                          option.disabled && "opacity-10"
+                        )}
+                      >
+                        {option.icon}
+                      </span>
+                    ) : null}
                   </MenuItem>
                 ))}
               </Menu>

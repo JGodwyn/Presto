@@ -17,7 +17,10 @@ function GeneratingPageContent({ projectId }: { projectId: string }) {
   // Whichever account GenerateCard's SelectPill had selected — every card
   // in the batch starts posting to this one (still individually
   // changeable by tapping its own social pill). Falls back to "linkedin"
-  // for any URL that doesn't carry a recognized value.
+  // for any URL that doesn't carry a recognized value, which deliberately
+  // includes the "Try out" account (components/generate/account-options.tsx):
+  // it's a stand-in with no platform of its own, and a post still has to be
+  // written for *some* platform, so it borrows the app's first-class one.
   const accountParam = searchParams.get("account")
   const account: SocialPlatform = accountParam === "x" ? "x" : "linkedin"
   // Unlike account, this isn't checked against a fixed list: a user-added
