@@ -13,34 +13,6 @@ and cross-cutting work is finally safe.
 
 ---
 
-## 1. Nothing consumes a connected social account yet
-
-**From:** `feat/connections-page`, 2026-08-21.
-
-Connecting LinkedIn now stores a real, working account
-(`public.social_accounts`, one row per project+platform) — and changes nothing
-downstream. The Generate page's social-account pill is still the hardcoded
-placeholder list it always was.
-
-**Do:** feed `fetchSocialAccounts(supabase, projectId)` (lib/supabase/queries.ts)
-into the account pill in `components/generate/generate-card.tsx`, the same way
-that file already merges user AI models into the model pill — it fetches with
-the *browser* Supabase client, since its page is a client component, and
-queries.ts accepts either client. Decide what the pill shows when a project has
-no connection at all (today's placeholders imply one always exists) and when the
-only connection is expired.
-
-**Why it waited:** `generate-card.tsx` belonged to the live `feat/generate-page`
-worktree while connections was being built. Editing it there would have
-guaranteed a conflict in a file neither branch owned outright.
-
-**Gotcha:** the account pill's persisted value has the same latent bug
-generate-card.tsx already fixed once for models — a stored id whose row has
-since been deleted must not be non-null-asserted into a render. Reuse that
-pattern (an explicit `loaded` flag, not "the list is empty").
-
----
-
 ## 2. A token revoked at LinkedIn's end is invisible to us
 
 **From:** `feat/connections-page`, 2026-08-21.
@@ -143,3 +115,16 @@ constraint but no flow behind it.
   Connections page left open across the 7-day or 60-day boundary won't change
   treatment until it is reloaded. Correct for a boundary that moves once every
   60 days; noted so nobody reports it as a bug.
+
+## 7. `GlowPanel`'s info marker is now dead code
+
+**From:** `feat/generate-page`, 2026-08-24.
+
+Every caller passes `showInfoMarker={false}` — Content dropped the marker
+earlier, and the Generate page dropped it on 2026-08-24, which was the last
+place it rendered. The prop still defaults to `true`, so `components/shared/
+glow-panel.tsx` carries a branch (and a Phosphor `Info` import) nothing
+reaches. Either flip the default and delete the four now-redundant props, or
+remove the prop and the marker outright — a decision about whether that corner
+ever gets a real info affordance, not a mechanical cleanup, which is why this
+branch left it alone rather than editing a shared component on the way past.

@@ -386,3 +386,21 @@ it ran with its own defaults (semicolons on), not this project's style.
 **Rule:** don't run prettier here. Formatting is whatever ESLint enforces plus
 the existing files' conventions (no semicolons, double quotes). If a file needs
 tidying, edit it by hand and check it against a neighbouring file.
+
+## A disabled <button> swallows the mousedown a floating menu depends on
+
+**Symptom:** clicking a greyed-out row in the Generate page's account menu
+closed the whole menu, as though a real option had been picked. Nothing was
+selected — the menu just vanished.
+
+**Cause:** `SelectPill` keeps its menu open by holding focus on the trigger:
+the menu card's `onMouseDown` calls `preventDefault()`, so the click never
+blurs the trigger. Disabled form controls don't dispatch mouse events *at
+all*, and nothing bubbles out of them — so that handler never ran, the trigger
+blurred, and its `onBlur` closed the menu. The row itself did nothing, which
+is why the selection was unchanged.
+
+**Rule:** a disabled row inside a focus-held popup needs `pointer-events-none`
+on top of `disabled`. Then the click hit-tests through to the menu card, whose
+own `onMouseDown` runs and keeps focus (and the menu) where it was. `disabled`
+alone makes a control inert; it does not make it transparent.

@@ -585,6 +585,56 @@ doesn't show them:
   as the tab and layout — the first client render is unfiltered until the
   stored value is read.
 
+## 9d. Generate — the account pill
+
+- **The menu is driven by what the project has actually connected**
+  (design-sync/generate-page-modal). Three rows: "Try out", then one per
+  platform, each greyed out unless `public.social_accounts` has a row for it.
+  A greyed row is `text-minimal` with its brand mark at **10% opacity** — the
+  export's own values, and `MenuItem`'s existing `disabled` styling already
+  produces the text half.
+- **"Try out" is the default, and the answer to "what does the pill show when
+  nothing is connected?"** Generation needs no social account at all (nothing
+  is ever published — see §10a), and a project with nothing connected is the
+  common case, so the pill resting on a greyed-out platform would be wrong.
+  It leads the list, can never be unavailable, and is what a stale persisted
+  value falls back to. Its icon is Phosphor `Eyes` at `icon-minimal`: a
+  stand-in, not a brand.
+- **An account's value is its platform, not its row id.** `social_accounts` is
+  unique on (project_id, platform), so within a project a platform names
+  exactly one account — which keeps the value that rides in localStorage and
+  the /generating URL the shape it has always been. A "Try out" batch still
+  has to write posts for *some* platform, and borrows LinkedIn.
+- **Rows are labelled by platform, not by account name** ("LinkedIn", not
+  "Godwin John"), per the export. Which identity that is belongs to
+  Connections, which shows it in full.
+- **An expired connection still counts as connected.** Generation never touches
+  the access token, so greying it out would block a choice that works. Expiry
+  is Connections' business (§9a).
+- **The menu row's icon trails the label** (the export's "R.Slots" 24px slot),
+  while the trigger keeps its icon leading. The trigger's mark is 16px, the
+  menu's 20px — both straight off the export, which is why an account option
+  carries two icons.
+- **A disabled row keeps the menu open when clicked.** It's `pointer-events-none`
+  so the click lands on the menu card instead of nowhere — see LEARNINGS for
+  why a plain `disabled` button closed it.
+- **Both pills carry a hover tooltip** — "Model to use" / "Socials to generate
+  for" — at **300ms**, half the app's usual 600ms. They name what a control is
+  for rather than adding detail to something already legible, so they should
+  land while the pointer is still on the pill. One `TooltipProvider` wraps the
+  pair so Base UI groups them and the second shows instantly after the first.
+  The trigger is the capsule itself (`SelectPill`'s `tooltip` prop), not a
+  wrapper around it, and the tooltip is `disabled` while the menu is open — a
+  bubble explaining a control you've already opened just covers the options.
+- **The question and its stepper sit at `dist-lg`**, 8px tighter than the
+  `dist-xl` rhythm around them, as their own nested group rather than a
+  cancelling margin.
+- **No info marker on this page.** `GlowPanel`'s corner marker was static with
+  nothing wired to it, and this corner already carries a control that does
+  something. Every page now passes `showInfoMarker={false}` — Content dropped
+  it earlier for the same reason — so the prop's `true` default is currently
+  unused.
+
 ## 10a. Publishing — hard constraint
 
 **No UI may trigger a real post.** A publish/share call to a live social account
