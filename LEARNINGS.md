@@ -404,3 +404,110 @@ is why the selection was unchanged.
 on top of `disabled`. Then the click hit-tests through to the menu card, whose
 own `onMouseDown` runs and keeps focus (and the menu) where it was. `disabled`
 alone makes a control inert; it does not make it transparent.
+
+### A `"use server"` file may export *only* async functions — a re-exported type breaks it at runtime
+
+**Symptom.** Generation died before it started, with a server-side
+`ReferenceError: PostRow is not defined` thrown at *module evaluation* of
+`post-actions.ts` (pointing at an unrelated line — the first export after the
+offending one), a 500 on `POST /…/generating`, and no posts written. Nothing
+was wrong at the line the trace named, and `tsc --noEmit` was completely clean.
+
+**Cause.** Moving the `PostRow` type into `lib/supabase/queries.ts` left this
+behind in `post-actions.ts` so an existing importer wouldn't have to change:
+
+```ts
+import { …, type PostRow } from "@/lib/supabase/queries"
+export type { PostRow }   // ← this
+```
+
+A `"use server"` module is rewritten by Next's server-actions loader, which
+enumerates the module's exports and registers each one as a callable action.
+Type-only exports are erased by the time it looks, so it emitted a value
+re-export of a binding that does not exist at runtime. `tsc` can't see this —
+the file is valid TypeScript; the breakage is in what the loader emits.
+
+**Rule.** Every export from a `"use server"` file must be an async function.
+Don't re-export types (or constants, or anything else) through one, even for
+call-site convenience — put the type where it's declared and have consumers
+import it from there. `app/api/regenerate-post/route.ts` now takes `PostRow`
+straight from `lib/supabase/queries`.
+
+**Corollary for verifying.** A green `tsc` + green unit tests do not prove a
+server action still loads. Anything touching a `"use server"` file's exports
+has to be exercised in the running app before it counts as done.
+
+### `innerText` reads empty in a backgrounded tab — instrument with `textContent`
+
+**Symptom.** A MutationObserver watching for a toast reported nothing, even for
+a toast already *proven* to fire (the "Moved to draft" one, previously measured
+at 15ms). Polling with `setInterval` found nothing either. The feature worked;
+the instrument was blind.
+
+**Cause.** Both probes read `document.body.innerText`. `innerText` is defined in
+terms of *rendered* text — it forces and depends on layout — and a backgrounded
+tab may not compute layout at all, so it comes back empty or stale. Every
+`javascript_tool` eval backgrounds the tab (already noted elsewhere in this
+file), so this hits every DOM assertion made through that path.
+
+**Rule.** Use `textContent` for any assertion made from an eval. It is a pure
+tree read with no layout dependency. Keep `innerText` only for the rare case
+where the rendered/visible form is genuinely what's being checked — and then
+foreground the tab with `computer` first.
+
+**Corollary.** A 4s auto-dismissing toast (toast.tsx's default `duration`) is
+usually gone before the next tool call returns, so it cannot be caught by
+screenshot or by polling across calls. Capture it with a MutationObserver —
+callbacks are driven by DOM changes, not timers, so background throttling can't
+suppress them — and read the result afterwards.
+
+### A NUL byte in a source file makes git show no diff for it
+
+**Symptom.** `git diff lib/ai/generate.ts` reported
+`Bin 10818 -> 11558 bytes` and not a single line of change, so the file's
+edits would have been invisible to a reviewer. Earlier the same file had
+silently returned nothing from `grep` — including `grep -c ""` — and `file`
+called it `data` rather than text.
+
+**Cause.** `STREAM_ERROR_MARKER` (and now `STREAM_DONE_MARKER`) deliberately
+contain NUL bytes, chosen so no model output could ever collide with them. A
+single NUL is enough for git, grep and `file` to classify the *entire* file as
+binary. The file is valid UTF-8 and compiles fine; only the tooling's
+heuristic is affected. This predates the branch that noticed it — the first
+marker already had NULs.
+
+**Rule.** A file that intentionally contains control bytes needs
+`path/to/file diff` in `.gitattributes`, or its changes never appear in a
+diff or a review. Reach for `grep -a` on it too. If a source file ever seems
+to return nothing from grep, check `file` on it before assuming the search was
+wrong.
+
+## A streaming route's framing and its persistence are two tees, and they must agree
+
+**Symptom.** A regenerate could blank the post on screen while the DB kept the
+old text; a reload silently restored it. Separately, navigating away right
+after Regenerate quietly threw the generation away.
+
+**Cause.** `app/api/regenerate-post/route.ts` reads `result.fullStream` for
+framing while `streamPost`'s `onEnd` persists — two independent tees off one
+stream. Three ways they disagreed:
+
+- *Different predicates for "is this text".* Framing used
+  `part.text.length > 0`, persistence used `end.content.trim()`. A
+  whitespace-only completion satisfied one and not the other.
+- *The success marker outran the write.* STREAM_DONE_MARKER was enqueued in
+  the framing tee's `finally`; the update ran on the other tee. DONE therefore
+  meant "the stream ended", which is not what the client reads it as.
+- *The client aborting kills persistence.* A client disconnect aborts the
+  request the handler is running in, so onEnd sees `ok: false` and saves
+  nothing. Aborting on unmount to avoid setState-after-unmount destroyed
+  finished work to solve a problem a flag solves.
+
+**Rule.** If one tee frames the response and another does the writing, the
+framing tee must *wait on* the writing tee's outcome before claiming success —
+a promise settled on every path through the callback, including its throw, with
+a timeout backstop so a callback that never fires can't hold the response open.
+Keep both tees' "did we get real content" test byte-identical. And never abort
+an in-flight request just to silence setState-after-unmount: use a cancelled
+flag and let the read loop run out, or the server stops persisting the work the
+user already paid for.

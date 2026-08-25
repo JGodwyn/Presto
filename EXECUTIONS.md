@@ -1180,3 +1180,304 @@ the no-connection and expired-connection cases are decided and written up in
 INTERFACE §9d, and the persisted-value non-null-assert is gone. The remaining
 numbered entries were left as they are rather than renumbered — they belong to
 another branch's section.
+
+## 2026-08-24 — feat/post-accounts: clean slate, retired topic chips, real accounts on post cards
+
+- Answered the opening question first: `posts.topics` is a denormalized `text[]`
+  snapshot (NOT NULL DEFAULT '{}'), **not** a FK to `instructions.topics` — so
+  deleting a topic breaks no reference, and a post with no topic is already
+  routine (`topics: topic ? [topic] : []`, post-actions.ts). Confirmed against
+  the live DB.
+- Claimed the (free) schema slot in `.worktree` — this round needs one additive
+  migration. Worktree port is **3002**.
+- **Wiped all posts** at the user's explicit request ("clean slate, cos of #3"):
+  430 rows, all in the "Design content" project, every other project already
+  empty. `delete from public.posts` — verified 0 remaining.
+- Migration `add_posts_is_tryout_column`: `is_tryout boolean not null default
+  false`. Needed because `generating/page.tsx` collapses the "Try out" account
+  to platform `linkedin`, which made a try-out post indistinguishable from a
+  real one — and once the card shows the *account* rather than the platform,
+  that mislabels a stand-in post with the user's actual LinkedIn name.
+- Centralized the posts table's shape before adding to it: the column list was
+  duplicated across six `.select()`s and the row→Post mapping across four call
+  sites, which is how a new column goes stale one call site at a time.
+  `POST_COLUMNS`, `PostRow` and `mapPostRow` now live in lib/supabase/queries.ts;
+  post-actions.ts re-exports `PostRow` since app/api/regenerate-post/route.ts
+  imports it from there.
+- `lib/post-account.ts` — the resolver behind "show the real account". No
+  `social_account_id` on posts and none needed: social_accounts is unique on
+  (project_id, platform), so a platform already identifies exactly one account
+  within a project. `resolvePostAccount` prefers the account's own name, falls
+  back to the platform label when that platform isn't connected, and reports
+  "Try out" for a stand-in post. `nextPostAccount` is the cycle.
+- Threaded `accounts` + `activeTopics` from calendar/page.tsx (a `Promise.all`
+  of posts/accounts/instructions) through ContentView → MonthBoard →
+  KanbanColumn → KanbanPostCard, and → DayDeck → GeneratedPostCard.
+  GeneratingView fetches accounts browser-side, the same read GenerateCard
+  already makes (it's a client component and can't fetch server-side).
+- Chip gained a third palette, `retired` — surface-4 / border-minimal /
+  text-minimal, per direct spec. It overrides `selected`, and the
+  selected+onRemove branch is now explicitly guarded against it: a retired
+  topic isn't in the selectable set at all, so it can't be the removable
+  variant.
+- **A test caught a real bug in my own guard.** `nextPostAccount` first read
+  `if (platforms.length < 2) return null`, which is wrong for a post whose
+  platform has since been disconnected: it *does* have somewhere to go (the one
+  connected account) even though only one platform is connected. The length
+  check now runs *after* the "its own platform isn't in the list" branch. Pinned
+  by lib/post-account.test.ts (11 tests).
+- Lint: only one new error, `calendar/page.tsx`'s `now={Date.now()}` — my edit
+  moved the JSX so the existing `eslint-disable-next-line react-hooks/purity`
+  no longer landed on the offending line. Hoisted `Date.now()` to a const with
+  the comment on it. Diffed against a stashed HEAD baseline to prove the other
+  17 errors are all pre-existing.
+- Verified in-browser on **:3001** (this worktree's server was already up there,
+  not the 3002 its `.worktree` records) against four temporary posts covering
+  every branch, deleted afterwards: connected LinkedIn → "Godwin John"; a
+  deleted topic → retired chip measured at exactly `#fffffe`/`#f3efec`/`#cac2bf`
+  vs the live chip's surface-3/border-subtle/text-subtle, squircle clip intact;
+  a try-out post → Eyes + "Try out", never the real name; an X post with no X
+  connection → falls back to "X". The pill renders as a `<span>` with
+  `cursor: auto` and `tabIndex -1` (one connected account = nothing to cycle to),
+  not a dead button.
+- Left alone: one draft created at 14:12:55Z, *after* the wipe and not one of
+  the verification rows — new work, not mine to delete.
+- **Bug I shipped, and the fix.** Generation 500'd with `ReferenceError:
+  PostRow is not defined` at module evaluation of post-actions.ts. Cause: when
+  I moved the type into queries.ts I left `export type { PostRow }` behind in
+  post-actions.ts so the regenerate route wouldn't have to change its import —
+  but that file is `"use server"`, and Next's server-actions loader enumerates
+  its exports and registers each as a callable action *after* types are erased,
+  emitting a value re-export of a binding that doesn't exist at runtime. `tsc`
+  can't see it (the TypeScript is valid; the breakage is in the emitted
+  module). Fixed by deleting the re-export and having
+  app/api/regenerate-post/route.ts import `PostRow` from lib/supabase/queries
+  directly, which is where it's declared anyway. Every export from
+  post-actions.ts is now an async function. Written up in LEARNINGS.md.
+- Re-verified by actually running a generation (`count=2&model=tastetest`) in
+  the browser rather than trusting the gates that missed it: two posts written,
+  both cards showing "[in] Godwin John". Deleted the two I created. The one
+  console error left is an `InvalidStateError: Transition was aborted` from
+  navigating straight to /generating — that page's `enter="blur-in"` expects
+  the handoff from /generate, so there's no outgoing transition to pair with.
+  Pre-existing and unrelated.
+
+## 2026-08-25 — post-accounts: DialKit out, Try out in the cycle, post-details from contentpagenew
+
+- **DialKit removed from the Content section.** post-details.tsx held the last
+  three panels ("Regenerating heading (elastic)" / "body reveal" / "line
+  entrance"); values frozen as `REGENERATING_HEADING`,
+  `REGENERATING_LINE_DELAY_MS` and `REGENERATING_LINE_ENTRANCE` at module
+  scope, same treatment as toast.tsx, use-shake.ts and day-deck.tsx. The
+  reveal effect's dependency array collapses to `[isRegenerating]` — the
+  entries it listed were dial readings, and module constants can't change
+  between renders.
+- **Move-to-draft toast now fires on the click, not on the response.** It was
+  inside the `.then()`, so it trailed a move that had already happened
+  optimistically. Measured the fix with a MutationObserver: toast node added at
+  **t=15ms**, the server request completing at **t=1198ms** — i.e. ~1.2s
+  earlier. The failure branch still reverts the patch *and* replaces the toast
+  (error toast, or closes it outright when the request never landed), so a
+  toast offering Undo can never outlive the move it offers to undo.
+- **"Try out" is now a cycle position** (direct request: "it should cycle
+  between the available ones (even tryout)"). This reverses the earlier call
+  that a try-out post's pill is static — and the earlier call was wrong in
+  practice: with one connected account, excluding Try out left the pill with
+  nowhere to go, so it was permanently a dead `<span>` in the common case.
+  `postAccountCycle` now returns `[Try out, ...connected platforms]` in the
+  Generate menu's own order, and `nextPostAccount` returns a
+  `PostAccountTarget` (`{platform, isTryout}`) rather than a bare platform.
+  A Try out position **carries the post's own platform**, so switching to it
+  and back is lossless — verified live: cycling to Try out and querying the row
+  gives `is_tryout: true` with `platform: linkedin` intact.
+  - `updatePost`'s patch schema gained `isTryout`; every call site writes the
+    pair together, since a try-out post still has a real platform.
+  - `GeneratedPost` (generating-view) gained its own `isTryout` — it was a
+    batch-level prop, but a card can now be switched individually.
+- **`components/shared/post-account-pill.tsx`** — the pill markup was about to
+  exist in three places, so it was extracted first. Button when `nextAccount`
+  is non-null, plain span otherwise (which now only happens with *no*
+  connected accounts, Try out being the only position). GeneratedPostCard,
+  KanbanPostCard and PostDetails all render it.
+- **Post-details rebuilt to design-sync/contentpagenew.** The export's
+  `Frame 2147239385` is `align: CENTER` holding a 400px HUG column
+  (`x=228` in an 856 parent) whose own children are all `align: MIN` at `x=0` —
+  so one centred column with heading, account/topics row and body **all flush
+  to that column's left edge**. Previously the heading was its own hugging,
+  centred block, so it floated over the body instead of lining up with it.
+  Verified in the DOM: panel centre 1168, column left 968 w 400 (centre 1168),
+  and h1/body both starting at exactly 968.
+  - The account pill + topic chips row (the export's `Frame 2147239341`,
+    dist-md gap) is new on this page — it had neither before. The pill box is
+    byte-identical to the cards' (surface-3, border-subtle at stroke-lg,
+    rad-md, pad-xs/pad-sm, dist-sm), which is why the shared component covers
+    all three.
+  - `calendar/[postId]/page.tsx` now `Promise.all`s post + accounts +
+    instructions, same as the Content page.
+- Verified in-browser on :3001 against one temporary post (deleted after):
+  pill cycles Godwin John → Try out → Godwin John and persists; retired chip
+  ("Growth hacking") still visibly distinct from the live one ("Leadership");
+  Kanban cards unchanged after the pill extraction.
+- Automation note: the first attempt to click "Move to drafts" by screenshot
+  coordinates missed — the screenshot is 1437px wide against a ~1796px DOM
+  viewport, and that ratio is not the only scaling in play. `find` + click by
+  `ref` is the reliable path, and the empty observer log (no `click` entry at
+  all) is what exposed the miss rather than a wrong result.
+- **Post-details topic chips use `text-bold`** (direct request), matching the
+  export's own label fill. Scoped to that screen via `className` rather than
+  changed on `Chip`: everywhere else an unselected chip is secondary to what it
+  sits beside, but here the topic is one of only two things describing the
+  post. A **retired** chip keeps its `text-minimal` — the point of that state is
+  that the topic has faded out of the project, which a bold label would undo.
+  Confirmed `cn()` resolves the override (colour swapped, `text-body-md` kept)
+  before relying on it.
+- **Regenerate modal gains a topic picker** (design-sync/regeneratemodalwithtopic
+  — its `Frame 2147239356` is the model pill's frame with a different label, so
+  it reuses SelectPill with the same surface-4/border overrides). Regenerating
+  is the right home for this: it's the one action that rewrites the post
+  outright, so a new subject produces words that actually match it — changing a
+  topic anywhere else would leave the label disagreeing with the post.
+  - Options are the post's own topic first, then the project's, deduped. The
+    pill is hidden entirely when there's nothing to choose between.
+  - `app/api/regenerate-post` takes an optional `topic` (≤80 chars), uses it in
+    the prompt, and writes `topics` back **only when it actually changed** — so
+    an untouched reroll doesn't rewrite the column and a topicless post doesn't
+    silently gain one. Applied to both persistence sites (the TasteTest
+    shortcut and the stream's `onEnd`), which meant hoisting the computation
+    above the TasteTest early-return — TS caught that as a TDZ error.
+  - post-details patches `topics` locally after a clean finish, since the text
+    stream can't carry the field back.
+  - Verified end-to-end on TasteTest: picked "Personal branding" over "Product
+    management", and the row went `["Product management","Growth hacking"]` →
+    `["Personal branding"]` with fresh content, the chip updating in place.
+- **A false alarm worth recording**: both chips on the test post rendered
+  retired, and I suspected a `Set` failing to cross the RSC boundary. A
+  temporary `data-probe` on the server component showed the truth — the project's
+  topics are now `["Product management","Personal branding"]`; **"Leadership"
+  had been deleted from Instructions since yesterday**, so retired was correct.
+  The prop was switched from `Set<string>` to `string[]` anyway (built into a
+  Set inside the client component, exactly as ContentView already does) — it's
+  the shape the codebase already uses across that boundary, so the two screens
+  now agree.
+
+## 2026-08-25 — post-details: error handling audit for regenerate
+
+Audited every failure path on the post-details page. Already handled correctly:
+a pre-response `fetch` throw, a non-ok response, a mid-stream *model* error
+(STREAM_ERROR_MARKER), a read throwing mid-stream, and the server skipping
+persistence on a failed stream. The Regenerate button is disabled while a run
+is in flight, so there's no concurrent-stream path. Five real gaps found:
+
+1. **A hung agent never resolved.** No timeout and no abort anywhere: if the
+   model accepted the connection and then went silent, `reader.read()` waited
+   forever, leaving the page looping "generating post . . ." with no error and
+   no way out but a reload. Fixed with `STREAM_STALL_TIMEOUT_MS` (45s), reset on
+   every chunk so a slow-but-alive generation is never cut off. **Verified by
+   simulating a stream that delivers one chunk then goes silent: aborted at
+   45,995ms with "That took too long to generate", heading cleared.**
+2. **A cleanly-truncated stream was indistinguishable from success.** The
+   framing only marked *model* errors; a severed connection (a function hitting
+   its duration ceiling, a proxy idling the socket) ends the response cleanly,
+   and the client would treat whatever had arrived as the finished post and
+   write it into its own state while the server persisted nothing — the exact
+   drift STREAM_ERROR_MARKER exists to prevent, reached another way. Added
+   `STREAM_DONE_MARKER`: the stream now always ends with exactly one of the two,
+   and a body carrying neither is rejected. **Verified by stripping the marker
+   in flight: "The connection dropped before that finished", original content
+   untouched.**
+   - The TasteTest shortcut returns a plain `Response` that bypasses the framed
+     stream, so it had to emit the marker too — caught before shipping; without
+     it every TasteTest regenerate would have failed.
+3. **An empty completion wiped the post.** A stream can end "successfully" with
+   no text (a safety stop, a zero-length completion) and the route persisted
+   `content: ""` — the raw update has none of `updatePost`'s `min(1)` guard.
+   Now `!end.content.trim()` is treated as a failure, and the framed stream
+   emits the *error* marker when nothing was produced.
+4. **No `maxDuration`.** Next's default is "set by the deployment platform"
+   (verified in node_modules/next/dist/docs) — 10-15s on Vercel, shorter than a
+   real generation, so the function would be killed mid-stream on ordinary use.
+   Declared `export const maxDuration = 60` (Hobby-tier max).
+5. **No abort on unmount.** Navigating away mid-stream left the read loop
+   running and calling setState on a gone component. An AbortController in a ref
+   is now aborted by the unmount cleanup; the catch distinguishes that from a
+   timeout (`timedOut`) and stays silent, since there is nobody to tell.
+
+**Residual gap, not fixed — flagged to the user.** The server can persist while
+the client rejects the response (most clearly on the TasteTest path, which
+writes *before* responding), leaving the page showing stale text until a
+reload. `router.refresh()` alone wouldn't fix it: `currentPost` is local state
+seeded once from the prop and never re-syncs, and adding a props→state effect is
+the pattern this codebase lints against (`react-hooks/set-state-in-effect`).
+Worth a deliberate decision rather than a reflex fix.
+
+Also recorded in LEARNINGS: `innerText` reads empty from a `javascript_tool`
+eval (backgrounded tab, no layout) — it made two probes report a working toast
+as missing. Use `textContent`.
+- Regenerate's error toasts split onto the `extraInfo` capsule (per direct
+  feedback that they were too long), the same what-happened/what-to-do shape
+  the offline toast uses: "That took too long" / "Please try again",
+  "The connection dropped" / "Try reloading". `showError` takes a second
+  argument and PostDetails' toast state carries `extraInfo` through to Toast.
+  The mid-stream model-error message was split the same way for consistency
+  ("Couldn't regenerate that post" / "Please try again") — it keeps *try
+  again* rather than *reload* because that path definitively skips persistence
+  server-side, so retrying really is the whole recovery. Verified in-browser by
+  cloning the toast node on appearance (it auto-dismisses in 4s, well inside
+  one tool round-trip): both lines present, capsule carrying the export's own
+  `-mt-dist-xs` tuck.
+- Handoff gates: tsc clean, build clean. Lint reports 17 errors — proven
+  **identical file-for-file to a stashed clean HEAD**, so this branch adds
+  none. `npm run test` is 100/101: `lib/ai/generate.test.ts` makes a *real*
+  Gemini call (guarded only on the API key being present) and the free tier's
+  daily cap of 20 requests is spent, so it 429s. Environmental, unrelated to
+  this branch, and not recoverable today.
+- Found while preparing the commit: `lib/ai/generate.ts` is classified binary
+  by git because of the markers' NUL bytes, so its diff rendered as
+  "Bin 10818 -> 11558 bytes" and would have been invisible in review. Added
+  `lib/ai/generate.ts diff` to `.gitattributes` — content untouched, diff now
+  renders as the 11 lines it actually is. Written up in LEARNINGS.
+
+## 2026-08-25 22:43 — post-accounts: review fixes from /integrate
+
+The sweep bounced this branch with three blockers in the regenerate protocol
+and four smaller items. All seven fixed in place; the account work itself was
+untouched.
+
+1. `route.ts` framing tee tested `part.text.length > 0` while the persisting
+   tee tested `!end.content.trim()`. A whitespace-only completion passed the
+   first and failed the second, so the client got DONE, accepted it, and
+   rendered an empty post that was never saved — a reload brought the old text
+   back. Now trims, so the two predicates agree exactly.
+2. `post-details.tsx` aborted the request on unmount, which severs the request
+   the route handler runs in: its onEnd sees `ok: false` and persists nothing.
+   Tapping Back a second after Regenerate threw away a finished generation and
+   its token spend. Replaced the AbortController-on-unmount with a
+   `{ cancelled }` flag (generating-view.tsx's shape) — the read loop runs on
+   to keep the connection open, it just stops calling setState. The controller
+   remains, now tripped only by the stall watchdog, so an abort unambiguously
+   means "we gave up waiting".
+3. STREAM_DONE_MARKER meant "the stream ended", not "it was saved" — enqueued
+   in the framing tee's `finally` while the write happened on the other tee.
+   The two now synchronise through a `persisted` promise settled on every path
+   through onEnd (including a throw); DONE is only sent when the row actually
+   took the update. Short-circuited when the framing tee already knows it
+   failed, and backstopped by PERSIST_WAIT_TIMEOUT_MS so a callback that never
+   fires can't hold the response open to the function's own ceiling.
+4. The "Moved to draft" toast raised its Undo before the move's write was
+   issued, so two updatePost calls could race on one row and leave the DB
+   scheduled while the page showed a draft. The write is now issued first and
+   its promise handed to Undo, which awaits it before issuing the restore. The
+   toast still goes up in the same tick — nothing is awaited between them.
+5. `post-account-pill.tsx` used `transition-[colors,scale]`; `colors` is not a
+   CSS property, so the hover tint snapped. Now `background-color`, matching
+   toast.tsx:275's identical recipe.
+6. `route.ts`'s post select still hardcoded the old eight columns and then cast
+   to the widened `PostRow`, leaving `is_tryout` undefined typed boolean — the
+   exact staleness POST_COLUMNS was introduced to stop. Now uses POST_COLUMNS.
+7. Removed the unused `PostPlatform` import in day-deck.tsx (the branch's one
+   new lint warning).
+
+Gates after: tsc clean, eslint clean on all four touched files, build clean,
+tests 100/101 — the one failure is lib/ai/generate.test.ts hitting the live
+Gemini free-tier quota, environmental and unrelated (it fails the same way on
+main).

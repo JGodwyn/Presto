@@ -4,6 +4,7 @@ import * as React from "react"
 import { ViewTransition } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 
+import { TRY_OUT_ACCOUNT_ID } from "@/components/generate/account-options"
 import { GeneratingView } from "@/components/generate/generating-view"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
 import { BUILTIN_MODEL_ID } from "@/lib/ai/generate"
@@ -17,11 +18,16 @@ function GeneratingPageContent({ projectId }: { projectId: string }) {
   // Whichever account GenerateCard's SelectPill had selected — every card
   // in the batch starts posting to this one (still individually
   // changeable by tapping its own social pill). Falls back to "linkedin"
-  // for any URL that doesn't carry a recognized value, which deliberately
-  // includes the "Try out" account (components/generate/account-options.tsx):
-  // it's a stand-in with no platform of its own, and a post still has to be
-  // written for *some* platform, so it borrows the app's first-class one.
+  // for any URL that doesn't carry a recognized value.
+  //
+  // "Try out" (components/generate/account-options.tsx) still borrows
+  // linkedin as its platform — it's a stand-in with no platform of its own,
+  // and a post has to be written for *some* platform — but it no longer
+  // *becomes* a LinkedIn post: isTryout rides alongside so the saved row
+  // remembers which it was. Without that the card would later render a
+  // throwaway post under the user's real account name.
   const accountParam = searchParams.get("account")
+  const isTryout = accountParam === TRY_OUT_ACCOUNT_ID
   const account: SocialPlatform = accountParam === "x" ? "x" : "linkedin"
   // Unlike account, this isn't checked against a fixed list: a user-added
   // model is a user_ai_models row id, so any non-empty string is plausible
@@ -42,6 +48,7 @@ function GeneratingPageContent({ projectId }: { projectId: string }) {
         projectId={projectId}
         count={count}
         account={account}
+        isTryout={isTryout}
         model={model}
       />
     </ViewTransition>

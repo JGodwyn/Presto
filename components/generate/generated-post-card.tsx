@@ -9,18 +9,15 @@ import { Chip } from "@/components/ui/chip"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
 import { PostActionsMenu } from "@/components/generate/post-actions-menu"
-import {
-  SOCIAL_PLATFORM_OPTIONS,
-  type SocialPlatform,
-} from "@/components/generate/social-platform-options"
+import { PostAccountPill } from "@/components/shared/post-account-pill"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { getCaretOffsetFromPoint } from "@/lib/caret"
 import { formatShortDate } from "@/lib/format-date"
+import type { PostAccount, PostAccountTarget } from "@/lib/post-account"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 
 const CARD_CORNER_RADIUS = 16 // rad-lg
-const PILL_CORNER_RADIUS = 8 // rad-md — same as Chip's own corner radius
 
 // How wide a fade-to-transparent runs in from each side of the topics row —
 // same masking technique as the calendar's skip-dates carousel
@@ -78,6 +75,13 @@ interface GeneratedPostCardProps {
   // enters a quick-edit mode on this text in place — see handleCardDoubleClick.
   onContentChange: (content: string) => void
   topics: string[]
+  // The project's current Instructions topics. A post's topics are a snapshot
+  // taken at generation time with no foreign key behind them, so one deleted
+  // since then still sits on the post — anything not in this set renders
+  // retired rather than disappearing (the post really was written about it).
+  // Optional: the Generating page has no reason to have fetched them, and
+  // every topic there was live seconds ago by definition.
+  activeTopics?: Set<string>
   // undefined = draft (design-sync/ChangesToGenerateCard's "Draft" state) —
   // not yet scheduled for a specific date. Set once "Add to calendar" (draft)
   // or "Change date" (scheduled) applies a pick.
@@ -100,8 +104,18 @@ interface GeneratedPostCardProps {
   onRegenerate: () => Promise<void>
   // Seeded from whichever account was selected on the Generate page;
   // tapping the pill below cycles it independently per card from there.
-  social: SocialPlatform
-  onSocialChange: (social: SocialPlatform) => void
+  // The resolved account this post goes out as — a connected account's own
+  // name where there is one, otherwise the platform label, or "Try out"
+  // (lib/post-account.ts). The pill names *that*, not the bare platform.
+  account: PostAccount
+  // Where a tap on the pill goes, or null when there's nowhere to go — which
+  // now only happens with no connected accounts at all, since "Try out" is
+  // itself a cycle position. A null makes the pill a plain span (no cursor,
+  // no hover tint, not a tab stop): a control that visibly invites a tap and
+  // does nothing is worse than no control. Computed by the caller
+  // (nextPostAccount), the only side that knows what this project connected.
+  nextAccount: PostAccountTarget | null
+  onSocialChange: (target: PostAccountTarget) => void
   // Forwarded straight through to the GeneratingPostCard this renders in
   // place of itself while regenerating. Optional, and these defaults are that
   // component's own frozen values repeated — so no call site has to invent six
@@ -127,13 +141,15 @@ export function GeneratedPostCard({
   content,
   onContentChange,
   topics,
+  activeTopics,
   date,
   onDateChange,
   onDelete,
   onTurnToDraft,
   onOpen,
   onRegenerate,
-  social,
+  account,
+  nextAccount,
   onSocialChange,
   textOpacityMin = 0.4,
   textOpacityDuration = 0.5,
@@ -146,24 +162,6 @@ export function GeneratedPostCard({
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({
     cornerRadius: CARD_CORNER_RADIUS,
   })
-  // Falls back to the first option if `social` somehow doesn't match any of
-  // them (shouldn't happen, but findIndex returning -1 would otherwise wrap
-  // "cycle to next" around to the *last* option instead of the first).
-  const socialIndex = Math.max(
-    0,
-    SOCIAL_PLATFORM_OPTIONS.findIndex((option) => option.value === social)
-  )
-  const currentSocial = SOCIAL_PLATFORM_OPTIONS[socialIndex]
-  const handleCycleSocial = () => {
-    const nextIndex = (socialIndex + 1) % SOCIAL_PLATFORM_OPTIONS.length
-    onSocialChange(SOCIAL_PLATFORM_OPTIONS[nextIndex].value)
-  }
-  // Same pill shape as Chip (rad-md, border-subtle, surface-3) but with its
-  // own icon + bold-text content rather than Chip's built-in label styling
-  // — a squircle of its own since it has its own corner radius, per the
-  // design-tokens rule. A real button now (tap-to-cycle), not a plain div.
-  const { ref: socialRef, style: socialStyle } =
-    useSquircleClipPath<HTMLButtonElement>({ cornerRadius: PILL_CORNER_RADIUS })
 
   // The placeholder stands in for this card for exactly as long as the real
   // generation call is in flight — no timer of its own, so a slow model keeps
@@ -448,27 +446,27 @@ export function GeneratedPostCard({
         </div>
       )}
 
-      {/* The platform pill and the topics share one row (per direct
+      {/* The account pill and the topics share one row (per direct
           request) — the pill holds its own width and the topics take
           whatever's left, scrolling within it. */}
       <div className="flex h-7 shrink-0 items-center gap-dist-sm">
-        {/* Tap-to-cycle (per direct feedback) — each tap advances to the next
-            platform in SOCIAL_PLATFORM_OPTIONS and wraps back to the first,
-            same hover tint recipe as SelectPill's own capsule trigger since
-            this is now the same kind of "click to change" pill. */}
-        <button
-          ref={socialRef}
-          style={socialStyle}
-          type="button"
-          onClick={handleCycleSocial}
-          aria-label={`Change social platform (currently ${currentSocial.label})`}
-          className="flex h-7 w-fit shrink-0 cursor-pointer items-center gap-dist-sm rounded-rad-md border-[length:var(--stroke-lg)] border-border-subtle bg-surface-3 px-pad-sm transition-colors duration-150 ease-out hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)]"
-        >
-          {currentSocial.icon}
-          <span className="text-body-md-bold text-text-bold">
-            {currentSocial.label}
-          </span>
-        </button>
+        {/* Tap-to-cycle (per direct feedback), but only between accounts this
+            project has actually connected — see `nextAccount` above for why
+            it degrades to a plain span rather than a dead button. The hover
+            tint is SelectPill's own capsule recipe, since a cycling pill is
+            the same kind of "click to change" control.
+
+            max-w-40 + truncate: the label is now an account name, which is
+            user data of no fixed length, and the topics beside it still need
+            room. */}
+        <PostAccountPill
+          account={account}
+          nextAccount={nextAccount}
+          onSelect={onSocialChange}
+          // max-w-40 + truncate: the label is an account name now, which is
+          // user data of no fixed length, and the topics beside it need room.
+          className="max-w-40 shrink-0"
+        />
 
         {/* Horizontally scrolling, not wrapping — a wider topics list no
             longer grows the row's height, keeping every card's height
@@ -491,7 +489,13 @@ export function GeneratedPostCard({
           )}
         >
           {topics.map((topic) => (
-            <Chip key={topic} size="md" selected={false} className="shrink-0">
+            <Chip
+              key={topic}
+              size="md"
+              selected={false}
+              retired={activeTopics ? !activeTopics.has(topic) : false}
+              className="shrink-0"
+            >
               {topic}
             </Chip>
           ))}

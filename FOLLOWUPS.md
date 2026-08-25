@@ -128,3 +128,47 @@ reaches. Either flip the default and delete the four now-redundant props, or
 remove the prop and the marker outright — a decision about whether that corner
 ever gets a real info affordance, not a mechanical cleanup, which is why this
 branch left it alone rather than editing a shared component on the way past.
+
+## 8. A regenerate can save on the server while the page rejects it
+
+**From:** `feat/post-accounts`, 2026-08-25.
+
+The regenerate stream now refuses any response that doesn't carry the server's
+end-of-stream marker, which stops a truncated stream being written into the
+page as if it were finished. The opposite drift is still possible: the server
+can persist a new version while the browser gives up (a stall timeout, a
+severed connection). The post is safe — the page is just showing the previous
+text until it is reloaded.
+
+The toast says so ("The connection dropped" / "Try reloading"), which was the
+deliberate cheap fix. The real fix is for the page to re-sync itself, and that
+is not a one-liner: `post-details.tsx` seeds `currentPost` from its prop once
+and never re-reads it, so `router.refresh()` alone changes nothing, and a
+props-to-state effect is the pattern this codebase lints against
+(`react-hooks/set-state-in-effect`). Needs a decision on how that page should
+hold its data, which is why this branch left it.
+
+Most reachable on the TasteTest path specifically, which persists *before*
+responding rather than in the stream's `onEnd`.
+
+## 9. Regeneration cannot be cancelled
+
+**From:** `feat/post-accounts`, 2026-08-25.
+
+A hung generation now gives up on its own after 45s of silence
+(`STREAM_STALL_TIMEOUT_MS` in post-details.tsx), so it is no longer
+unrecoverable — but until then there is no way to stop it. The Regenerate
+button is disabled with a spinner while a run is in flight; turning that into a
+stop control, or adding a separate one, is new UI with no export behind it, so
+it was flagged rather than invented.
+
+## 10. `maxDuration` on the regenerate route is set for the free tier
+
+**From:** `feat/post-accounts`, 2026-08-25.
+
+`app/api/regenerate-post/route.ts` declares `export const maxDuration = 60`.
+Without it the ceiling is whatever the platform defaults to (10-15s on Vercel),
+which is shorter than a real generation — so this was a fix, not a tuning. 60s
+is the Hobby-tier maximum; raise it alongside the plan if generations ever bump
+it. The client's own 45s stall timeout sits just under it deliberately.
+

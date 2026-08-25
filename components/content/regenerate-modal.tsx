@@ -35,6 +35,8 @@ export function RegenerateModal({
   open,
   onOpenChange,
   projectId,
+  topics,
+  currentTopic,
   onConfirm,
   isPending = false,
 }: {
@@ -46,9 +48,19 @@ export function RegenerateModal({
   // regenerate already uses, just now overridable per regenerate instead of
   // fixed.
   projectId: string
-  // The trimmed guidance text ("" when left blank) and the chosen model id
-  // (either a BUILTIN_MODEL_OPTIONS value or a user_ai_models row id).
-  onConfirm: (guidance: string, model: string) => void
+  // The project's current Instructions topics, and whichever topic this post
+  // already carries. The pill offers the union of the two: a topic deleted
+  // from Instructions since the post was written is still what the post is
+  // about, so dropping it from the list would silently retopic the post the
+  // moment you regenerated it.
+  topics: string[]
+  currentTopic?: string
+  // The trimmed guidance text ("" when left blank), the chosen model id
+  // (either a BUILTIN_MODEL_OPTIONS value or a user_ai_models row id), and
+  // the topic to write about — undefined only when this project has no
+  // topics at all and the post carries none either, in which case no pill is
+  // shown and the prompt falls back to the post's own (absent) topic.
+  onConfirm: (guidance: string, model: string, topic: string | undefined) => void
   isPending?: boolean
 }) {
   // Cleared on a successful confirm (see the button below), not on every
@@ -107,6 +119,24 @@ export function RegenerateModal({
   const selectedModel =
     modelOptions.find((option) => option.value === model) ?? BUILTIN_MODEL_OPTIONS[0]
 
+  // The post's own topic leads, then the project's, deduped — so the pill
+  // opens on what this post is already about and the rest are alternatives.
+  const topicOptions = React.useMemo<SelectPillOption[]>(() => {
+    const seen = new Set<string>()
+    const ordered: string[] = []
+    for (const topic of [currentTopic, ...topics]) {
+      if (!topic || seen.has(topic)) continue
+      seen.add(topic)
+      ordered.push(topic)
+    }
+    return ordered.map((topic) => ({ value: topic, label: topic }))
+  }, [currentTopic, topics])
+
+  // Same one-off-override shape as the model above: picking here applies to
+  // this regenerate, and reverts to the post's own topic next time.
+  const [topicOverride, setTopicOverride] = React.useState<string | null>(null)
+  const topic = topicOverride ?? topicOptions[0]?.value
+
   const { ref: badgeRef, style: badgeStyle } = useSquircleClipPath<HTMLDivElement>(
     { cornerRadius: BADGE_CORNER_RADIUS }
   )
@@ -141,17 +171,41 @@ export function RegenerateModal({
           <span className="text-text-bold">{selectedModel.label}</span>
           <CaretDown className="size-4 text-icon-subtle transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180" />
         </SelectPill>
+        {/* The export's second pill, identical to the model one above but
+            naming the subject. Regenerating is where changing a post's topic
+            belongs (per direct request): it is the one action that rewrites
+            the post outright, so a new subject produces a post that actually
+            matches it — where changing the topic anywhere else would leave
+            the label disagreeing with the words.
+
+            Hidden entirely when there is nothing to choose between: no
+            project topics and none on the post. A pill offering one option
+            that is already selected is just a dead control. */}
+        {topicOptions.length > 0 && topic !== undefined && (
+          <SelectPill
+            options={topicOptions}
+            value={topic}
+            onChange={setTopicOverride}
+            ariaLabel="Topic"
+            className="h-10 w-full justify-center border-[length:var(--stroke-lg)] border-border-subtle bg-surface-4 hover:bg-[color-mix(in_oklch,var(--surface-4),var(--foreground)_5%)]"
+          >
+            <span className="text-text-subtle">Topic</span>
+            <span className="truncate text-text-bold">{topic}</span>
+            <CaretDown className="size-4 shrink-0 text-icon-subtle transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180" />
+          </SelectPill>
+        )}
         <Button
           variant="brand"
           size="xl"
           className="w-full"
           disabled={isPending}
           onClick={() => {
-            onConfirm(guidance.trim(), model)
+            onConfirm(guidance.trim(), model, topic)
             setGuidance("")
-            // Reverts back to the preferred default next time this opens,
-            // rather than staying stuck on a one-off pick from just now.
+            // Both revert to their defaults next time this opens, rather than
+            // staying stuck on a one-off pick from just now.
             setModelOverride(null)
+            setTopicOverride(null)
           }}
         >
           {isPending ? (

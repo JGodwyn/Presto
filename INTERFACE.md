@@ -635,6 +635,110 @@ doesn't show them:
   it earlier for the same reason — so the prop's `true` default is currently
   unused.
 
+## 9e. Post cards — the account pill and retired topics
+
+- **A post card names its account, not its platform.** The pill was "LinkedIn",
+  a category; it is now "Godwin John", the thing the post actually goes out as.
+  Brand icon + account name (chosen over an avatar, and over an avatar with a
+  brand badge). `lib/post-account.ts` is the single resolver, used by
+  `GeneratedPostCard` (Generate + the day deck) and `KanbanPostCard`.
+- **No `social_account_id` on posts, and none is needed.** `social_accounts` is
+  unique on (project_id, platform) — the same fact §9d leans on — so a post's
+  platform already identifies exactly one account in its project. Reconnecting
+  upserts that row in place, so the id wouldn't be more stable than the
+  platform anyway.
+- **The fallback chain is account name → platform label.** A platform this
+  project never connected (or has since disconnected) has no name to show, so
+  the pill reads "LinkedIn"/"X" exactly as it used to. A connected row with a
+  blank name falls back the same way — an empty pill is worse than a category.
+- **"Try out" is the one thing the platform can't tell you**, which is why
+  `posts.is_tryout` exists. A try-out batch borrows LinkedIn as its platform
+  (§9d), so without the column a throwaway post would render under the user's
+  real name. It shows Phosphor `Eyes` + "Try out", matching the Generate menu's
+  own stand-in row.
+- **The pill cycles through every account the project can post as, "Try out"
+  included** (per direct request), in the Generate menu's own order: Try out
+  first, then each connected platform. Try out was excluded at first, on the
+  reasoning that a stand-in isn't an account — that was wrong in practice, and
+  the correction is worth keeping: with a single connected account (the common
+  case) it left the pill with nowhere to go, so the control was permanently
+  dead exactly where it mattered most.
+  - **A Try out position carries the post's own platform**, so switching onto
+    it and back is lossless. The two always travel together
+    (`PostAccountTarget`), and `updatePost` writes both.
+  - The pill still becomes a plain `<span>` when there is nowhere to go — no
+    cursor, no hover tint, not a tab stop — but that now only happens with *no*
+    connected accounts, where Try out is the only position the post could be in.
+  - A post whose own platform has since been disconnected isn't a position in
+    the cycle at all; it enters at the top.
+  - `components/shared/post-account-pill.tsx` is the one implementation, in the
+    Generate grid, the day deck, a Kanban card (display-only there — the whole
+    card is a link, so a button inside it would nest controls) and post-details.
+- **A deleted topic keeps its chip, retired.** `posts.topics` is a
+  denormalized snapshot with no foreign key behind it (§9 covers why), so
+  deleting a topic in Instructions leaves it sitting on every post that used
+  it. The chip stays — the post really was written about that — but drops to
+  `Chip`'s third palette: **`surface-4` background, `border-minimal` border,
+  `text-minimal` text**, against the live chip's surface-3/border-subtle/
+  text-subtle. Corner smoothing is unchanged.
+- **Which topics are live is a prop, not something a card can know.** The
+  Content page fetches the project's current `instructions.topics` alongside
+  the posts and passes a `Set` down; `GeneratedPostCard`'s `activeTopics` is
+  optional, since the Generating page has no reason to have fetched them and
+  every topic there was live seconds ago by definition.
+
+## 9f. Post details — the centred column
+
+From design-sync/contentpagenew.
+
+- **One 400px column, centred in the panel, everything left-aligned inside
+  it.** The export is explicit: the body area is `align: CENTER` holding a HUG
+  column at `x=228` of an 856px parent, whose own children all sit at `x=0`
+  under `align: MIN`. So the heading, the account/topics row and the post body
+  share a single left edge. Before this the heading was its own hugging,
+  centred block, which left it floating over the body rather than lining up
+  with it — `items-center` on the wrapper centres the column, `items-start`
+  inside it is what aligns the contents.
+- **`dist-lg` between the three blocks**, the export's own 16px rhythm.
+- **The account pill and topic chips are new on this screen** and sit between
+  the heading and the body. Same pill component as the cards (§9e) and the same
+  `Chip size="md" selected={false}`, retired when the topic is gone.
+- The pill is **interactive here** — this is the screen for changing what a
+  post is, so tapping cycles the account. Topic chips stay display-only: the
+  topic is changed when regenerating (§9g), not by editing a label.
+- **Topic chips use `text-bold` on this screen**, not Chip's own `text-subtle`
+  — the export's own label fill, and here the topic is one of only two things
+  describing the post rather than a secondary detail beside something louder.
+  A **retired** chip keeps `text-minimal`: the point of that state is that the
+  topic has faded out of the project, which a bold label would undo.
+- The three corner actions and the back button are unchanged; the export still
+  shows them alone in that corner, which is why `showInfoMarker` is off.
+
+## 9g. Regenerate — choosing the topic
+
+From design-sync/regeneratemodalwithtopic.
+
+- **Regenerating is where a post's topic changes.** It is the one action that
+  rewrites the post outright, so a new subject produces words that match it.
+  Changing the topic anywhere else would leave the label disagreeing with what
+  the post actually says.
+- The pill is the model pill's own frame with a different label — same
+  SelectPill, same surface-4/border-subtle overrides, sitting between "Using X"
+  and the primary button.
+- **Options: the post's own topic first, then the project's, deduped.** A topic
+  deleted from Instructions is still what the post is about, so it stays
+  selectable — dropping it would silently retopic the post the moment you
+  regenerated.
+- **Hidden entirely when there is nothing to choose between** (no project
+  topics and none on the post). A pill offering one already-selected option is
+  a dead control.
+- Like the model pick, it is a **one-off for this regenerate** — it reverts to
+  the post's own topic next time the modal opens, and never writes back to the
+  project's Instructions.
+- The topic is **written back only when it actually changed**, so an untouched
+  reroll doesn't rewrite the column and a post with no topic doesn't gain one
+  by being regenerated.
+
 ## 10a. Publishing — hard constraint
 
 **No UI may trigger a real post.** A publish/share call to a live social account
