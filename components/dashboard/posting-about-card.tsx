@@ -14,12 +14,12 @@ import {
 // The bar colours are each platform's own brand, taken literally from the
 // export — the same documented exception as file-type-icon.tsx's per-extension
 // tags, and for the same reason: a brand mark's colour isn't ours to
-// tokenise. X and TryOn happen to land on real tokens (Gray/Purple), so those
-// use the token utilities; only LinkedIn's blue is a literal.
+// tokenise. X and Try out happen to land on real tokens (Gray/Purple), so
+// those use the token utilities; only LinkedIn's blue is a literal.
 const PLATFORM_BARS = {
   linkedin: { track: "bg-[#cfe5fc]", fill: "bg-[#0a66c2]" },
   x: { track: "bg-gray-50", fill: "bg-gray-1000" },
-  tryon: { track: "bg-purple-50", fill: "bg-purple-600" },
+  tryout: { track: "bg-purple-50", fill: "bg-purple-600" },
 } as const
 
 type PlatformRowKey = keyof typeof PLATFORM_BARS
@@ -41,9 +41,10 @@ function PlatformRow({
   return (
     <div className="flex flex-col gap-dist-sm">
       <div className="flex items-center gap-dist-md">
-        {/* TryOn has no brand mark of its own yet, so it borrows the export's
-            own choice: the Eyes glyph, at icon-subtle. */}
-        {platform === "tryon" ? (
+        {/* "Try out" has no brand mark of its own, so it borrows the export's
+            own choice: the Eyes glyph, at icon-subtle — the same glyph
+            post-account-icon.tsx gives a try-out post. */}
+        {platform === "tryout" ? (
           <Eyes weight="bold" className="size-4 shrink-0 text-icon-subtle" />
         ) : (
           <SocialIcon platform={platform} className="size-4 shrink-0" />
@@ -113,12 +114,13 @@ export function PostingAboutCard({
           total={total}
         />
         <PlatformRow platform="x" label="X" count={split.x} total={total} />
-        {/* Placeholder. TryOn is a generation type being added on another
-            branch; `types/post.ts`'s PostPlatform is still linkedin | x, and
-            that file is shared, so nothing here invents a value for it. The row
-            renders at zero until that branch lands, at which point this reads
-            its real count the same way the other two do. */}
-        <PlatformRow platform="tryon" label="TryOn" count={0} total={total} />
+        {/* Still a placeholder at zero, but no longer for the original
+            reason. That branch has landed, and it did *not* add a member to
+            `PostPlatform` — a try-out post carries `platform: "linkedin"` with
+            a separate `isTryout` flag, so `platformSplit()` counts it under
+            LinkedIn and cannot pick this row up on its own. Wiring it means
+            splitting try-out back out of that count; see FOLLOWUPS entry 2. */}
+        <PlatformRow platform="tryout" label="Try out" count={0} total={total} />
       </div>
     </DashboardCard>
   )

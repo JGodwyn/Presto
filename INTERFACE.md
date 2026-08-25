@@ -703,5 +703,5 @@ hand-composed mockup §12 describes. What changed and what holds:
 - **No notices strip** — the export has none. An expiring connection and a
   failed BYOK key downgrade their own Setup row to the warning tone instead.
 - Platform bar colours are each brand's own, taken literally from the export —
-  the same documented exception as `file-type-icon.tsx`. X and TryOn land on
+  the same documented exception as `file-type-icon.tsx`. X and Try out land on
   real Gray/Purple tokens; only LinkedIn's blue is a literal.

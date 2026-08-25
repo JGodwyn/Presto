@@ -1379,3 +1379,27 @@ lands on **Queued** with 27th August there. Typecheck and lint clean; 102 of
 real Gemini API and is hitting the free-tier quota (20 requests/day, exhausted
 by this session's own generating). Untouched by this branch and not a
 regression; it passes again once the quota resets.
+
+## 2026-08-25 23:22 — dashboard: "TryOn" renamed to "Try out"
+
+Per direct instruction, one spelling wins and it is **"Try out"** — matching
+`TRY_OUT_ACCOUNT_ID`, `isTryout` and the `is_tryout` column that
+`feat/post-accounts` put on `main`. This branch had coined "TryOn" for its
+placeholder platform row while that branch was still in flight, so the two
+names met for the first time at integration.
+
+Renamed: `posting-about-card.tsx`'s `PLATFORM_BARS.tryon` key, its
+`platform === "tryon"` glyph branch and the row's `label`. Living reference
+docs followed (INTERFACE.md's platform-bar note, AGENTS.md's status line).
+Earlier entries in this log keep the old name — they are a record of what was
+done at the time, not a spec.
+
+Also corrected FOLLOWUPS entry 2, whose stated plan had become wrong.
+It assumed `PostPlatform` would gain a try-out member, which would have made
+`platformSplit()` pick the row up for free. That is not what landed: a try-out
+post carries `platform: "linkedin"` with a separate `isTryout` flag, so those
+posts are *already counted under LinkedIn*. Wiring the row means partitioning
+on `isTryout` first — which changes a figure the dashboard already reports, so
+it stays a follow-up rather than riding along with a rename.
+
+No behaviour change in this commit: the row still renders at zero.
