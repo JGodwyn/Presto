@@ -1069,3 +1069,313 @@ forget it's content or rewrite what's been written."
 `LEDGER.md`/`LEDGER.bak.md`; the 13 surfaced entries intact after the header
 insertion.
 **Logged:** EXECUTIONS.md only.
+
+## 2026-08-24 — Dashboard mockup (feat/dashboard, port 3003)
+
+- `24:0x` No Figma export exists for a *populated* dashboard — `design-sync/
+  dashboard` is only the "Nothing here" empty state (verified in the screenshot
+  and the frame tree). Built from tokens + the existing component vocabulary
+  instead, borrowing the Instructions page's rhythm: white `InstructionsCard`
+  shells on the surface-3 canvas, **not** `GlowPanel` (which Generate and
+  Content use, and which caps its own height to the viewport).
+- `24:0x` Grounded in real data: "Design content" (421 posts — 156 draft,
+  156 upcoming, 109 past) so the mockup is populated rather than invented.
+- `24:1x` Built `lib/dashboard-summary.ts` — every figure derived from `posts`
+  alone, date-derived exactly like `lib/content-grouping.ts` so the dashboard
+  can't contradict the Content page. 11 tests in
+  `lib/dashboard-summary.test.ts` (month split around `now`, remaining-coverage
+  measured from today not the whole month, calendar-day relative dates). Green.
+- `24:1x` Components under `components/dashboard/`: `DashboardCard` (+Header)
+  shell, `StatTile` (NumberFlow), `MonthHeatmap`, `NextUpCard`/`RecentlyOutCard`,
+  `TopicsCard`, `SetupCard`, `NoticeBanner`, `DashboardView` composing them.
+  `page.tsx` keeps the existing `EmptyState` verbatim when a project has no
+  posts and renders `DashboardView` otherwise.
+- `24:1x` **Dead end:** `<Button asChild>` — this Button is `@base-ui/react/
+  button` and has no `asChild`; Base UI composes via `render={<Link … />}`.
+- `24:1x` **Bug, caught in-browser (blank error boundary, not a type error):**
+  passed `hrefs.post: (postId) => string` from the Server Component into
+  `DashboardView`. "Functions cannot be passed directly to Client Components."
+  Replaced with a `postBase` string the client composes. See LEARNINGS.
+- `24:1x` Two fixes after looking at it: the heatmap card is stretched by its
+  taller Next-up neighbour and left a band of dead card under the footer
+  (`justify-between`); dropped a decorative CalendarBlank from "Recently out"
+  that carried no information.
+
+**Verified** on port 3003 against the real "Design content" project (421 posts):
+populated dashboard renders with correct figures (19 scheduled in August, 13 of
+31 days covered, 7 of 8 remaining days empty, today ringed on the 24th), no
+console errors, and a project with zero posts still gets the original
+"Nothing here" empty state untouched.
+**Logged:** EXECUTIONS.md, LEARNINGS.md, INTERFACE.md, AGENTS.md status.
+- `24:2x` Fade mask on the Next-up / Recently-out preview lines, replacing the
+  hard ellipsis — the app's standing treatment for content leaving its box.
+  Used `useScrollFade({axis:"x", start:0, end:24})` rather than a static mask
+  even though the line never scrolls: the hook sizes the fade to the distance
+  actually hidden, so a short post gets no fade at all, which a fixed mask
+  can't do (and the padding/negative-margin dodge the static masks use doesn't
+  work on a line whose length varies per row).
+- `24:2x` **Two false negatives while verifying it**, both artifacts of the
+  automation rather than the code (now in LEARNINGS): mutating `textContent`
+  in an eval doesn't re-render React so the mask read stale; and a real
+  container resize still read stale because **ResizeObserver callbacks ride
+  the frame lifecycle, which a backgrounded tab suspends** — the same trap as
+  rAF. Interleaving a `computer` screenshot between the resize and the read
+  gave the true value.
+
+**Verified:** overflowing line → `linear-gradient(to right, black 0px, black
+calc(100% - 24px), transparent)`; same element widened until the text fits →
+`black 0px, black 100%`, i.e. no fade on resting content.
+- `24:3x` **Misread the previous request.** The ask was the *page* scroll — content
+  disappearing under `<main>`'s top edge with a hard cut — not the truncated
+  text lines. Bottom deliberately left alone: `<main>`'s `-mb`/`pb` pair bleeds
+  its scroll area past the page padding to the real screen edge, so content
+  there runs off the display rather than clipping at a line.
+- `24:3x` Reached for `useScrollFade` on `<main>` first. **It cannot be used
+  there**, and the reason is worth keeping: five sections render their Toast
+  into a `position: fixed` slot *inside* `<main>`, and a mask paints its whole
+  subtree through the mask's geometry — a toast at viewport top-32px sits
+  outside `<main>`'s box (top ~136px) and is erased outright. Verified with a
+  red probe: applied the mask, screenshotted, probe gone.
+- `24:3x` Along the way, checked (rather than assumed) which properties make an
+  element the containing block for `position: fixed` descendants: of
+  `mask` / `clip-path` / `filter`, **only `filter` does** — probe jumped from
+  viewport 0,0 to main's 136,536. So the toasts keep their viewport position
+  under a mask; being *painted out* is the whole problem.
+- `24:3x` Built `components/shared/section-scroll-area.tsx` instead: a client
+  `<main>` plus a sibling gradient strip in the canvas colour, opacity ramped
+  from `scrollTop` over the first 24px and written straight to the element (no
+  setState on a scroll frame). Layout now renders it in place of the bare
+  `<main>`.
+- `24:3x` **Bug, caught in-browser:** wrapping `<main>` sent the page content
+  off the right edge. A flex child's automatic minimum size is its content, and
+  `<main>` had only been getting away without `min-w-0` because
+  `overflow-y-auto` zeroes that as a side effect — the new wrapper scrolls
+  nothing, so it needs `min-w-0` explicitly. Same trap as GlowPanel's
+  `min-h-0`, one axis over.
+
+**Verified** on port 3003: fade absent at rest (header crisp), full strength
+once scrolled, no bottom fade; a fixed probe inside `<main>` now paints *and*
+the fade works, simultaneously; Instructions (page-scroll) and Content
+(viewport-height + internal scroll) both unaffected by the shared-layout
+change. 99 tests, typecheck and lint clean.
+
+## 2026-08-25 — Dashboard, built from the Figma export (feat/dashboard, port 3003)
+
+- `25:0x` Real exports landed: `design-sync/dashboarddesign` + `-2` (same page,
+  second one scrolled). Read both screenshots and dumped frame.json to a
+  token/size/style spec. Replaces the hand-composed mockup wholesale.
+- `25:0x` **The export contradicts its own screenshot** on the calendar's first
+  row — frame.json marks Aug 5 and 6 `surface-rest`/`text-minimal` (i.e. white
+  with grey text, like an adjacent-month day) while the picture plainly shows
+  them grey like every other empty in-month day. Cropped the screenshot to
+  settle it; the picture wins, per the figma-bridge workflow.
+- `25:0x` Reused rather than rebuilt: `Chip` (the topic chips are its
+  unselected variant down to the 2px border-subtle), `DottedDivider` (the two
+  `line-*.svg` dividers are border-bold dashes, same as the Instructions one),
+  `SocialIcon`, `NumberFlow`. Phosphor covers all 11 exported icons
+  (CalendarDots/CalendarCheck/CalendarDot/CalendarBlank/Scribble/Queue/Checks/
+  Warning/QuestionMark/Eyes/CaretRight) — no asset copied.
+- `25:0x` Card radius across this page is **rad-xmd (12)**, not the rad-lg the
+  mockup used; only the post cards inside the Next-up column are rad-lg.
+- `25:1x` Built the page: `total-posts-card.tsx` (stacked cumulative bar +
+  legend + the black percentage marker), `stat-cards.tsx` (the bordered mini
+  card and the plain one — they differ in label treatment *and* border because
+  one sits on white inside the Total-posts card and the other on the canvas),
+  `month-calendar-card.tsx`, `dashboard-post-card.tsx`, `next-up-column.tsx`,
+  `posting-about-card.tsx`, `setup-card.tsx` (rewritten to the badge/pill
+  rows), `dashboard-card.tsx` (retuned to rad-xmd), `dashboard-view.tsx`.
+  Removed the superseded mockup pieces: month-heatmap, next-up-card,
+  notice-banner, stat-tile, topics-card.
+- `25:1x` **The notices strip is gone**, because the export has none. The two
+  signals it carried didn't get dropped: an expiring/expired connection and a
+  BYOK key that fell back now downgrade their own Setup row to the warning
+  tone ("Expiring" / "Key failed"), which is already the page's one place that
+  reports on each.
+- `25:1x` **TryOn is a placeholder**, per instruction. It renders as the third
+  platform row at 0 posts/0%, with the export's Eyes glyph and Purple50/600
+  bar. `types/post.ts`'s `PostPlatform` is untouched — it's `linkedin | x`, it
+  is a shared *and* hot file, and the branch adding try-on owns that change.
+  When it lands, this row reads its real count the way the other two do.
+- `25:1x` The Next-up column is a **scroller** — the export clips it
+  mid-"Recently out" at the calendar card's height. Bounded with the
+  relative/`absolute inset-0` pair the Content page uses, since every ancestor
+  here is content-sized. `useScrollFade` is safe on it (no fixed descendants,
+  unlike `<main>`).
+- `25:1x` The marker's "60%" has no stated source in the export. Implemented as
+  the share of the library that's actually on the calendar (total − drafts),
+  drawn at the percentage it reports, so position and label can't disagree.
+  Noted as an interpretation at the call site.
+
+**Verified** on port 3003 against the live project: all four rows render to the
+export — Total-posts card with bar/legend/marker, the three mini cards, the
+three stat cards, the month grid (today ringed in border-brand, content days
+purple, adjacent days minimal), the scrolling Next-up/Recently-out column,
+topic chips, the three platform bars including the TryOn placeholder, and the
+six Setup rows with their badge/pill tones. Zero-post projects still get the
+untouched "Nothing here" empty state. 102 tests, typecheck and lint clean.
+- `25:2x` Three Agentation annotations on the Total-posts card, all applied:
+  (1) left block `w-60` → `w-66` (240 → 264px, reading "24 units" as 24px);
+  (2) legend row `justify-center` → `justify-start`;
+  (3) "rounded corner edges for every bar" — which turned out to be a **real
+  bug, not a preference**: `rounded-rad-rd` computes to 0px because `--rad-rd`
+  is a `:root` variable that was never mapped into `@theme` as
+  `--radius-rad-rd`. All five uses were mine; swapped to `rounded-full` (the
+  codebase's existing stadium class — toast.tsx made the same swap). This also
+  silently fixed the platform bars and the Setup badges, which were squares.
+  See LEARNINGS.
+- `25:2x` Agentation's MCP server drops the connection on every
+  `get_all_pending` call (reproduced twice after a clean reconnect), so the
+  annotations were read straight from its SQLite store at `~/.agentation/
+  store.db` (copied first, queried read-only) against the session id in the
+  page's own localStorage. `list_sessions` works; `get_all_pending` is what
+  kills it.
+- `25:3x` Second annotation round (4, read via MCP `get_session` this time —
+  see below), all applied and resolved in Agentation:
+  (1) the Total-posts percentage is now a **hover tooltip through
+  `components/ui/tooltip.tsx`** instead of a permanent black bubble — that
+  component's first real call site. The bar is the trigger (a zero-width
+  marker at the percentage is not hoverable, and Base UI centres the bubble on
+  its anchor regardless); `TooltipProvider delay={200}` since `Tooltip.Root`
+  takes no `delay` prop in this Base UI version; `tabIndex` + an aria-label
+  carrying the full split, so a hover-only readout doesn't lose the figure for
+  keyboard and screen-reader users.
+  (2) Total-posts block `w-66` → `w-72` (288px). (3) Calendar card `xl:w-84` →
+  `xl:w-90` (360px). (4) TryOn's Eyes glyph `fill` → `bold`.
+- `25:3x` **Root cause of the Agentation crashes found**: `get_all_pending`
+  aggregates across every session, and one old session
+  (`ms398qeb-amjxvk`, a /generating run) holds **4,880** pending annotations —
+  enough to kill the server every time. `get_session` on a single id works
+  fine and is what to use here.
+
+**Verified** on :3002: tooltip absent at rest and present on hover with its
+pointer; block widths measured 288 and 360; Eyes renders outlined. 102 tests,
+typecheck and lint clean.
+- `25:4x` Total-posts bar reworked per direct feedback — three changes:
+  - **Per-segment tooltips.** Paint and hit-testing are now deliberately
+    different geometries. Paint stays *cumulative* (track = Published at full
+    width, Queued over it, Draft over that) because that overlap is what makes
+    the three read as one continuous stadium rather than three pills with
+    seams — it's how the export draws it. Hit-testing can't use that: the
+    painted Queued div spans draft+queued, so hovering it would report the
+    wrong share. Three transparent bands are laid over the top instead, each
+    owning only its own slice, each its own tooltip anchor — which also lands
+    the bubble centred on the slice being hovered rather than on the bar.
+  - **Hover expand**, 8px → 10px on a 150ms ease-out. Uses `height`, not the
+    `scaleY` transform STANDARDS.md would normally prefer: scaling a stadium
+    distorts the very radius that gives it its shape. Sits inside a fixed
+    `h-4` rail so growing can't nudge the legend below it.
+  - **`delay={0}`** — the percentages are the point of the bar, not a hint
+    about it, so a delay just makes it feel unresponsive.
+  - A state with no posts gets a zero-width band and is simply unhoverable,
+    which is right: there's nothing to report.
+
+**Verified** on :3002 by hovering each band in turn — Draft 55%, Queued 27%,
+Published 18% (sums to 100), each bubble centred over its own slice; and an
+A/B crop at identical region showing the bar thicker while hovered with the
+legend unmoved. 102 tests, typecheck and lint clean.
+- `25:5x` Tooltip content is now "Draft (55%)" — state name plus its share.
+- `25:5x` **Root-caused the intermittent Generate failure** the user reported
+  ("We couldn't load this page…"). Not a network problem and not intermittent:
+  `components/generate/generate-card.tsx` restored `account` from localStorage
+  **unvalidated**, then line ~358 non-null-asserted the lookup
+  (`ACCOUNT_OPTIONS.find(...)!`) and read `selectedAccount.icon` → `TypeError:
+  Cannot read properties of undefined (reading 'icon')`, caught by
+  `[projectId]/error.tsx`, which renders exactly that copy. Confirmed from the
+  browser console and by reading the stored value.
+- `25:5x` **Why it looked random: localStorage is keyed by _origin_, not by
+  branch or worktree.** Both projects had `account: "tryout"` saved under
+  `http://localhost:3002` — written by the try-on branch's dev server when it
+  held that port. This branch's server moved 3003 → 3002 and inherited it. On
+  3003 the key didn't exist and the page loaded fine; same code, same branch,
+  different port.
+- `25:5x` Fixed the same way `model` already was two lines above (that one had
+  the guard and the explanatory comment; `account` was simply missed):
+  validate on restore, and `?? ACCOUNT_OPTIONS[0]` instead of the `!`. Purely
+  defensive — when the try-on branch lands and adds "tryout" to the options,
+  the stored value validates and nothing here fights it.
+
+**Verified** on :3002: both projects' Generate pages load, including the one
+whose stored value is still "tryout" (the fallback path); the visited project's
+key self-repaired to "linkedin"; tooltips read "Draft (55%)" / "Queued (27%)".
+102 tests, typecheck and lint clean.
+- `25:6x` Setup section rebuilt from the `dashboardsetup` export: a **3x2 grid
+  of tiles** on the surface-3 tray, replacing the full-width rows. Same six
+  fields, same three tones (badge, pill and caret all tinted together), same
+  hrefs — only the shape changed.
+  - Tray is now `rad-xmd` + `pad-sm` with **no border** (the row version had a
+    `stroke-lg border-minimal`); tiles are `rad-xmd`, `stroke-md
+    border-subtle`, `px-pad-md py-pad-sm`, column `gap-dist-md`.
+  - `mt-auto` on the pill pins them to a common baseline across a row: grid
+    stretches every tile to the tallest in its row, so a label that wrapped to
+    two lines would otherwise push its own pill out of line with its
+    neighbours'.
+  - The export's header is just the title, so the "n of 6" counter the row
+    version carried is gone with it. Copy follows the export: "AI Model".
+  - Badges use `rounded-full`, not `rounded-rad-rd` — see LEARNINGS.
+
+**Verified** on :3002 against the export: 3x2 grid, tone badges and pills,
+tinted carets. Tiles render wider than the export's fixed 144px because this
+card is `flex-1` in a fluid row rather than a fixed 496px frame. 102 tests,
+typecheck and lint clean.
+- `25:7x` Re-exported `dashboardsetup` (stripped down) — three things removed,
+  nothing added: the outer white `DashboardCard`, the surface-3 tray, and the
+  tiles' `border-subtle` stroke. The section is now the title over a bare 3x2
+  grid of white tiles directly on the page canvas (root frame is surface-3
+  with `pad-null`), and tiles went 144x108 → 160x108. Badges, labels, pills,
+  tones and hrefs all unchanged.
+  - Consequence worth knowing: Setup is now the only block on the dashboard
+    that isn't a `DashboardCard`, so it sits next to "What you're posting
+    about" (still a white card) with no card chrome of its own. That's what
+    the export shows.
+
+**Verified** on :3002 against the new screenshot: six borderless tiles, no
+tray, title on the canvas. 102 tests, typecheck and lint clean.
+- `25:8x` Two more 24px width steps: "What you're posting about" `xl:w-102` →
+  `xl:w-108` (408 → 432px), and the Total-posts left block `w-72` → `w-78`
+  (288 → 312px). Both measured in-browser.
+- `25:9x` **Reverted the generate-card.tsx patch.** `main` has moved 2 commits
+  ahead and one of them ("Generate: the account pill shows real connected
+  accounts", FOLLOWUPS #1) rewrote that account handling: it already has the
+  `?? accountOptions[0]` fallback instead of the non-null assertion, a repair
+  effect gated on `socialAccountsLoaded`, and a real "Try out" option — so the
+  stored `"tryout"` value now *matches* rather than crashing. My fix was
+  redundant and would only have conflicted in a file this branch doesn't own.
+  The reported bug is fixed by merging main, not by this branch.
+- `25:10x` **Days with content are clickable on the dashboard calendar.** Only
+  days that actually have posts become links; empty days stay inert spans
+  (verified in the DOM: 8 links, the rest spans). Clickability is keyed on the
+  *count*, not the rendered state — a day that is both today and has posts
+  renders as "today" (the ring wins) and must still be clickable.
+- `25:11x` **Corrected the above after direct feedback.** "Content has no route
+  for a day" was the wrong conclusion to draw from "no route opens a deck" —
+  the Next-up cards on this same page already link to `/calendar/<postId>`, a
+  real per-post route. So a day holding **exactly one post now links straight
+  to that post**, the same destination Next-up uses; only a day with several
+  falls back to Content with its tab selected, since there's nothing to
+  disambiguate between. Verified in the DOM (1-post days → post page, 2- and
+  3-post days → Content) and end to end: clicking Aug 27 opens the post's own
+  page, headed "August 27th, 2026".
+- `25:10x` **Where it goes, and why not further.** Content has no route for a
+  single day — its deck opens from a chip on the page — so deep-linking would
+  mean teaching `components/content/content-view.tsx` to open a deck from a
+  URL. That file is dirty in the live `post-accounts` worktree (along with
+  `day-deck.tsx`), so editing it from here is a guaranteed conflict in a file
+  this branch doesn't own. Instead the day links to Content with the right
+  *tab* already selected, via `setContentTab` — `lib/content-view.ts` is a
+  public store, is not dirty anywhere else, and the page reads it through
+  `useSyncExternalStore` on arrival.
+- `25:10x` The tab is chosen from `upcomingByDay` (new on `MonthSummary`), not
+  from the date: a day with anything still to come is Queued, otherwise its
+  posts have all gone and it's Published. By date alone *today* would always
+  read as Queued even when everything on it already went out. Pinned by a test.
+- `25:10x` The React Compiler rejected the original `for` loop building the
+  cells (`react-hooks/immutability`): each cell's click handler closes over its
+  day, and the loop then reassigns that variable. Rebuilt with `Array.from`.
+
+**Verified** on :3002 end to end: clicking Aug 18 (past) lands on Content with
+**Published** selected and 18th August on the board; clicking Aug 27 (future)
+lands on **Queued** with 27th August there. Typecheck and lint clean; 102 of
+103 tests pass — the one failure is `lib/ai/generate.test.ts`, which calls the
+real Gemini API and is hitting the free-tier quota (20 requests/day, exhausted
+by this session's own generating). Untouched by this branch and not a
+regression; it passes again once the quota resets.

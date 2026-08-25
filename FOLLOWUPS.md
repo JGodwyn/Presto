@@ -143,3 +143,51 @@ constraint but no flow behind it.
   Connections page left open across the 7-day or 60-day boundary won't change
   treatment until it is reloaded. Correct for a boundary that moves once every
   60 days; noted so nobody reports it as a bug.
+
+
+---
+
+## 2. The dashboard's TryOn platform row is a placeholder
+
+**From:** `feat/dashboard`, 2026-08-25.
+
+`components/dashboard/posting-about-card.tsx` renders a third platform row —
+TryOn, with the export's Eyes glyph and Purple50/600 bar — hardcoded to
+`count={0}`. Everything around it is real: LinkedIn and X read their counts
+from `platformSplit()`.
+
+**Do:** once `types/post.ts`'s `PostPlatform` includes the try-on value, drop
+the hardcoded `0` and let that row read its count the way the other two do.
+`platformSplit()` in lib/dashboard-summary.ts builds its result from
+`PostPlatform`, so it picks the new member up automatically — the only edit is
+the call site.
+
+**Why it waited:** `types/post.ts` is a shared *and* hot file, and the try-on
+work owns that change. Note `main` already ships a `TRY_OUT_ACCOUNT_ID` option
+in the Generate account pill, so the two need to agree on one spelling —
+the dashboard currently labels it "TryOn", the Generate pill "Try out".
+
+
+---
+
+## 3. A busy day on the dashboard calendar can't open its deck
+
+**From:** `feat/dashboard`, 2026-08-25.
+
+Clicking a day with content on the dashboard calendar
+(`components/dashboard/month-calendar-card.tsx`) goes straight to the post when
+that day holds exactly one. A day with **several** falls back to the Content
+page with the right tab selected — it can't open that day's deck, because
+opening a deck needs a chip element on the Content page to fan the cards out
+of, and there is no URL that reaches one.
+
+**Do:** teach `components/content/content-view.tsx` to open a deck from a URL
+(a `?day=YYYY-MM-DD` param, resolved against the same `dayKeyForPost` grouping
+it already uses), then point multi-post days at it. The deck's open animation
+measures its origin chip, so the param has to resolve *after* the chips render
+— open it from a layout effect once the month sections are mounted, not during
+the first paint.
+
+**Why it waited:** `content-view.tsx` and `day-deck.tsx` were both dirty in the
+live `post-accounts` worktree while the dashboard was being built. Safe to do
+once that has landed.

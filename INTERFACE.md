@@ -597,3 +597,111 @@ unwired, and say so in the component's comment.
 Adding an npm package · changing the database schema · swapping any part of the
 stack · deleting or fully rewriting a file · introducing a UI pattern that
 doesn't already exist above.
+
+---
+
+## 12. Dashboard
+
+**There is no Figma frame for a populated dashboard.** `design-sync/dashboard`
+is only the "Nothing here" empty state on the bare canvas. Everything below was
+composed from tokens and the existing component vocabulary — restyle when a
+frame lands.
+
+- **Cards on the canvas, not a `GlowPanel`.** Generate and Content both wrap
+  their content in the glow panel, which caps itself to the viewport height and
+  scrolls internally. A dashboard is a stack of independent cards that should
+  page-scroll, so it follows the **Instructions page's** rhythm instead: white
+  `surface-4` cards on the surface-3 canvas, `dist-md` between them.
+- `components/dashboard/dashboard-card.tsx` is that shell. It is a deliberate
+  duplicate of `instructions-card.tsx`'s recipe rather than a reuse of it:
+  that component hard-requires a title *and* a one-line description, which a
+  stat tile doesn't have. Header (`DashboardCardHeader`) is `title-lg` Phudu
+  with an optional trailing readout, one notch below the page's own
+  `heading-sm` title.
+- **Figures are date-derived, never `posts.status`** — `lib/dashboard-summary.ts`
+  mirrors `lib/content-grouping.ts` exactly, so the dashboard can't contradict
+  the page it summarises. (Nothing in the app ever writes
+  `status: "published"`, so a status-derived "Posted" count would read zero
+  forever.) `now` is stamped once by the page and passed down, same as Content.
+- **Nothing here is engagement data, and nothing can be.** No impressions,
+  likes, reach or best-time-to-post: the app doesn't publish (see §10a) and
+  reads nothing back, so every such figure would be invented. The dashboard
+  reports *plan* (what's scheduled, what's empty) and *setup* (voice, examples,
+  connections, model) only.
+- **Density ramp** (`month-heatmap.tsx`) uses the flame scale —
+  `surface-3 → flame-50 → flame-100 → flame-200 → flame-400` for 0/1/2/3/4+
+  posts a day, with `text-inverse` on the last step. Real tokens, not tints.
+  Day cells use plain `rounded-rad-sm` with **no squircle clip-path**, the same
+  call `components/ui/calendar.tsx` makes for its own day cells: 31
+  ResizeObservers to smooth a 4px corner isn't a trade worth making.
+- **A calendar day with posts links to Content with the matching tab already
+  selected** — Content has no per-day route (its deck opens from a chip), so
+  the tab is the closest honest destination. Chosen from `upcomingByDay`, not
+  from the date, so *today* doesn't read as Queued once its posts have gone.
+  Empty days are inert.
+- **Standing conditions get a banner, not a Toast** (`notice-banner.tsx`): an
+  expiring LinkedIn token or a BYOK key that fell back onto the app's
+  credentials is still true tomorrow, and a Toast is for something that just
+  happened and then leaves.
+- **Setup is a 3x2 tile grid** (`dashboardsetup` export): tone badge, label,
+  then a pill carrying the figure and a caret, all three tinted together per
+  state. Pills take `mt-auto` so they share a baseline across a row regardless
+  of label wrapping. It is the **one block on this page that is not a
+  `DashboardCard`** — the export gives the section the canvas colour and no
+  padding, so the white tiles are the only card-like thing in it, and they
+  carry no border because nothing but the surface change separates them.
+- **`SetupCard` is the half that works on day one**, before any posts exist —
+  every row derived from data already stored, every row linking to the page
+  that fixes it.
+- **Clipped single-line text fades, it doesn't ellipsis** (`next-up-card.tsx`).
+  Reach for `useScrollFade` even when the box doesn't scroll: it sizes each
+  edge's fade to the distance actually hidden there, so a line that fits gets
+  no fade, while a static mask would dim the tail of a short one. The static
+  `EDGE_FADE_MASK` pattern (GeneratedPostCard, the skip-dates carousel) stays
+  the right tool only where the fade width is fixed and the padding/negative-
+  margin pair can hold it off resting content.
+- **The in-project page scroll fades at the top only**
+  (`components/shared/section-scroll-area.tsx`, wrapping `<main>` for every
+  section). Content disappearing under `<main>`'s top edge dissolves instead of
+  being cut; **there is no bottom fade by design**, because `<main>`'s
+  `-mb`/`pb` pair bleeds the scroll area past the page padding to the real
+  screen edge, so content there runs off the display rather than clipping at a
+  line.
+- **It is an overlay strip, not a CSS mask — the one place that rule is
+  inverted.** A mask paints its whole subtree through the mask's geometry, and
+  five sections render their Toast into a `position: fixed` slot *inside*
+  `<main>`; those toasts sit above `<main>`'s box and get erased outright. Use
+  `useScrollFade` on scrollers with no fixed descendants (all the others); use
+  a canvas-coloured gradient strip where fixed children live. See LEARNINGS.
+
+### 12a. Dashboard — built from the export
+
+`design-sync/dashboarddesign` (+ `-2`, the same page scrolled) supersedes the
+hand-composed mockup §12 describes. What changed and what holds:
+
+- **Cards are `rad-xmd` (12), `pad-md` block / `pad-lg` inline, no border** —
+  they sit on the surface-3 canvas and white alone separates them. The
+  exceptions are deliberate: the three mini stat cards inside the Total-posts
+  card get a `stroke-md border-subtle` (they sit on white), and the post cards
+  in the Next-up column are `rad-lg`.
+- **Two stat shapes, and the difference is semantic**: the bordered mini card
+  labels itself `body-lg`/text-bold (it heads a breakdown), the plain one
+  `body-lg-bold`/text-subtle (it captions its own number).
+- **The Total-posts bar is one stadium with cumulative segments** — Published
+  is the track at full width, Queued painted over it, Draft over that. Each
+  segment's width is a running total, which is what makes it read as one bar
+  rather than three blocks with seams.
+- **Calendar day states** map to Figma's `_calendar-item`: content →
+  `surface-selected` + inverse text; in-month empty → `surface-hover` + bold;
+  today → `surface-rest` + `stroke-xl border-brand`; adjacent month → no fill,
+  `text-minimal`. Cells skip the squircle clip-path, as `ui/calendar.tsx`'s own
+  cells do.
+- **The Next-up column is a scroller, not a growing list.** The export clips it
+  mid-"Recently out" at the calendar card's height; it's bounded by the
+  `relative` + `absolute inset-0` pair (the Content page's trick), because
+  every ancestor here is content-sized.
+- **No notices strip** — the export has none. An expiring connection and a
+  failed BYOK key downgrade their own Setup row to the warning tone instead.
+- Platform bar colours are each brand's own, taken literally from the export —
+  the same documented exception as `file-type-icon.tsx`. X and TryOn land on
+  real Gray/Purple tokens; only LinkedIn's blue is a literal.

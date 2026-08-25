@@ -4,15 +4,14 @@ import { z } from "zod"
 import { FlickerProbe } from "@/components/shared/flicker-probe"
 import { ProjectSidebar } from "@/components/shared/project-sidebar"
 import { SectionContent } from "@/components/shared/section-content"
+import { SectionScrollArea } from "@/components/shared/section-scroll-area"
 import { ProjectTopbar } from "@/components/shared/project-topbar"
 import { OnboardingProvider } from "@/components/onboarding/onboarding-context"
 import { OnboardingCover } from "@/components/onboarding/onboarding-cover"
 import { OnboardingCallout } from "@/components/onboarding/onboarding-callout"
 import { createClient } from "@/lib/supabase/server"
 import { isNetworkError } from "@/lib/network-error"
-import { cn } from "@/lib/utils"
 import { fetchProject } from "@/lib/supabase/queries"
-import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 
 // Everything inside a project (dashboard, generate, calendar, …) renders
 // under this layout, so the ownership check lives here once. RLS already
@@ -70,22 +69,14 @@ export default async function ProjectLayout({
 
         <div className="flex min-h-0 flex-1 items-stretch gap-dist-xl">
           <ProjectSidebar projectName={project.name} />
-          {/* No visible scrollbar here by design (native one hidden, no
-              custom thumb either) — a thumb positioned against this
-              container's full width ended up sitting on top of the
-              References column at some widths instead of staying in the
-              page's outer gutter. Scrolling itself still works fine via
-              wheel/trackpad/keyboard. */}
-          <main
-            className={cn(
-              "-mb-pad-4xl flex flex-1 flex-col overflow-y-auto pb-pad-4xl",
-              HIDE_NATIVE_SCROLLBAR_CLASSNAME
-            )}
-          >
+          {/* <main> and its top fade — see section-scroll-area.tsx for why
+              that fade is an overlay strip rather than the CSS mask every
+              other scroller in this app uses. */}
+          <SectionScrollArea>
             <OnboardingCallout>
               <SectionContent>{children}</SectionContent>
             </OnboardingCallout>
-          </main>
+          </SectionScrollArea>
         </div>
       </div>
 
