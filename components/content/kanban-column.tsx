@@ -9,6 +9,7 @@ import type { DayGroup } from "@/lib/content-grouping"
 import { formatOrdinal } from "@/lib/format-date"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import type { Post } from "@/types/post"
+import type { ConnectedSocialAccount } from "@/types/social-account"
 
 // Figma --rad-xmd as px for the squircle path math.
 const COLUMN_CORNER_RADIUS = 12
@@ -31,12 +32,18 @@ const STACK_FADE_BOTTOM_PX = 40
 export function KanbanColumn({
   day,
   monthLabel,
+  accounts,
+  activeTopics,
   postHref,
 }: {
   day: DayGroup
   // "July" — the day header reads "8th July", so the column needs its month
   // even though the section heading above already names it.
   monthLabel: string
+  // Passed straight through to the cards — see PostAccount in
+  // lib/post-account.ts and the retired-topic note on ContentView.
+  accounts: ConnectedSocialAccount[]
+  activeTopics: Set<string>
   // Where a card goes when tapped: its own page.
   postHref: (post: Post) => string
 }) {
@@ -71,7 +78,13 @@ export function KanbanColumn({
         className={`flex min-h-0 flex-1 flex-col gap-dist-md overflow-y-auto ${HIDE_NATIVE_SCROLLBAR_CLASSNAME}`}
       >
         {day.posts.map((post) => (
-          <KanbanPostCard key={post.id} post={post} href={postHref(post)} />
+          <KanbanPostCard
+            key={post.id}
+            post={post}
+            accounts={accounts}
+            activeTopics={activeTopics}
+            href={postHref(post)}
+          />
         ))}
       </div>
     </div>

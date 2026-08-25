@@ -27,6 +27,7 @@ function makePost(overrides: Partial<Post> = {}): Post {
     topics: [],
     scheduledFor: null,
     createdAt: localIso(2026, 7, 30),
+    isTryout: false,
     ...overrides,
   }
 }

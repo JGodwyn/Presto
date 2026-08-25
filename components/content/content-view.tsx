@@ -51,6 +51,7 @@ import {
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
+import type { ConnectedSocialAccount } from "@/types/social-account"
 
 // Figma --rad-xmd as px for the squircle path math (the "Show as" pill).
 const SHOW_AS_CORNER_RADIUS = 12
@@ -94,6 +95,14 @@ function echoQuery(query: string): string {
 export function ContentView({
   projectId,
   posts: initialPosts,
+  // This project's connected social accounts, so a post card can name the
+  // account it goes out as rather than its platform (lib/post-account.ts).
+  accounts,
+  // The project's *current* Instructions topics. A post's own topics are a
+  // denormalized snapshot taken at generation time, with no foreign key
+  // behind them, so a topic deleted from Instructions since then still sits
+  // on the post — this is the only way to tell that chip apart and retire it.
+  activeTopics,
   // Stamped by the server component that renders this, so the future/past
   // split is decided once rather than drifting between the server render and
   // hydration (a post scheduled seconds from now would otherwise be able to
@@ -102,6 +111,8 @@ export function ContentView({
 }: {
   projectId: string
   posts: Post[]
+  accounts: ConnectedSocialAccount[]
+  activeTopics: string[]
   now: number
 }) {
   // Remembered per project alongside the layout, so leaving for a post's own
@@ -153,6 +164,12 @@ export function ContentView({
   // would be unusable, and a topic vanishing mid-filter would strand the
   // selection that produced the empty page.
   const topics = React.useMemo(() => topicsInPosts(posts), [posts])
+  // Membership is checked once per topic chip, of which a busy month has
+  // many — a Set built once per change beats an array scan each time.
+  const activeTopicSet = React.useMemo(
+    () => new Set(activeTopics),
+    [activeTopics]
+  )
 
   // A stored filter can name a topic that no longer exists on any post, and
   // that topic can't appear in the menu (the menu is built from the posts that
@@ -371,6 +388,8 @@ export function ContentView({
             <MonthBoard
               key={month.key}
               month={month}
+              accounts={accounts}
+              activeTopics={activeTopicSet}
               postHref={(post) => `/projects/${projectId}/calendar/${post.id}`}
             />
           ))}
@@ -409,6 +428,8 @@ export function ContentView({
       {openDay && openEntry ? (
         <DayDeck
           projectId={projectId}
+          accounts={accounts}
+          activeTopics={activeTopicSet}
           dateLabel={formatDayLabel(openEntry.month, openEntry.day)}
           posts={openEntry.day.posts}
           origin={openDay.origin}

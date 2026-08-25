@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useDialKit } from "dialkit"
 import { AnimatePresence, motion } from "motion/react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
@@ -20,9 +19,11 @@ import { TextMorph } from "torph/react"
 import { deletePost, updatePost } from "@/app/projects/[projectId]/generate/post-actions"
 import { RegenerateModal } from "@/components/content/regenerate-modal"
 import { StreamedLine } from "@/components/content/streamed-line"
+import { PostAccountPill } from "@/components/shared/post-account-pill"
 import { AnimateText } from "@/components/ui/animated-text"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
+import { Chip } from "@/components/ui/chip"
 import { ConfirmationModal } from "@/components/ui/confirmation-modal"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Toast } from "@/components/ui/toast"
@@ -32,14 +33,61 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
-import { STREAM_ERROR_MARKER } from "@/lib/ai/generate"
+import { STREAM_DONE_MARKER, STREAM_ERROR_MARKER } from "@/lib/ai/generate"
 import { getCaretOffsetFromPoint } from "@/lib/caret"
 import { formatFullDate } from "@/lib/format-date"
+import {
+  nextPostAccount,
+  resolvePostAccount,
+  type PostAccountTarget,
+} from "@/lib/post-account"
 import { isNetworkError } from "@/lib/network-error"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
+import type { ConnectedSocialAccount } from "@/types/social-account"
+
+// How long the regenerate stream may go without producing a single byte
+// before it is given up on. This is the "the agent hung" case: the request
+// connects, the model never answers, and nothing below would ever resolve on
+// its own — reader.read() simply waits forever, leaving the page looping
+// "generating post . . ." with no error and no way out but a reload. The clock
+// is reset by every chunk that arrives, so a slow-but-alive generation is
+// never cut off; only a genuinely silent one is. Generous because the first
+// token can legitimately take a while (a long prompt, a cold provider).
+const STREAM_STALL_TIMEOUT_MS = 45_000
+
+// The regenerating heading's elastic loop — the same "generating N posts . . ."
+// recipe generating-view.tsx uses, tuned on a DialKit panel and frozen here
+// once the feel was right (git history has the panel if it needs re-tuning),
+// same treatment as toast.tsx's entrance and use-shake.ts.
+const REGENERATING_HEADING = {
+  offset: 5,
+  stagger: 0.03,
+  duration: 0.3,
+  bounce: 0.4,
+  loopDelay: 800,
+}
+
+// Extra breathing room after a chunk's own entrance has fully settled (see
+// nextRevealAtRef below) before the next one is let through. The server
+// (app/api/regenerate-post) streams raw text as fast as the model produces it
+// with no pacing of its own, so this and the entrance values below are the
+// only things controlling how the reveal actually feels.
+const REGENERATING_LINE_DELAY_MS = 10
+
+// Each chunk's own word-wave entrance — the same spring-stagger-plus-blur idea
+// as the heading, smaller and quicker per direct request ("less pronounced...
+// faster") since this plays on every one of many chunks rather than once on a
+// single short loop.
+const REGENERATING_LINE_ENTRANCE = {
+  offset: 6,
+  stagger: 0.02,
+  duration: 0.2,
+  bounce: 0.1,
+  blur: 1,
+}
 
 interface ToastAction {
   icon: React.ReactNode
@@ -74,9 +122,19 @@ const CHUNK_BREAK_RE = /[.!?](?=\s|$)|\n/g
 // draft goes onto the calendar.
 export function PostDetails({
   post,
+  accounts,
+  activeTopics,
   backHref,
 }: {
   post: Post
+  // This project's connected social accounts, so the pill can name the
+  // account this post goes out as and cycle between the alternatives.
+  accounts: ConnectedSocialAccount[]
+  // The project's current Instructions topics — a topic on this post that
+  // isn't in here has since been deleted, and renders retired. An array, not
+  // a Set: this crosses the server→client boundary, and ContentView takes the
+  // same shape for the same reason.
+  activeTopics: string[]
   // The Content page this was opened from.
   backHref: string
 }) {
@@ -108,10 +166,14 @@ export function PostDetails({
     variant: "info" | "danger"
     message: string
     action?: ToastAction
+    // The small capsule tucked under the toast (toast.tsx's `extraInfo`) —
+    // the same split the offline toast uses: what happened on the toast, what
+    // to do about it underneath.
+    extraInfo?: string
   }>({ open: false, variant: "danger", message: "" })
 
-  const showError = (message: string) =>
-    setToast({ open: true, variant: "danger", message, action: undefined })
+  const showError = (message: string, extraInfo?: string) =>
+    setToast({ open: true, variant: "danger", message, action: undefined, extraInfo })
 
   // Portalling the toast to <body> needs to wait for the client, unlike
   // PostActionsMenu's portal (which is naturally gated by its own `open`
@@ -137,6 +199,33 @@ export function PostDetails({
 
   const patchPost = (patch: Partial<Post>) =>
     setCurrentPost((prev) => ({ ...prev, ...patch }))
+
+  // Membership is checked once per topic chip; the array keeps the order the
+  // user arranged on the Instructions page, which the modal's picker uses.
+  const activeTopicSet = React.useMemo(
+    () => new Set(activeTopics),
+    [activeTopics]
+  )
+
+  // Platform and isTryout move together: "Try out" is a cycle position rather
+  // than a platform of its own, so a switch always writes both. Optimistic
+  // with a revert, like every other edit on this page.
+  const handleSocialChange = (target: PostAccountTarget) => {
+    const previous = {
+      platform: currentPost.platform,
+      isTryout: currentPost.isTryout,
+    }
+    const patch = { platform: target.platform, isTryout: target.isTryout }
+    patchPost(patch)
+    void withNetworkStatus(
+      updatePost({ projectId: currentPost.projectId, id: currentPost.id, patch })
+    ).then((result) => {
+      if (result === null || "error" in result) {
+        patchPost(previous)
+        if (result !== null) showError("Couldn't change that post's account")
+      }
+    })
+  }
 
   // Click-to-edit content, in place: same idea as GeneratedPostCard's
   // double-click quick-edit, but a single click here (there's nothing else
@@ -260,25 +349,33 @@ export function PostDetails({
     }
     const patch = { scheduledFor: null, status: "draft" as const }
     patchPost(patch)
+    // Raised here, not in the .then() below, per direct feedback about the
+    // delay: the move itself is optimistic, so waiting on the round-trip to
+    // confirm it made the toast trail the change it was reporting by a whole
+    // request. This is the same optimistic-then-undo shape the rest of the app
+    // uses — the failure branch reverts the patch *and* replaces this toast
+    // with the error, so a toast offering Undo can never outlive the move it
+    // is offering to undo.
+    setToast({
+      open: true,
+      variant: "info",
+      message: "Moved to draft",
+      action: {
+        icon: <ArrowArcLeftIcon weight="bold" />,
+        label: "Undo",
+        onClick: () => handleRestoreSchedule(previous),
+      },
+    })
 
     void withNetworkStatus(
       updatePost({ projectId: currentPost.projectId, id: currentPost.id, patch })
     ).then((result) => {
       if (result === null || "error" in result) {
         patchPost(previous)
+        // Replaces the confirmation above rather than stacking on it.
         if (result !== null) showError("Couldn't move that post to drafts")
-        return
+        else setToast((prev) => ({ ...prev, open: false }))
       }
-      setToast({
-        open: true,
-        variant: "info",
-        message: "Moved to draft",
-        action: {
-          icon: <ArrowArcLeftIcon weight="bold" />,
-          label: "Undo",
-          onClick: () => handleRestoreSchedule(previous),
-        },
-      })
     })
   }
 
@@ -305,38 +402,19 @@ export function PostDetails({
   // performance.now() timestamp before which the next chunk must not reveal
   // — see the reveal effect below for why this exists.
   const nextRevealAtRef = React.useRef(0)
+  // The in-flight regenerate request, so both the stall watchdog and this
+  // page's own unmount can cut it off. Leaving it running past unmount would
+  // keep reading a stream nobody is watching and then call setState on a gone
+  // component; the server's own persistence is unaffected either way, since
+  // that happens in the route handler rather than here.
+  const regenerateAbortRef = React.useRef<AbortController | null>(null)
 
-  // Live-tunable via the DialKit panel (top-right, dev only) — same "Generating
-  // heading (elastic)" recipe generating-view.tsx tunes its own loading
-  // heading with, just a separate named panel since this is a different
-  // screen/animation instance.
-  const regeneratingHeadingDial = useDialKit("Regenerating heading (elastic)", {
-    offset: [5, 0, 150, 5],
-    stagger: [0.03, 0, 0.15, 0.005],
-    duration: [0.3, 0.1, 1.5, 0.05],
-    bounce: [0.4, 0, 1, 0.05],
-    loopDelay: [800, 300, 4000, 100],
-  })
-  // Extra breathing room after a chunk's own entrance has fully settled
-  // (see nextRevealAtRef below) before the next one is let through — the
-  // server (app/api/regenerate-post) streams raw text as fast as the model
-  // produces it with no artificial pacing of its own, so this and the entrance
-  // dial below are the only things controlling how the reveal actually feels,
-  // and adjusting either takes effect on the very next chunk even mid-stream.
-  const regeneratingBodyDial = useDialKit("Regenerating body reveal", {
-    lineDelayMs: [10, 0, 300, 5],
-  })
-  // Each chunk's own word-wave entrance — the same spring-stagger-plus-blur
-  // idea as the heading above, smaller and quicker per direct request ("less
-  // pronounced... faster") since this plays on every one of many chunks
-  // rather than once on a single short loop.
-  const regeneratingLineEntranceDial = useDialKit("Regenerating line entrance", {
-    offset: [6, 0, 60, 1],
-    stagger: [0.02, 0, 0.1, 0.002],
-    duration: [0.2, 0.05, 1, 0.01],
-    bounce: [0.1, 0, 1, 0.01],
-    blur: [1, 0, 20, 0.5],
-  })
+  React.useEffect(
+    () => () => {
+      regenerateAbortRef.current?.abort()
+    },
+    []
+  )
 
   // Advances `chunks` toward whatever's landed in `receivedRef`, one complete
   // sentence/line at a time (CHUNK_BREAK_RE) — a tick that finds no complete
@@ -377,10 +455,10 @@ export function PostDetails({
 
           const wordCount = chunk.split(/\s+/).filter(Boolean).length
           const settleMs =
-            (Math.max(wordCount - 1, 0) * regeneratingLineEntranceDial.stagger +
-              regeneratingLineEntranceDial.duration) *
+            (Math.max(wordCount - 1, 0) * REGENERATING_LINE_ENTRANCE.stagger +
+              REGENERATING_LINE_ENTRANCE.duration) *
             1000
-          nextRevealAtRef.current = performance.now() + settleMs + regeneratingBodyDial.lineDelayMs
+          nextRevealAtRef.current = performance.now() + settleMs + REGENERATING_LINE_DELAY_MS
         }
       }
       if (streamDoneRef.current && revealedRef.current.length === received.length) {
@@ -392,12 +470,9 @@ export function PostDetails({
     // checked every tick regardless of how long a chunk's own entrance runs.
     const interval = setInterval(tick, 30)
     return () => clearInterval(interval)
-  }, [
-    isRegenerating,
-    regeneratingBodyDial.lineDelayMs,
-    regeneratingLineEntranceDial.stagger,
-    regeneratingLineEntranceDial.duration,
-  ])
+    // The reveal-pacing values are module constants now (they were dial
+    // readings before), so they can't change between renders and aren't deps.
+  }, [isRegenerating])
 
   // The modal's own guidance note (empty when "Just regenerate" was clicked)
   // rides alongside the project's Instructions rather than replacing them —
@@ -414,7 +489,11 @@ export function PostDetails({
   // streaming the reveal above is the whole point here. Persistence happens
   // server-side (that route's own onEnd); patchPost below is purely this
   // page keeping its local state in sync with what the server already saved.
-  const handleRegenerate = async (guidance: string, model: string) => {
+  const handleRegenerate = async (
+    guidance: string,
+    model: string,
+    topic: string | undefined
+  ) => {
     setRegenerateOpen(false)
     setIsRegenerating(true)
     setChunks([])
@@ -423,26 +502,58 @@ export function PostDetails({
     streamDoneRef.current = false
     nextRevealAtRef.current = 0
 
+    // One controller for the whole exchange — tripped by the stall watchdog
+    // below, or by this page unmounting. `timedOut` is what tells those two
+    // apart afterwards: an abort surfaces the same way whoever caused it, and
+    // "we gave up waiting" needs a different message from "you navigated
+    // away" (which needs none at all).
+    const controller = new AbortController()
+    regenerateAbortRef.current = controller
+    let timedOut = false
+    let stallTimer: ReturnType<typeof setTimeout> | undefined
+    const armStallTimer = () => {
+      clearTimeout(stallTimer)
+      stallTimer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, STREAM_STALL_TIMEOUT_MS)
+    }
+    // Teardown only — deliberately no setState, so the unmount path below can
+    // release the timer and the ref without touching a gone component.
+    const releaseRegenerate = () => {
+      clearTimeout(stallTimer)
+      if (regenerateAbortRef.current === controller) regenerateAbortRef.current = null
+    }
+    armStallTimer()
+
     let response: Response
     try {
       response = await fetch("/api/regenerate-post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           projectId: currentPost.projectId,
           id: currentPost.id,
           model,
           guidance: guidance || undefined,
+          topic,
         }),
       })
     } catch (error) {
+      releaseRegenerate()
+      // Aborted without the watchdog firing means this page unmounted: there
+      // is nothing to report and nothing left to report it to.
+      if (controller.signal.aborted && !timedOut) return
       setIsRegenerating(false)
-      if (isNetworkError(error)) reportNetworkIssue()
+      if (timedOut) showError("That took too long", "Please try again")
+      else if (isNetworkError(error)) reportNetworkIssue()
       else showError("Couldn't regenerate that post.")
       return
     }
 
     if (!response.ok || !response.body) {
+      releaseRegenerate()
       setIsRegenerating(false)
       const body = await response.json().catch(() => null)
       showError(body?.error ?? "Couldn't regenerate that post.")
@@ -451,10 +562,17 @@ export function PostDetails({
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
+    // Set once the server's end-of-stream marker arrives. A stream that ends
+    // without it was cut off in transit (see STREAM_DONE_MARKER) and must not
+    // be treated as a finished post.
+    let sawDone = false
     try {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+        // Something arrived, so the stall clock starts over — a slow
+        // generation is fine, a silent one is not.
+        armStallTimer()
         receivedRef.current += decoder.decode(value, { stream: true })
         // Plain-text streaming has no framing of its own, so a mid-stream
         // model failure (rate limit, bad key, provider outage) has no
@@ -468,16 +586,49 @@ export function PostDetails({
         // only this page's own view of it would have drifted from what's
         // actually saved).
         if (receivedRef.current.includes(STREAM_ERROR_MARKER)) {
+          releaseRegenerate()
           setIsRegenerating(false)
-          showError("Couldn't regenerate that post. Please try again.")
+          showError("Couldn't regenerate that post", "Please try again")
           return
+        }
+        // Stripped the moment it lands, so the reveal loop can never render
+        // it. Safe to do here rather than at the end: nothing is awaited
+        // between the append above and this line, so the reveal interval
+        // cannot tick in between and see the marker in the buffer.
+        if (receivedRef.current.includes(STREAM_DONE_MARKER)) {
+          receivedRef.current = receivedRef.current.replace(STREAM_DONE_MARKER, "")
+          sawDone = true
         }
       }
     } catch (error) {
+      releaseRegenerate()
+      if (controller.signal.aborted && !timedOut) return
       setIsRegenerating(false)
-      if (isNetworkError(error)) reportNetworkIssue()
+      if (timedOut) showError("That took too long", "Please try again")
+      else if (isNetworkError(error)) reportNetworkIssue()
       else showError("Couldn't regenerate that post.")
       return
+    }
+
+    // Ended without the server ever saying it finished: the connection was
+    // severed mid-generation (a function hitting its duration ceiling, a
+    // proxy idling the socket out). The server persisted nothing, so neither
+    // does this page — the existing post stays exactly as it was.
+    if (!sawDone) {
+      releaseRegenerate()
+      setIsRegenerating(false)
+      showError("The connection dropped", "Try reloading")
+      return
+    }
+    releaseRegenerate()
+    // The server persists the picked topic alongside the new content (see
+    // that route's own topicsUpdate), so the chip above has to follow — this
+    // is the same "keep local state in sync with what the server already
+    // saved" patch the content itself gets, just for the one field the
+    // stream can't carry back. Only on a clean finish: every failure path
+    // above returns before here, and none of them persisted anything.
+    if (topic && topic !== currentPost.topics[0]) {
+      patchPost({ topics: [topic] })
     }
     // The reveal effect's own tick takes it from here — it notices
     // streamDoneRef flipping true, catches the last (possibly unterminated)
@@ -594,11 +745,17 @@ export function PostDetails({
         </div>
       </div>
 
-      {/* The post itself, centred in the panel: a heading naming the date (or
-          the lack of one) with the edit affordance beside it, then the content
-          in its own fixed 400px measure — the export's width, and a sane line
-          length to read at. */}
-      <div className="flex min-h-0 flex-1 flex-col items-center gap-dist-lg">
+      {/* The post itself, per design-sync/contentpagenew: one 400px column
+          (the export's own width, and a sane line length to read at) centred
+          in the panel, with the heading, the account/topics row and the body
+          all flush to *that column's* left edge rather than each centred on
+          its own. The header used to be its own hugging, centred block, which
+          left it floating over the body instead of lining up with it.
+
+          items-center on this wrapper is what centres the column; items-start
+          inside it is what left-aligns the contents. */}
+      <div className="flex min-h-0 flex-1 flex-col items-center">
+        <div className="flex w-100 min-h-0 flex-1 flex-col items-start gap-dist-lg">
         <div className="flex shrink-0 items-center gap-dist-md">
           {isRegenerating ? (
             // Same AnimateText "elastic" treatment the Generate page loops on
@@ -608,12 +765,12 @@ export function PostDetails({
               text="generating post . . ."
               type="elastic"
               className="text-heading-sm font-display text-text-bold"
-              offset={regeneratingHeadingDial.offset}
-              stagger={regeneratingHeadingDial.stagger}
-              duration={regeneratingHeadingDial.duration}
-              bounce={regeneratingHeadingDial.bounce}
+              offset={REGENERATING_HEADING.offset}
+              stagger={REGENERATING_HEADING.stagger}
+              duration={REGENERATING_HEADING.duration}
+              bounce={REGENERATING_HEADING.bounce}
               loop
-              loopDelay={regeneratingHeadingDial.loopDelay}
+              loopDelay={REGENERATING_HEADING.loopDelay}
             />
           ) : (
             <>
@@ -648,6 +805,40 @@ export function PostDetails({
           )}
         </div>
 
+        {/* The account pill and this post's topics, per the export's own
+            row under the heading. The pill cycles through every account this
+            project can post as — "Try out" included, which is what keeps it
+            tappable when only one real account is connected. Topics are
+            display-only here (they're assigned at generation), and one whose
+            topic has since been deleted from Instructions renders retired. */}
+        <div className="flex shrink-0 flex-wrap items-center gap-dist-md">
+          <PostAccountPill
+            account={resolvePostAccount(currentPost, accounts)}
+            nextAccount={nextPostAccount(currentPost, accounts)}
+            onSelect={handleSocialChange}
+            className="max-w-60"
+          />
+          {currentPost.topics.map((topic) => (
+            <Chip
+              key={topic}
+              size="md"
+              selected={false}
+              retired={!activeTopicSet.has(topic)}
+              // text-bold rather than Chip's own text-subtle, per direct
+              // request and matching the export's own label fill
+              // (Text/text-bold). Scoped to this screen rather than changed on
+              // the component: everywhere else an unselected chip is secondary
+              // to what it sits beside, but here the topic is one of only two
+              // things describing the post. A retired chip keeps its own
+              // text-minimal — the point of that state is that it has faded
+              // out of the project, which a bold label would undo.
+              className={activeTopicSet.has(topic) ? "text-text-bold" : undefined}
+            >
+              {topic}
+            </Chip>
+          ))}
+        </div>
+
         {/* Click-to-edit, no textarea chrome of any kind (per direct
             request) — bg-transparent/outline-none/resize-none, same box,
             same type styles, same fade mask as the plain view below, so
@@ -665,7 +856,7 @@ export function PostDetails({
             onBlur={commitContentEdit}
             onScroll={onContentScroll}
             className={cn(
-              "w-100 min-h-0 flex-1 resize-none bg-transparent text-body-lg whitespace-pre-wrap text-text-bold outline-none",
+              "w-full min-h-0 flex-1 resize-none bg-transparent text-body-lg whitespace-pre-wrap text-text-bold outline-none",
               HIDE_NATIVE_SCROLLBAR_CLASSNAME
             )}
           />
@@ -675,7 +866,7 @@ export function PostDetails({
           // in normal flow, so it can fade away over a genuinely blank area
           // instead of pushing the streaming view below it down for the
           // ~300ms the exit takes.
-          <div className="relative w-100 min-h-0 flex-1">
+          <div className="relative w-full min-h-0 flex-1">
             <AnimatePresence>
               {!isRegenerating && (
                 <motion.div
@@ -714,17 +905,18 @@ export function PostDetails({
                   <StreamedLine
                     key={index}
                     text={chunk}
-                    offset={regeneratingLineEntranceDial.offset}
-                    stagger={regeneratingLineEntranceDial.stagger}
-                    duration={regeneratingLineEntranceDial.duration}
-                    bounce={regeneratingLineEntranceDial.bounce}
-                    blur={regeneratingLineEntranceDial.blur}
+                    offset={REGENERATING_LINE_ENTRANCE.offset}
+                    stagger={REGENERATING_LINE_ENTRANCE.stagger}
+                    duration={REGENERATING_LINE_ENTRANCE.duration}
+                    bounce={REGENERATING_LINE_ENTRANCE.bounce}
+                    blur={REGENERATING_LINE_ENTRANCE.blur}
                   />
                 ))}
               </div>
             )}
           </div>
         )}
+        </div>
       </div>
 
       {/* Closes immediately on confirm (unlike the delete confirmation,
@@ -735,7 +927,13 @@ export function PostDetails({
         open={regenerateOpen}
         onOpenChange={setRegenerateOpen}
         projectId={currentPost.projectId}
-        onConfirm={(guidance, model) => void handleRegenerate(guidance, model)}
+        // The same live topic list the chips above are checked against — no
+        // extra fetch, and the two can't disagree about what still exists.
+        topics={activeTopics}
+        currentTopic={currentPost.topics[0]}
+        onConfirm={(guidance, model, topic) =>
+          void handleRegenerate(guidance, model, topic)
+        }
       />
 
       {/* Just the calendar (design-sync/calendarwithactionbar) — same dialog
@@ -801,6 +999,7 @@ export function PostDetails({
               direction="top"
               showIcon={!toast.action}
               action={toast.action}
+              extraInfo={toast.extraInfo}
             >
               {toast.message}
             </Toast>

@@ -15,4 +15,10 @@ export interface Post {
   topics: string[]
   scheduledFor: string | null
   createdAt: string
+  // Generated against the Generate page's "Try out" stand-in account rather
+  // than a real connected one. `platform` still carries a real value (a post
+  // has to be written *for* somewhere), so this is the only thing that tells
+  // the two apart — and it has to, now that a post card shows the account's
+  // own name instead of the platform's.
+  isTryout: boolean
 }

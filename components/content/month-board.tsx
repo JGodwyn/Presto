@@ -1,6 +1,7 @@
 "use client"
 
 import { KanbanColumn } from "@/components/content/kanban-column"
+import type { ConnectedSocialAccount } from "@/types/social-account"
 import { useDragScroll } from "@/hooks/use-drag-scroll"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
 import type { MonthGroup } from "@/lib/content-grouping"
@@ -33,9 +34,13 @@ const EDGE_FADE_PX = 24
 // the day deck and the skip-dates carousel use.
 export function MonthBoard({
   month,
+  accounts,
+  activeTopics,
   postHref,
 }: {
   month: MonthGroup
+  accounts: ConnectedSocialAccount[]
+  activeTopics: Set<string>
   postHref: (post: Post) => string
 }) {
   const dragScroll = useDragScroll()
@@ -92,6 +97,8 @@ export function MonthBoard({
                 key={day.key}
                 day={day}
                 monthLabel={monthLabel}
+                accounts={accounts}
+                activeTopics={activeTopics}
                 postHref={postHref}
               />
             ))}

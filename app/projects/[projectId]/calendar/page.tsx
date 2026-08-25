@@ -1,6 +1,10 @@
 import { ContentView } from "@/components/content/content-view"
 import { GlowPanel } from "@/components/shared/glow-panel"
-import { fetchPosts } from "@/lib/supabase/queries"
+import {
+  fetchInstructions,
+  fetchPosts,
+  fetchSocialAccounts,
+} from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 
 // The Content section (route path stays `calendar` — see AGENTS.md's
@@ -16,7 +20,25 @@ export default async function ContentPage({
   const supabase = await createClient()
   // The layout already redirected if this project isn't the caller's; under
   // RLS a foreign id would come back empty anyway.
-  const posts = await fetchPosts(supabase, projectId)
+  // Three independent reads — the posts themselves, the connected accounts a
+  // post card names instead of its bare platform, and the project's current
+  // topic list, which is the only thing that can tell a live topic chip from
+  // one whose topic has since been deleted from Instructions.
+  const [posts, accounts, instructions] = await Promise.all([
+    fetchPosts(supabase, projectId),
+    fetchSocialAccounts(supabase, projectId),
+    fetchInstructions(supabase, projectId),
+  ])
+
+  // The queued/published split needs a "now", and it has to be the same one on
+  // the server and during hydration or a post scheduled seconds away could
+  // change tabs mid-hydration — so it's stamped once, here, for the request.
+  // react-hooks/purity flags any Date.now() in render; the instability it
+  // guards against needs a re-render to bite, and this component renders once
+  // per request on the server. It does mean the split only moves on a refresh,
+  // which is the right granularity for a page about days.
+  // eslint-disable-next-line react-hooks/purity
+  const now = Date.now()
 
   return (
     // This page is the viewport's height and scrolls its own content, rather
@@ -36,16 +58,13 @@ export default async function ContentPage({
         {/* No info marker: the header's own search control replaces it on
             this page (components/content/content-search.tsx). */}
         <GlowPanel showInfoMarker={false}>
-          {/* The queued/published split needs a "now", and it has to be the same
-          one on the server and during hydration or a post scheduled seconds
-          away could change tabs mid-hydration — so it's stamped once, here,
-          for the request. react-hooks/purity flags any Date.now() in render;
-          the instability it guards against needs a re-render to bite, and
-          this component renders once per request on the server. It does mean
-          the split only moves on a refresh, which is the right granularity
-          for a page about days. */}
-          {/* eslint-disable-next-line react-hooks/purity */}
-          <ContentView projectId={projectId} posts={posts} now={Date.now()} />
+          <ContentView
+            projectId={projectId}
+            posts={posts}
+            accounts={accounts}
+            activeTopics={instructions?.topics ?? []}
+            now={now}
+          />
         </GlowPanel>
       </div>
     </div>

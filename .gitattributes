@@ -18,3 +18,12 @@ FOLLOWUPS.md   merge=union
 # package-lock.json is deliberately left on the default strategy: on conflict
 # the fix is regeneration, not a textual merge.
 #   git checkout --ours package-lock.json && npm install
+
+# lib/ai/generate.ts holds the stream sentinels (STREAM_ERROR_MARKER /
+# STREAM_DONE_MARKER), which deliberately contain NUL bytes so no model output
+# could ever collide with them. That one byte makes git — and grep, and `file`
+# — classify the whole file as binary, so `git diff` renders it as
+# "Bin 10818 -> 11558 bytes" and a reviewer sees no diff at all. Forcing the
+# `diff` attribute tells git to treat it as text for diffing; the content is
+# untouched. (grep still needs -a on this file.)
+lib/ai/generate.ts diff

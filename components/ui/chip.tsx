@@ -22,6 +22,11 @@ const sizeClasses = {
 interface ChipProps {
   size?: keyof typeof sizeClasses
   selected?: boolean
+  // A topic chip whose topic no longer exists in the project's Instructions.
+  // The post genuinely was written about it, so the label stays — it just
+  // stops looking like something you could still pick. Overrides `selected`,
+  // since a retired topic isn't in the selectable set at all.
+  retired?: boolean
   onRemove?: () => void
   className?: string
   children?: React.ReactNode
@@ -39,6 +44,7 @@ interface ChipProps {
 function Chip({
   size = "lg",
   selected = true,
+  retired = false,
   onRemove,
   className,
   children,
@@ -54,14 +60,16 @@ function Chip({
 
   const sharedClassName = cn(
     "flex max-w-full items-center gap-dist-md rounded-rad-md border-[length:var(--stroke-lg)] px-pad-sm py-pad-xs",
-    selected
-      ? "border-gray-600 bg-gray-400 text-text-inverse"
-      : "border-border-subtle bg-surface-3 text-text-subtle",
+    retired
+      ? "border-border-minimal bg-surface-4 text-text-minimal"
+      : selected
+        ? "border-gray-600 bg-gray-400 text-text-inverse"
+        : "border-border-subtle bg-surface-3 text-text-subtle",
     sizeClasses[size]
   )
   const label = <span className="truncate">{children}</span>
 
-  if (selected && onRemove) {
+  if (selected && !retired && onRemove) {
     return (
       <button
         ref={chipRef as React.Ref<HTMLButtonElement>}

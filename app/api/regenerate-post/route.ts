@@ -5,14 +5,19 @@ import { z } from "zod"
 import {
   requireUser,
   resolveGenerationContext,
-  type PostRow,
 } from "@/app/projects/[projectId]/generate/post-actions"
 import { resolveAttachmentInputs } from "@/lib/ai/attachments"
 import { buildPostPrompt } from "@/lib/ai/build-prompt"
-import { didFallBackOffByok, STREAM_ERROR_MARKER, streamPost } from "@/lib/ai/generate"
+import {
+  didFallBackOffByok,
+  STREAM_DONE_MARKER,
+  STREAM_ERROR_MARKER,
+  streamPost,
+} from "@/lib/ai/generate"
 import { resolveModelSelection } from "@/lib/ai/resolve-model"
 import { pickDifferentTasteTestContent } from "@/lib/ai/taste-test"
 import { NETWORK_ERROR_MESSAGE } from "@/lib/network-error"
+import type { PostRow } from "@/lib/supabase/queries"
 import { fetchInstructions } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 
@@ -28,7 +33,19 @@ const requestSchema = z.object({
   id: z.string().uuid(),
   model: z.string().min(1).max(200),
   guidance: z.string().trim().max(500).optional(),
+  // The subject to rewrite about, picked in the regenerate modal. Absent
+  // means "keep whatever this post was already on". Same 80-char ceiling the
+  // instructions action puts on a topic.
+  topic: z.string().trim().min(1).max(80).optional(),
 })
+
+// Without this the ceiling is whatever the deployment platform defaults to
+// ("Set by deployment platform" per Next's route-segment-config docs), which
+// on Vercel is 10-15s -- comfortably shorter than a real generation, so the
+// function would be killed mid-stream on ordinary use rather than in some
+// edge case. 60s is the Hobby-tier maximum; raise it with the plan if
+// generations start bumping it.
+export const maxDuration = 60
 
 function errorResponse(error: string, status: number) {
   return NextResponse.json({ error }, { status })
@@ -81,14 +98,30 @@ export async function POST(request: Request) {
     return content
   }
 
+  // The modal's pick, falling back to whatever this post was generated under
+  // so an untouched reroll stays on the same subject rather than drifting.
+  const topic = parsed.data.topic ?? row.topics[0]
+  // Only written back when it actually changed — a reroll that keeps the
+  // subject shouldn't rewrite the column, and a post with no topic and no
+  // pick keeps its empty array rather than gaining one.
+  const topicsUpdate =
+    topic && topic !== row.topics[0] ? { topics: [topic] } : {}
+
   // TasteTest has no real model call to stream — respond with the whole
   // swapped-in text as a single chunk so the client's line-reveal still has
   // something to animate, then persist exactly like the real path does.
   if ("kind" in resolvedModel) {
     const content = pickDifferentTasteTestContent(row.content)
-    const { error } = await supabase.from("posts").update({ content }).eq("id", row.id)
+    const { error } = await supabase
+      .from("posts")
+      .update({ content, ...topicsUpdate })
+      .eq("id", row.id)
     if (error) return errorResponse("Couldn't save the new post.", 500)
-    return new Response(finish(content), {
+    // The done marker matters just as much on this path: the client requires
+    // a positive end-of-stream signal before it will accept a body as a
+    // finished post, and this shortcut is a response like any other as far as
+    // that check is concerned.
+    return new Response(finish(content) + STREAM_DONE_MARKER, {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     })
   }
@@ -105,9 +138,7 @@ export async function POST(request: Request) {
 
   const prompt = buildPostPrompt(instructions, {
     platform: row.platform,
-    // Whatever topic this post was generated under, so a reroll stays on
-    // the same subject rather than drifting to a different one.
-    topic: row.topics[0],
+    topic,
     writingStyles: context.writingStyles,
     references: context.references,
     previousContent: row.content,
@@ -128,7 +159,11 @@ export async function POST(request: Request) {
       // A failed/aborted stream (including the client disconnecting, which
       // aborts the underlying request this handler is running in) has
       // nothing real to persist — the post keeps whatever it already had.
-      if (!end.ok) return
+      // An empty body is not a post. A stream can end "successfully" with no
+      // text at all (a safety stop, a zero-length completion), and persisting
+      // that would silently wipe the post the user was trying to improve.
+      // Treated as a failure so the existing text survives untouched.
+      if (!end.ok || !end.content.trim()) return
 
       // Same BYOK-fallback bookkeeping as the non-streaming path
       // (post-actions.ts's runGeneration) — non-fatal in both directions.
@@ -148,7 +183,7 @@ export async function POST(request: Request) {
 
       const { error } = await supabase
         .from("posts")
-        .update({ content: end.content })
+        .update({ content: end.content, ...topicsUpdate })
         .eq("id", row.id)
       if (!error) finish(end.content)
     },
@@ -169,11 +204,17 @@ export async function POST(request: Request) {
   // from a normal finish.
   const encoder = new TextEncoder()
   let sawError = false
+  // Whether anything was actually produced. A stream that ends cleanly having
+  // emitted nothing is a failure from the reader's point of view — there is no
+  // new post — and it must not be reported as a success, or the client would
+  // replace the post with an empty string.
+  let sawText = false
   const framedStream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
         for await (const part of result.fullStream) {
           if (part.type === "text-delta") {
+            if (part.text.length > 0) sawText = true
             controller.enqueue(encoder.encode(part.text))
           } else if (part.type === "error") {
             sawError = true
@@ -182,7 +223,13 @@ export async function POST(request: Request) {
       } catch {
         sawError = true
       } finally {
-        if (sawError) controller.enqueue(encoder.encode(STREAM_ERROR_MARKER))
+        // Exactly one of the two always goes out, so the client can tell a
+        // finished stream from a severed one: a response that ends carrying
+        // neither marker was cut off in transit and is never treated as a
+        // result. See STREAM_DONE_MARKER for why that case is real.
+        controller.enqueue(
+          encoder.encode(sawError || !sawText ? STREAM_ERROR_MARKER : STREAM_DONE_MARKER)
+        )
         controller.close()
       }
     },

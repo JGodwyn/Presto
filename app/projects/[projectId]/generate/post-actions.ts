@@ -24,6 +24,9 @@ import {
   fetchContentReferences,
   fetchInstructions,
   fetchWritingStyles,
+  mapPostRow,
+  POST_COLUMNS,
+  type PostRow,
 } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 import { isNetworkError, NETWORK_ERROR_MESSAGE } from "@/lib/network-error"
@@ -32,29 +35,6 @@ import type { Post, PostPlatform, PostStatus } from "@/types/post"
 const WRITING_STYLE_FILES_BUCKET = "writing-style-files"
 const CONTENT_REFERENCE_FILES_BUCKET = "content-reference-files"
 
-export type PostRow = {
-  id: string
-  project_id: string
-  platform: PostPlatform
-  status: PostStatus
-  content: string
-  topics: string[]
-  scheduled_for: string | null
-  created_at: string
-}
-
-function mapRow(row: PostRow): Post {
-  return {
-    id: row.id,
-    projectId: row.project_id,
-    platform: row.platform,
-    status: row.status,
-    content: row.content,
-    topics: row.topics,
-    scheduledFor: row.scheduled_for,
-    createdAt: row.created_at,
-  }
-}
 
 // Returns the user, or which *kind* of no-user this is. getUser() yields no
 // user both when the session is genuinely gone and when the auth server
@@ -226,6 +206,13 @@ const generateAndSavePostSchema = z.object({
   // optional and best-effort, never a hard dependency for generation to
   // succeed (see WRITING_STYLE_FILES_BUCKET usage below for why).
   batchContextId: z.string().uuid().optional(),
+  // Whether the Generate page's account pill was on "Try out" rather than a
+  // real connected account. `platform` below still carries a real value
+  // either way — a post has to be written for somewhere — so this is what
+  // keeps a stand-in post from later rendering under the user's actual
+  // account name. Optional so an older client (or a URL missing the param)
+  // still generates, defaulting to a real post.
+  isTryout: z.boolean().optional(),
 })
 
 export async function generateAndSavePost(
@@ -321,8 +308,9 @@ export async function generateAndSavePost(
       content,
       topics: topic ? [topic] : [],
       scheduled_for: parsed.data.scheduledFor,
+      is_tryout: parsed.data.isTryout ?? false,
     })
-    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
+    .select(POST_COLUMNS)
     .single()
 
   if (error || !data) {
@@ -331,7 +319,7 @@ export async function generateAndSavePost(
 
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)
 
-  return { ok: true, post: mapRow(data), batchContextId }
+  return { ok: true, post: mapPostRow(data), batchContextId }
 }
 
 const regeneratePostSchema = z.object({
@@ -379,7 +367,7 @@ export async function regeneratePost(
   // a post that doesn't exist — same contract as resolveModelSelection.
   const { data: existing, error: fetchError } = await supabase
     .from("posts")
-    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
+    .select(POST_COLUMNS)
     .eq("id", parsed.data.id)
     .eq("project_id", parsed.data.projectId)
     .maybeSingle()
@@ -449,7 +437,7 @@ export async function regeneratePost(
     .from("posts")
     .update({ content })
     .eq("id", parsed.data.id)
-    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
+    .select(POST_COLUMNS)
     .single()
 
   if (error || !data) {
@@ -458,7 +446,7 @@ export async function regeneratePost(
 
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)
 
-  return { ok: true, post: mapRow(data), batchContextId }
+  return { ok: true, post: mapPostRow(data), batchContextId }
 }
 
 const updatePostSchema = z.object({
@@ -479,6 +467,10 @@ const updatePostSchema = z.object({
     // reported to the user as "Couldn't restore that post."
     scheduledFor: z.string().datetime({ offset: true }).nullable().optional(),
     content: z.string().trim().min(1).optional(),
+    // Switching a post onto (or off) the "Try out" stand-in account. Paired
+    // with `platform` at every call site rather than replacing it: a try-out
+    // post still carries a real platform, so the two travel together.
+    isTryout: z.boolean().optional(),
   }),
 })
 
@@ -502,11 +494,13 @@ export async function updatePost(
     status?: PostStatus
     scheduled_for?: string | null
     content?: string
+    is_tryout?: boolean
   } = {}
   if (patch.platform !== undefined) update.platform = patch.platform
   if (patch.status !== undefined) update.status = patch.status
   if (patch.scheduledFor !== undefined) update.scheduled_for = patch.scheduledFor
   if (patch.content !== undefined) update.content = patch.content
+  if (patch.isTryout !== undefined) update.is_tryout = patch.isTryout
 
   const { error } = await supabase.from("posts").update(update).eq("id", parsed.data.id)
 
