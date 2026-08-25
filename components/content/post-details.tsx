@@ -321,18 +321,31 @@ export function PostDetails({
     })
   }
 
-  const handleRestoreSchedule = (previous: {
-    scheduledFor: string | null
-    status: Post["status"]
-  }) => {
+  // `after` is the write this is undoing, when there is one. Both target the
+  // same row, and a fire-and-forget pair has no ordering guarantee -- the undo
+  // could land first and be overwritten by the move it was undoing, leaving
+  // the DB scheduled while the page shows a draft. Waiting is free here: the
+  // UI has already flipped optimistically, so nothing on screen is holding for
+  // it. Same ordering rule AGENTS.md ships useSaveQueue for, at the one call
+  // site that needs it rather than a queue for the whole page.
+  const handleRestoreSchedule = (
+    previous: {
+      scheduledFor: string | null
+      status: Post["status"]
+    },
+    after?: Promise<unknown>
+  ) => {
     patchPost(previous)
-    void withNetworkStatus(
-      updatePost({
-        projectId: currentPost.projectId,
-        id: currentPost.id,
-        patch: previous,
-      })
-    ).then((result) => {
+    void (async () => {
+      await after
+      return withNetworkStatus(
+        updatePost({
+          projectId: currentPost.projectId,
+          id: currentPost.id,
+          patch: previous,
+        })
+      )
+    })().then((result) => {
       if (result === null || "error" in result) {
         patchPost({ scheduledFor: null, status: "draft" })
         if (result !== null) showError("Couldn't restore that post")
@@ -349,6 +362,14 @@ export function PostDetails({
     }
     const patch = { scheduledFor: null, status: "draft" as const }
     patchPost(patch)
+
+    // Issued before the toast so Undo can be handed the promise to sequence
+    // itself behind (see handleRestoreSchedule). Nothing is awaited between
+    // the two, so the toast is still raised in the same tick.
+    const move = withNetworkStatus(
+      updatePost({ projectId: currentPost.projectId, id: currentPost.id, patch })
+    )
+
     // Raised here, not in the .then() below, per direct feedback about the
     // delay: the move itself is optimistic, so waiting on the round-trip to
     // confirm it made the toast trail the change it was reporting by a whole
@@ -363,13 +384,11 @@ export function PostDetails({
       action: {
         icon: <ArrowArcLeftIcon weight="bold" />,
         label: "Undo",
-        onClick: () => handleRestoreSchedule(previous),
+        onClick: () => handleRestoreSchedule(previous, move),
       },
     })
 
-    void withNetworkStatus(
-      updatePost({ projectId: currentPost.projectId, id: currentPost.id, patch })
-    ).then((result) => {
+    void move.then((result) => {
       if (result === null || "error" in result) {
         patchPost(previous)
         // Replaces the confirmation above rather than stacking on it.
@@ -402,16 +421,21 @@ export function PostDetails({
   // performance.now() timestamp before which the next chunk must not reveal
   // — see the reveal effect below for why this exists.
   const nextRevealAtRef = React.useRef(0)
-  // The in-flight regenerate request, so both the stall watchdog and this
-  // page's own unmount can cut it off. Leaving it running past unmount would
-  // keep reading a stream nobody is watching and then call setState on a gone
-  // component; the server's own persistence is unaffected either way, since
-  // that happens in the route handler rather than here.
-  const regenerateAbortRef = React.useRef<AbortController | null>(null)
+  // The in-flight regenerate, so the stall watchdog can cut it off and this
+  // page's own unmount can stop touching state.
+  //
+  // Unmount deliberately does *not* abort. A client disconnect aborts the
+  // request the route handler is running in, so its onEnd sees `ok: false`
+  // and persists nothing (see that route's own comment) -- aborting here
+  // would throw away a generation, and its token spend, for anyone who taps
+  // Back a second after Regenerate. Instead the read loop runs on to keep the
+  // connection open, and this flag stops it calling setState on a gone
+  // component. Same shape as generating-view.tsx's `cancelled`.
+  const regenerateRunRef = React.useRef<{ cancelled: boolean } | null>(null)
 
   React.useEffect(
     () => () => {
-      regenerateAbortRef.current?.abort()
+      if (regenerateRunRef.current) regenerateRunRef.current.cancelled = true
     },
     []
   )
@@ -502,13 +526,12 @@ export function PostDetails({
     streamDoneRef.current = false
     nextRevealAtRef.current = 0
 
-    // One controller for the whole exchange — tripped by the stall watchdog
-    // below, or by this page unmounting. `timedOut` is what tells those two
-    // apart afterwards: an abort surfaces the same way whoever caused it, and
-    // "we gave up waiting" needs a different message from "you navigated
-    // away" (which needs none at all).
+    // One controller for the whole exchange, tripped only by the stall
+    // watchdog below -- unmount cancels via `run` instead, so that an abort
+    // now always means "we gave up waiting" and nothing else.
     const controller = new AbortController()
-    regenerateAbortRef.current = controller
+    const run = { cancelled: false }
+    regenerateRunRef.current = run
     let timedOut = false
     let stallTimer: ReturnType<typeof setTimeout> | undefined
     const armStallTimer = () => {
@@ -522,7 +545,7 @@ export function PostDetails({
     // release the timer and the ref without touching a gone component.
     const releaseRegenerate = () => {
       clearTimeout(stallTimer)
-      if (regenerateAbortRef.current === controller) regenerateAbortRef.current = null
+      if (regenerateRunRef.current === run) regenerateRunRef.current = null
     }
     armStallTimer()
 
@@ -542,9 +565,9 @@ export function PostDetails({
       })
     } catch (error) {
       releaseRegenerate()
-      // Aborted without the watchdog firing means this page unmounted: there
-      // is nothing to report and nothing left to report it to.
-      if (controller.signal.aborted && !timedOut) return
+      // Unmounted while this was in flight: nothing to report, and nothing
+      // left to report it to.
+      if (run.cancelled) return
       setIsRegenerating(false)
       if (timedOut) showError("That took too long", "Please try again")
       else if (isNetworkError(error)) reportNetworkIssue()
@@ -554,6 +577,7 @@ export function PostDetails({
 
     if (!response.ok || !response.body) {
       releaseRegenerate()
+      if (run.cancelled) return
       setIsRegenerating(false)
       const body = await response.json().catch(() => null)
       showError(body?.error ?? "Couldn't regenerate that post.")
@@ -587,6 +611,7 @@ export function PostDetails({
         // actually saved).
         if (receivedRef.current.includes(STREAM_ERROR_MARKER)) {
           releaseRegenerate()
+          if (run.cancelled) return
           setIsRegenerating(false)
           showError("Couldn't regenerate that post", "Please try again")
           return
@@ -602,7 +627,7 @@ export function PostDetails({
       }
     } catch (error) {
       releaseRegenerate()
-      if (controller.signal.aborted && !timedOut) return
+      if (run.cancelled) return
       setIsRegenerating(false)
       if (timedOut) showError("That took too long", "Please try again")
       else if (isNetworkError(error)) reportNetworkIssue()
@@ -616,11 +641,15 @@ export function PostDetails({
     // does this page — the existing post stays exactly as it was.
     if (!sawDone) {
       releaseRegenerate()
+      if (run.cancelled) return
       setIsRegenerating(false)
       showError("The connection dropped", "Try reloading")
       return
     }
     releaseRegenerate()
+    // Read to the end so the server saw no disconnect and persisted, but this
+    // page is gone -- there is no state left to bring in line with it.
+    if (run.cancelled) return
     // The server persists the picked topic alongside the new content (see
     // that route's own topicsUpdate), so the chip above has to follow — this
     // is the same "keep local state in sync with what the server already

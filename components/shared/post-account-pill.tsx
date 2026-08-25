@@ -69,7 +69,7 @@ export function PostAccountPill({
         // SelectPill's own capsule hover recipe — this is the same kind of
         // "click to change" control. 150ms press scale per the animation
         // standards' button rule.
-        "cursor-pointer transition-[colors,scale] duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
+        "cursor-pointer transition-[background-color,scale] duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
       )}
     >
       {content}

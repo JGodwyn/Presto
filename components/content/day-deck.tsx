@@ -30,7 +30,7 @@ import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
-import type { Post, PostPlatform } from "@/types/post"
+import type { Post } from "@/types/post"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 
 // The strong ease-out from .agents/skills/review-animations/STANDARDS.md —

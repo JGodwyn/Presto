@@ -481,3 +481,33 @@ marker already had NULs.
 diff or a review. Reach for `grep -a` on it too. If a source file ever seems
 to return nothing from grep, check `file` on it before assuming the search was
 wrong.
+
+## A streaming route's framing and its persistence are two tees, and they must agree
+
+**Symptom.** A regenerate could blank the post on screen while the DB kept the
+old text; a reload silently restored it. Separately, navigating away right
+after Regenerate quietly threw the generation away.
+
+**Cause.** `app/api/regenerate-post/route.ts` reads `result.fullStream` for
+framing while `streamPost`'s `onEnd` persists — two independent tees off one
+stream. Three ways they disagreed:
+
+- *Different predicates for "is this text".* Framing used
+  `part.text.length > 0`, persistence used `end.content.trim()`. A
+  whitespace-only completion satisfied one and not the other.
+- *The success marker outran the write.* STREAM_DONE_MARKER was enqueued in
+  the framing tee's `finally`; the update ran on the other tee. DONE therefore
+  meant "the stream ended", which is not what the client reads it as.
+- *The client aborting kills persistence.* A client disconnect aborts the
+  request the handler is running in, so onEnd sees `ok: false` and saves
+  nothing. Aborting on unmount to avoid setState-after-unmount destroyed
+  finished work to solve a problem a flag solves.
+
+**Rule.** If one tee frames the response and another does the writing, the
+framing tee must *wait on* the writing tee's outcome before claiming success —
+a promise settled on every path through the callback, including its throw, with
+a timeout backstop so a callback that never fires can't hold the response open.
+Keep both tees' "did we get real content" test byte-identical. And never abort
+an in-flight request just to silence setState-after-unmount: use a cancelled
+flag and let the read loop run out, or the server stops persisting the work the
+user already paid for.

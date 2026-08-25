@@ -18,7 +18,7 @@ import { resolveModelSelection } from "@/lib/ai/resolve-model"
 import { pickDifferentTasteTestContent } from "@/lib/ai/taste-test"
 import { NETWORK_ERROR_MESSAGE } from "@/lib/network-error"
 import type { PostRow } from "@/lib/supabase/queries"
-import { fetchInstructions } from "@/lib/supabase/queries"
+import { fetchInstructions, POST_COLUMNS } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 
 // The post-details page's Regenerate — this app's first Route Handler,
@@ -47,6 +47,12 @@ const requestSchema = z.object({
 // generations start bumping it.
 export const maxDuration = 60
 
+// How long the framing tee waits for the persisting tee's verdict once the
+// model has stopped producing. Only the Supabase update and the BYOK-fallback
+// lookup happen in that window, so this is generous; it exists so a callback
+// that somehow never fires can't hold the response open.
+const PERSIST_WAIT_TIMEOUT_MS = 10_000
+
 function errorResponse(error: string, status: number) {
   return NextResponse.json({ error }, { status })
 }
@@ -71,7 +77,7 @@ export async function POST(request: Request) {
   // a post that doesn't exist — same contract as regeneratePost.
   const { data: existing, error: fetchError } = await supabase
     .from("posts")
-    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
+    .select(POST_COLUMNS)
     .eq("id", parsed.data.id)
     .eq("project_id", parsed.data.projectId)
     .maybeSingle()
@@ -150,42 +156,62 @@ export async function POST(request: Request) {
     ...context.references,
   ])
 
+  // STREAM_DONE_MARKER promises the client that the new text is *saved*, not
+  // merely that the stream ended -- the two tees run independently, so
+  // without this the framing tee below could ship DONE while the persisting
+  // tee was still failing its update, and the page would render a post the
+  // DB never took. Settled exactly once on every path through onEnd.
+  let settlePersisted: (saved: boolean) => void = () => {}
+  const persisted = new Promise<boolean>((resolve) => {
+    settlePersisted = resolve
+  })
+
   const result = streamPost({
     prompt,
     fileParts,
     useUrlContext,
     model: resolvedModel.selection,
     onEnd: async (end) => {
-      // A failed/aborted stream (including the client disconnecting, which
-      // aborts the underlying request this handler is running in) has
-      // nothing real to persist — the post keeps whatever it already had.
-      // An empty body is not a post. A stream can end "successfully" with no
-      // text at all (a safety stop, a zero-length completion), and persisting
-      // that would silently wipe the post the user was trying to improve.
-      // Treated as a failure so the existing text survives untouched.
-      if (!end.ok || !end.content.trim()) return
-
-      // Same BYOK-fallback bookkeeping as the non-streaming path
-      // (post-actions.ts's runGeneration) — non-fatal in both directions.
-      if (resolvedModel.modelRowId && (await didFallBackOffByok(end.generationId))) {
-        try {
-          await supabase
-            .from("user_ai_models")
-            .update({
-              status: "error",
-              last_error: "Your API key didn't work, so this ran on Presto's own credits.",
-            })
-            .eq("id", resolvedModel.modelRowId)
-        } catch {
-          // Non-fatal.
+      try {
+        // A failed/aborted stream (including the client disconnecting, which
+        // aborts the underlying request this handler is running in) has
+        // nothing real to persist — the post keeps whatever it already had.
+        // An empty body is not a post. A stream can end "successfully" with
+        // no text at all (a safety stop, a zero-length completion), and
+        // persisting that would silently wipe the post the user was trying to
+        // improve. Treated as a failure so the existing text survives.
+        if (!end.ok || !end.content.trim()) {
+          settlePersisted(false)
+          return
         }
-      }
 
-      const { error } = await supabase
-        .from("posts")
-        .update({ content: end.content, ...topicsUpdate })
-        .eq("id", row.id)
-      if (!error) finish(end.content)
+        // Same BYOK-fallback bookkeeping as the non-streaming path
+        // (post-actions.ts's runGeneration) — non-fatal in both directions.
+        if (resolvedModel.modelRowId && (await didFallBackOffByok(end.generationId))) {
+          try {
+            await supabase
+              .from("user_ai_models")
+              .update({
+                status: "error",
+                last_error: "Your API key didn't work, so this ran on Presto's own credits.",
+              })
+              .eq("id", resolvedModel.modelRowId)
+          } catch {
+            // Non-fatal.
+          }
+        }
+
+        const { error } = await supabase
+          .from("posts")
+          .update({ content: end.content, ...topicsUpdate })
+          .eq("id", row.id)
+        if (!error) finish(end.content)
+        settlePersisted(!error)
+      } catch {
+        // An onEnd that throws must still settle, or the framing tee below
+        // would wait out its whole timeout before reporting a failure.
+        settlePersisted(false)
+      }
     },
   })
 
@@ -214,7 +240,12 @@ export async function POST(request: Request) {
       try {
         for await (const part of result.fullStream) {
           if (part.type === "text-delta") {
-            if (part.text.length > 0) sawText = true
+            // Trimmed, to match the persisting tee's own `!end.content.trim()`
+            // test exactly. Untrimmed, a whitespace-only completion ("  \n ")
+            // passed here and failed there: the client got DONE, accepted it,
+            // and rendered an empty post that was never saved -- a reload
+            // silently brought the old text back.
+            if (part.text.trim().length > 0) sawText = true
             controller.enqueue(encoder.encode(part.text))
           } else if (part.type === "error") {
             sawError = true
@@ -227,9 +258,23 @@ export async function POST(request: Request) {
         // finished stream from a severed one: a response that ends carrying
         // neither marker was cut off in transit and is never treated as a
         // result. See STREAM_DONE_MARKER for why that case is real.
-        controller.enqueue(
-          encoder.encode(sawError || !sawText ? STREAM_ERROR_MARKER : STREAM_DONE_MARKER)
-        )
+        //
+        // DONE waits on the *other* tee actually saving the row, so the
+        // marker can't outrun the write it stands for. Short-circuited when
+        // this tee already knows it failed, which is also what keeps a stream
+        // that never reaches onEnd from waiting here at all. The timeout is a
+        // backstop for that same case: reporting a failure the client can
+        // retry beats holding the response open to the function's own ceiling.
+        const saved =
+          sawError || !sawText
+            ? false
+            : await Promise.race([
+                persisted,
+                new Promise<boolean>((resolve) =>
+                  setTimeout(() => resolve(false), PERSIST_WAIT_TIMEOUT_MS)
+                ),
+              ])
+        controller.enqueue(encoder.encode(saved ? STREAM_DONE_MARKER : STREAM_ERROR_MARKER))
         controller.close()
       }
     },

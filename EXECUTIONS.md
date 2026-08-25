@@ -1436,3 +1436,48 @@ as missing. Use `textContent`.
   "Bin 10818 -> 11558 bytes" and would have been invisible in review. Added
   `lib/ai/generate.ts diff` to `.gitattributes` — content untouched, diff now
   renders as the 11 lines it actually is. Written up in LEARNINGS.
+
+## 2026-08-25 22:43 — post-accounts: review fixes from /integrate
+
+The sweep bounced this branch with three blockers in the regenerate protocol
+and four smaller items. All seven fixed in place; the account work itself was
+untouched.
+
+1. `route.ts` framing tee tested `part.text.length > 0` while the persisting
+   tee tested `!end.content.trim()`. A whitespace-only completion passed the
+   first and failed the second, so the client got DONE, accepted it, and
+   rendered an empty post that was never saved — a reload brought the old text
+   back. Now trims, so the two predicates agree exactly.
+2. `post-details.tsx` aborted the request on unmount, which severs the request
+   the route handler runs in: its onEnd sees `ok: false` and persists nothing.
+   Tapping Back a second after Regenerate threw away a finished generation and
+   its token spend. Replaced the AbortController-on-unmount with a
+   `{ cancelled }` flag (generating-view.tsx's shape) — the read loop runs on
+   to keep the connection open, it just stops calling setState. The controller
+   remains, now tripped only by the stall watchdog, so an abort unambiguously
+   means "we gave up waiting".
+3. STREAM_DONE_MARKER meant "the stream ended", not "it was saved" — enqueued
+   in the framing tee's `finally` while the write happened on the other tee.
+   The two now synchronise through a `persisted` promise settled on every path
+   through onEnd (including a throw); DONE is only sent when the row actually
+   took the update. Short-circuited when the framing tee already knows it
+   failed, and backstopped by PERSIST_WAIT_TIMEOUT_MS so a callback that never
+   fires can't hold the response open to the function's own ceiling.
+4. The "Moved to draft" toast raised its Undo before the move's write was
+   issued, so two updatePost calls could race on one row and leave the DB
+   scheduled while the page showed a draft. The write is now issued first and
+   its promise handed to Undo, which awaits it before issuing the restore. The
+   toast still goes up in the same tick — nothing is awaited between them.
+5. `post-account-pill.tsx` used `transition-[colors,scale]`; `colors` is not a
+   CSS property, so the hover tint snapped. Now `background-color`, matching
+   toast.tsx:275's identical recipe.
+6. `route.ts`'s post select still hardcoded the old eight columns and then cast
+   to the widened `PostRow`, leaving `is_tryout` undefined typed boolean — the
+   exact staleness POST_COLUMNS was introduced to stop. Now uses POST_COLUMNS.
+7. Removed the unused `PostPlatform` import in day-deck.tsx (the branch's one
+   new lint warning).
+
+Gates after: tsc clean, eslint clean on all four touched files, build clean,
+tests 100/101 — the one failure is lib/ai/generate.test.ts hitting the live
+Gemini free-tier quota, environmental and unrelated (it fails the same way on
+main).
