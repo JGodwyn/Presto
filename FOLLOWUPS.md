@@ -116,6 +116,10 @@ constraint but no flow behind it.
   treatment until it is reloaded. Correct for a boundary that moves once every
   60 days; noted so nobody reports it as a bug.
 
+
+---
+
+
 ## 7. `GlowPanel`'s info marker is now dead code
 
 **From:** `feat/generate-page`, 2026-08-24.
@@ -172,3 +176,28 @@ which is shorter than a real generation — so this was a fix, not a tuning. 60s
 is the Hobby-tier maximum; raise it alongside the plan if generations ever bump
 it. The client's own 45s stall timeout sits just under it deliberately.
 
+
+---
+
+
+## 11. A busy day on the dashboard calendar can't open its deck
+
+**From:** `feat/dashboard`, 2026-08-25.
+
+Clicking a day with content on the dashboard calendar
+(`components/dashboard/month-calendar-card.tsx`) goes straight to the post when
+that day holds exactly one. A day with **several** falls back to the Content
+page with the right tab selected — it can't open that day's deck, because
+opening a deck needs a chip element on the Content page to fan the cards out
+of, and there is no URL that reaches one.
+
+**Do:** teach `components/content/content-view.tsx` to open a deck from a URL
+(a `?day=YYYY-MM-DD` param, resolved against the same `dayKeyForPost` grouping
+it already uses), then point multi-post days at it. The deck's open animation
+measures its origin chip, so the param has to resolve *after* the chips render
+— open it from a layout effect once the month sections are mounted, not during
+the first paint.
+
+**Why it waited:** `content-view.tsx` and `day-deck.tsx` were both dirty in the
+live `post-accounts` worktree while the dashboard was being built. Safe to do
+once that has landed.

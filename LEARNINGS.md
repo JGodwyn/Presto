@@ -348,6 +348,26 @@ meaningless**. → Read initial/settled values via eval; catch frames with
 **ordering**, never its clock; run spring math in Node against Motion's own
 `spring()` generator.
 
+**ResizeObserver callbacks do not fire during an eval either, and they make
+a working element look broken.** Testing `useScrollFade` on a line that stops
+overflowing: an eval widened its container, waited, and read the mask back
+unchanged — the element was 945/945 (nothing hidden) and still carried a 24px
+fade. The hook looked wrong; it wasn't. RO callbacks are delivered as part of
+the rendering steps, which a hidden tab suspends along with rAF, so the
+observer had simply never run. Interleaving a `computer` screenshot (which
+foregrounds the tab) between the resize and the read gave the correct
+`black 0px, black 100%`. → Any DOM change whose effect is delivered by the
+frame lifecycle — RO, IntersectionObserver, transitions, rAF — needs a
+foregrounding call between the mutation and the measurement.
+
+**Mutating the DOM in an eval does not re-run a React hook's effect**, so a
+value the effect writes will read stale and indict the wrong code. Setting
+`textContent` directly to test a shorter string left the old mask in place,
+because nothing re-rendered — in the app the same change arrives as a prop and
+the (dependency-array-free) layout effect re-measures on that render. → Test
+through something React or the browser actually reacts to (a resize, a real
+navigation), never by editing the DOM under it.
+
 **A short-lived, auto-dismissing element can vanish between two standalone tool
 calls.** A 4s toast read as "never rendered" across several navigate →
 screenshot pairs, and the eval sent to check the DOM had itself backgrounded
@@ -387,6 +407,117 @@ it ran with its own defaults (semicolons on), not this project's style.
 the existing files' conventions (no semicolons, double quotes). If a file needs
 tidying, edit it by hand and check it against a neighbouring file.
 
+## An href-builder prop silently breaks the Server → Client boundary
+
+**Symptom.** The dashboard route rendered `route-error-recovery.tsx`'s
+"Something's wrong" screen with no type error and nothing wrong in the
+component. The dev server log carried the real message:
+
+> Functions cannot be passed directly to Client Components unless you
+> explicitly expose it by marking it with "use server".
+> `{generate: ..., content: ..., post: function post}`
+
+**Cause.** A Server Component passed a client component an `hrefs` object
+holding `post: (postId: string) => string`. Props crossing that boundary are
+serialised, and a function isn't serialisable. TypeScript can't see it — the
+prop types are perfectly valid on both sides — so the first sign of it is a
+blank error boundary at runtime.
+
+**Why it's easy to walk into.** An href builder is the *natural* shape for
+"one card renders many links off a base route", and it's the shape you'd
+reach for without thinking in a fully-client app. Formatters, comparators
+and `renderItem` callbacks are all the same trap.
+
+**Rule.** A Server Component hands a Client Component **data, never
+behaviour**. Pass the base string (`postBase: "/projects/<id>/calendar"`) and
+let the client compose; pass a value, not a formatter. If a callback genuinely
+has to cross, it must be a `"use server"` action.
+
+## A CSS mask erases `position: fixed` descendants that sit outside the box
+
+**Symptom.** Adding a top fade to the in-project `<main>` with `useScrollFade`
+looked perfect — and silently removed every Toast in Instructions,
+Connections, Settings, Content and Generate.
+
+**Cause.** Those five sections render their toast into a
+`fixed inset-x-0 top-pad-2xl z-50` slot **inside** `<main>`. A mask is applied
+to the element's entire painted subtree, with the mask's geometry taken from
+the element's own border box. `<main>` starts ~136px down the viewport; the
+toast is fixed at 32px. It therefore maps to a fully transparent part of the
+mask and is painted out completely — not clipped, not moved, gone.
+
+**What is *not* the cause, checked rather than assumed.** `mask` and
+`clip-path` do **not** make an element the containing block for its
+fixed-position descendants — of the three usual suspects only `filter` does
+(probe at viewport 0,0 stayed put under mask and clip-path; under `filter` it
+jumped to the element's own 136,536). The toasts keep correct positioning
+throughout. Being painted out is the entire failure.
+
+**Rule.** `useScrollFade` is safe on a scroller with **no fixed descendants** —
+which is every other one in this app (Kanban board and columns, the day deck's
+row, pill-textarea, the Content month list). For a container that hosts fixed
+children, fade with an **overlay strip in the canvas colour** instead
+(`components/shared/section-scroll-area.tsx`). Before masking any container,
+ask what `position: fixed` renders inside it.
+
+## `rounded-rad-rd` silently computes to 0px — the token exists, the utility doesn't
+
+**Symptom.** Every progress bar on the dashboard rendered square-ended despite
+carrying `rounded-rad-rd`, and the Setup badges were squares instead of
+circles. Caught by an annotation ("use rounded corner edges for every bar"),
+then confirmed: `getComputedStyle(track).borderRadius === "0px"` with the class
+plainly on the element.
+
+**Cause.** `app/globals.css` defines `--rad-rd: 100000px` in `:root` — so the
+*variable* resolves fine and looks present to a grep — but the `@theme` block
+that maps radii into Tailwind stops at `--radius-rad-xl`. There is no
+`--radius-rad-rd`, so Tailwind generates no `rounded-rad-rd` utility at all and
+the class is inert. Nothing warns: not TypeScript, not ESLint, not the build.
+
+**Why it's easy to walk into.** Every other radius in the token file *does*
+have a matching utility (`rounded-rad-md`, `-xmd`, `-lg`…), so the name pattern
+invites the assumption. `--rad-rd` is also genuinely used elsewhere in the
+export data, which makes it look wired up.
+
+**Rule.** Stadium/pill shapes use **`rounded-full`**, which is what the rest of
+this codebase already does (`toast.tsx` documents the same swap, plus
+avatar.tsx, select-pill.tsx, number-stepper.tsx). More generally: a `--x-*`
+variable existing in `:root` is not evidence that a Tailwind utility exists —
+only a `@theme` entry in the right namespace (`--radius-*`, `--color-*`,
+`--spacing-*`) generates one. When a token class seems to do nothing, read back
+`getComputedStyle` before assuming the value is wrong.
+
+## localStorage is shared by every worktree that has used the same port
+
+**Symptom.** The Generate page failed for one branch with the generic
+"We couldn't load this page. Check your internet connection & try again." —
+intermittently, and only on that branch. Nothing was wrong with the network.
+
+**Cause, in two layers.** The visible one: `generate-card.tsx` restored
+`account` from localStorage without validating it, then non-null-asserted the
+option lookup (`ACCOUNT_OPTIONS.find(...)!`) and read `.icon` off the result.
+An unknown value therefore threw a `TypeError` during render, which the route's
+`error.tsx` caught and reported as a connectivity problem — that copy
+deliberately doesn't commit to a cause, because Next redacts the real one in
+production.
+
+The layer that made it *look* random: **localStorage is keyed by origin —
+`http://localhost:3002` — not by branch, worktree or checkout.** Every worktree
+dev server that has ever run on a given port shares one storage bucket. The
+try-on branch had written `account: "tryout"` while it held :3002; this branch
+later moved from :3003 to :3002 and read that value straight back. Same code,
+same branch, different port, different outcome.
+
+**Rules.**
+1. Treat anything out of localStorage as **untrusted input from another
+   branch**, not just from an earlier version of your own. Validate a restored
+   value against the list it has to belong to, and never non-null-assert a
+   lookup keyed on one.
+2. When a bug follows the *port* rather than the branch, suspect origin-scoped
+   browser state (localStorage, sessionStorage, IndexedDB, cookies, service
+   workers) before suspecting the code.
+3. A generic "check your connection" screen is a rendering error until proven
+   otherwise — read the browser console for the real throw.
 ## A disabled <button> swallows the mousedown a floating menu depends on
 
 **Symptom:** clicking a greyed-out row in the Generate page's account menu
