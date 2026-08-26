@@ -151,11 +151,21 @@ export function topTopics(posts: Post[], limit: number): TopicCount[] {
     .slice(0, limit)
 }
 
-export type PlatformSplit = Record<PostPlatform, number>
+// Keyed on the account a post reads as, which is not the same thing as its
+// platform column. A "Try out" post carries `platform: "linkedin"` (that
+// column names a real connected account, and social_accounts is unique per
+// project+platform) with `isTryout` set alongside — so counting by platform
+// alone files every try-out post under LinkedIn. The flag is checked first,
+// exactly as post-account.ts resolves the same post to Eyes + "Try out"
+// rather than the user's LinkedIn name.
+export type PlatformSplit = Record<PostPlatform | "tryout", number>
 
 export function platformSplit(posts: Post[]): PlatformSplit {
-  const split: PlatformSplit = { linkedin: 0, x: 0 }
-  for (const post of posts) split[post.platform] += 1
+  const split: PlatformSplit = { linkedin: 0, x: 0, tryout: 0 }
+  for (const post of posts) {
+    if (post.isTryout) split.tryout += 1
+    else split[post.platform] += 1
+  }
   return split
 }
 

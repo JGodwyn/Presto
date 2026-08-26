@@ -114,13 +114,16 @@ export function PostingAboutCard({
           total={total}
         />
         <PlatformRow platform="x" label="X" count={split.x} total={total} />
-        {/* Still a placeholder at zero, but no longer for the original
-            reason. That branch has landed, and it did *not* add a member to
-            `PostPlatform` — a try-out post carries `platform: "linkedin"` with
-            a separate `isTryout` flag, so `platformSplit()` counts it under
-            LinkedIn and cannot pick this row up on its own. Wiring it means
-            splitting try-out back out of that count; see FOLLOWUPS entry 2. */}
-        <PlatformRow platform="tryout" label="Try out" count={0} total={total} />
+        {/* Real, like the two above it. `platformSplit()` partitions on
+            `isTryout` before platform, so these three counts are disjoint and
+            sum to the total — a try-out post is no longer filed under
+            LinkedIn's bar. */}
+        <PlatformRow
+          platform="tryout"
+          label="Try out"
+          count={split.tryout}
+          total={total}
+        />
       </div>
     </DashboardCard>
   )

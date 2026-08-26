@@ -194,7 +194,12 @@ export function DashboardView({
             label="Written this week"
             icon={CalendarDot}
             value={createdWithinDays(posts, now, ACTIVITY_WINDOW_DAYS)}
-            caption={`of ${createdInMonth(posts, new Date(now))} total this month`}
+            // Deliberately not "of N total this month": the value above is a
+            // rolling 7-day window, which reaches back past the 1st for the
+            // first week of any month, so it is not a subset of the month
+            // figure and could exceed it ("6 of 1 total this month"). Two
+            // plain figures, no implied subset.
+            caption={`${createdInMonth(posts, new Date(now))} written in ${monthName}`}
           />
           <StatCard
             label="Empty days ahead"

@@ -1814,3 +1814,44 @@ Gates after: tsc clean, eslint clean on all four touched files, build clean,
 tests 100/101 — the one failure is lib/ai/generate.test.ts hitting the live
 Gemini free-tier quota, environmental and unrelated (it fails the same way on
 main).
+
+## 2026-08-26 07:08 — dashboard: merge fixes, and the "Try out" row made real
+
+Merged `main` into the branch (no conflicts; the union-merge files sorted
+themselves out) and fixed what only shows up once main's types are present.
+
+**The merge-blocking one.** `lib/dashboard-summary.test.ts`'s `post()` factory
+built a `Post` with no `isTryout` — a field `main` added *after* this branch's
+merge base. The branch typechecks alone and fails on merge (`TS2322`,
+`undefined` not assignable to `boolean`). vitest doesn't typecheck, so the
+suite stayed green and `npm run build` was the first thing to break. This is
+the general trap: **branch-local gates cannot see a required field added to a
+shared type on main.** Reproduced, then fixed with `isTryout: false`.
+
+**The "Try out" row is now real.** It had been hardcoded to `count={0}` while
+`platformSplit()` counted try-out posts under `linkedin` — so a project
+generating only try-out posts rendered "LinkedIn - N posts - 100%" beside
+"Try out - 0 posts - 0%". Not a neutral placeholder: an actively wrong
+attribution. `PlatformSplit` is now keyed on `PostPlatform | "tryout"` and
+`platformSplit()` partitions on `post.isTryout` *before* platform, the same
+precedence `lib/post-account.ts` uses to resolve the same post to Eyes +
+"Try out" rather than the user's LinkedIn name. Three tests pin it: every row
+present when unused, a try-out post landing in its own row and not under its
+platform, and the three counts staying disjoint and summing to the total.
+FOLLOWUPS entry 2 deleted, since it is done.
+
+**"Written this week" no longer claims a subset it isn't.** The value is a
+rolling 7-day count; the caption divided it by a calendar-month total, so for
+the first week of any month the numerator can exceed the denominator
+("6 of 1 total this month"). Numerator left honest, caption reworded to two
+plain figures with no implied subset.
+
+Gates on the merge result: tsc clean, eslint clean, build clean, **118/118
+tests** — including `lib/ai/generate.test.ts`, which passed for the first time
+in this session now that the Gemini free-tier quota has reset (it was the
+single failure on the last three sweeps, environmental throughout).
+
+Not done, and deliberately: the dashboard page still ships every post's full
+`content` into a client component to render 12 cards and some counts, which is
+a real payload concern at scale but a restructure rather than a fix. Left as a
+review finding.

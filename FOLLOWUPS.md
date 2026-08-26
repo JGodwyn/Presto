@@ -119,38 +119,6 @@ constraint but no flow behind it.
 
 ---
 
-## 2. The dashboard's "Try out" platform row is a placeholder
-
-**From:** `feat/dashboard`, 2026-08-25. Revised 2026-08-25 once
-`feat/post-accounts` landed.
-
-`components/dashboard/posting-about-card.tsx` renders a third platform row —
-"Try out", with the export's Eyes glyph and Purple50/600 bar — hardcoded to
-`count={0}`. Everything around it is real: LinkedIn and X read their counts
-from `platformSplit()`.
-
-**The spelling is settled:** "Try out" everywhere, per direct instruction. The
-row was originally coined "TryOn" on this branch while the other one was still
-in flight; it now matches `TRY_OUT_ACCOUNT_ID`, `isTryout` and `is_tryout`.
-
-**Do:** this entry's original plan was wrong, and the correction matters.
-`feat/post-accounts` has landed and it did **not** add a member to
-`PostPlatform` — a try-out post carries `platform: "linkedin"` with a separate
-`isTryout: boolean` alongside (`social_accounts` is unique per
-`(project_id, platform)`, so the platform column still names a real account).
-So `platformSplit()` does *not* pick this row up automatically: it keys on
-`PostPlatform`, and every try-out post is already being counted under LinkedIn.
-
-Wiring it therefore means changing what LinkedIn reports, not just filling in a
-zero: `platformSplit()` needs to partition on `post.isTryout` first and count
-the rest by platform, and `lib/dashboard-summary.test.ts` needs a case pinning
-that a try-out post lands in the try-out bucket and *not* in LinkedIn's.
-
-**Why it's still waiting:** it changes a number the dashboard already reports,
-which is a product call rather than a mechanical fix.
-
-
----
 
 ## 3. A busy day on the dashboard calendar can't open its deck
 

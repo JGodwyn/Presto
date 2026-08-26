@@ -27,6 +27,7 @@ function post(overrides: Partial<Post>): Post {
     topics: [],
     scheduledFor: null,
     createdAt: new Date(NOW).toISOString(),
+    isTryout: false,
     ...overrides,
   }
 }
@@ -143,11 +144,36 @@ describe("topTopics", () => {
 })
 
 describe("platformSplit", () => {
-  it("reports both platforms even when one is unused", () => {
+  it("reports every row even when one is unused", () => {
     expect(platformSplit([post({ platform: "linkedin" })])).toEqual({
       linkedin: 1,
       x: 0,
+      tryout: 0,
     })
+  })
+
+  it("counts a try-out post as its own row, not under its platform", () => {
+    // The whole point of the partition: a try-out post carries
+    // platform: "linkedin", so counting by platform alone would report it as
+    // a LinkedIn post and leave the Try out bar reading zero.
+    expect(
+      platformSplit([
+        post({ platform: "linkedin", isTryout: true }),
+        post({ platform: "linkedin" }),
+      ])
+    ).toEqual({ linkedin: 1, x: 0, tryout: 1 })
+  })
+
+  it("keeps the three counts disjoint, summing to the post count", () => {
+    const posts = [
+      post({ platform: "linkedin" }),
+      post({ platform: "x" }),
+      post({ platform: "linkedin", isTryout: true }),
+      post({ platform: "x", isTryout: true }),
+    ]
+    const split = platformSplit(posts)
+    expect(split.linkedin + split.x + split.tryout).toBe(posts.length)
+    expect(split).toEqual({ linkedin: 1, x: 1, tryout: 2 })
   })
 })
 
