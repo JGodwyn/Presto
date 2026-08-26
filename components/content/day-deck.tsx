@@ -11,7 +11,11 @@ import {
   updatePost,
 } from "@/app/projects/[projectId]/generate/post-actions"
 import { GeneratedPostCard } from "@/components/generate/generated-post-card"
-import type { SocialPlatform } from "@/components/generate/social-platform-options"
+import {
+  nextPostAccount,
+  resolvePostAccount,
+  type PostAccountTarget,
+} from "@/lib/post-account"
 import { Button } from "@/components/ui/button"
 import { Toast } from "@/components/ui/toast"
 import {
@@ -27,6 +31,7 @@ import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
+import type { ConnectedSocialAccount } from "@/types/social-account"
 
 // The strong ease-out from .agents/skills/review-animations/STANDARDS.md —
 // entering and exiting both use it ("never ease-in on UI": it delays the
@@ -206,6 +211,8 @@ function longestDelay(
 
 export function DayDeck({
   projectId,
+  accounts,
+  activeTopics,
   dateLabel,
   posts,
   origin,
@@ -215,6 +222,11 @@ export function DayDeck({
   onPostsChange,
 }: {
   projectId: string
+  // This project's connected accounts, and its current Instructions topics —
+  // what a card needs to name its account rather than its platform, and to
+  // tell a live topic chip from a deleted one. See ContentView's own notes.
+  accounts: ConnectedSocialAccount[]
+  activeTopics: Set<string>
   // Read out to screen readers as the dialog's name, e.g. "July 5th, 2026".
   dateLabel: string
   // Just this day's posts, already filtered and ordered by the caller. The
@@ -626,15 +638,18 @@ export function DayDeck({
     )
   }
 
-  const handleSocialChange = (post: Post, social: SocialPlatform) => {
-    const previous = post.platform
-    patchPost(post.id, { platform: social })
+  // Platform and isTryout move together: "Try out" is a cycle position rather
+  // than a platform of its own, so a switch always writes both.
+  const handleSocialChange = (post: Post, target: PostAccountTarget) => {
+    const previous = { platform: post.platform, isTryout: post.isTryout }
+    const patch = { platform: target.platform, isTryout: target.isTryout }
+    patchPost(post.id, patch)
     void withNetworkStatus(
-      updatePost({ projectId, id: post.id, patch: { platform: social } }),
+      updatePost({ projectId, id: post.id, patch }),
     ).then((result) => {
       if (result === null || "error" in result) {
-        patchPost(post.id, { platform: previous })
-        if (result !== null) showError("Couldn't change that post's platform")
+        patchPost(post.id, previous)
+        if (result !== null) showError("Couldn't change that post's account")
       }
     })
   }
@@ -787,6 +802,7 @@ export function DayDeck({
                           handleContentChange(post, content)
                         }
                         topics={post.topics}
+                        activeTopics={activeTopics}
                         date={
                           post.scheduledFor
                             ? new Date(post.scheduledFor)
@@ -797,9 +813,10 @@ export function DayDeck({
                         onTurnToDraft={() => handleTurnToDraft(post)}
                         onOpen={() => closeThenOpen(post.id)}
                         onRegenerate={() => handleRegenerate(post)}
-                        social={post.platform}
-                        onSocialChange={(social) =>
-                          handleSocialChange(post, social)
+                        account={resolvePostAccount(post, accounts)}
+                        nextAccount={nextPostAccount(post, accounts)}
+                        onSocialChange={(target) =>
+                          handleSocialChange(post, target)
                         }
                       />
                     </TooltipTrigger>

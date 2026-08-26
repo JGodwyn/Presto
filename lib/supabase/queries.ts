@@ -4,7 +4,7 @@ import type { ResolvedAttachment } from "@/lib/ai/attachments"
 import type { UserAiModel } from "@/types/ai-model"
 import type { ContentReference } from "@/types/content-reference"
 import type { Instructions } from "@/types/instructions"
-import type { Post } from "@/types/post"
+import type { Post, PostPlatform, PostStatus } from "@/types/post"
 import type { Project } from "@/types/project"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 import type { WritingStyle } from "@/types/writing-style"
@@ -158,46 +158,27 @@ export async function fetchUserAiModels(
 // One post, for its own page. RLS scopes this to the signed-in user, so
 // someone else's id reads as a post that doesn't exist — the project filter is
 // there so a post from another of *your* projects doesn't answer either.
-export async function fetchPost(
-  supabase: SupabaseClient,
-  projectId: string,
+// The one place the posts table's shape is written down. It was duplicated
+// across six selects and four row-mappings, which is exactly the kind of
+// thing that goes stale one call site at a time the moment a column is added
+// — as `is_tryout` just was.
+export const POST_COLUMNS =
+  "id, project_id, platform, status, content, topics, scheduled_for, created_at, is_tryout"
+
+export type PostRow = {
   id: string
-): Promise<Post | null> {
-  const { data, error } = await supabase
-    .from("posts")
-    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
-    .eq("id", id)
-    .eq("project_id", projectId)
-    .maybeSingle()
-
-  if (error) throw error
-  if (!data) return null
-
-  return {
-    id: data.id,
-    projectId: data.project_id,
-    platform: data.platform,
-    status: data.status,
-    content: data.content,
-    topics: data.topics,
-    scheduledFor: data.scheduled_for,
-    createdAt: data.created_at,
-  }
+  project_id: string
+  platform: PostPlatform
+  status: PostStatus
+  content: string
+  topics: string[]
+  scheduled_for: string | null
+  created_at: string
+  is_tryout: boolean
 }
 
-export async function fetchPosts(
-  supabase: SupabaseClient,
-  projectId: string
-): Promise<Post[]> {
-  const { data, error } = await supabase
-    .from("posts")
-    .select("id, project_id, platform, status, content, topics, scheduled_for, created_at")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: true })
-
-  if (error) throw error
-
-  return data.map((row) => ({
+export function mapPostRow(row: PostRow): Post {
+  return {
     id: row.id,
     projectId: row.project_id,
     platform: row.platform,
@@ -206,7 +187,41 @@ export async function fetchPosts(
     topics: row.topics,
     scheduledFor: row.scheduled_for,
     createdAt: row.created_at,
-  }))
+    isTryout: row.is_tryout,
+  }
+}
+
+export async function fetchPost(
+  supabase: SupabaseClient,
+  projectId: string,
+  id: string
+): Promise<Post | null> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select(POST_COLUMNS)
+    .eq("id", id)
+    .eq("project_id", projectId)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  return mapPostRow(data as PostRow)
+}
+
+export async function fetchPosts(
+  supabase: SupabaseClient,
+  projectId: string
+): Promise<Post[]> {
+  const { data, error } = await supabase
+    .from("posts")
+    .select(POST_COLUMNS)
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: true })
+
+  if (error) throw error
+
+  return (data as PostRow[]).map(mapPostRow)
 }
 
 // Cache lookup for generateAndSavePost's shared batch context (see

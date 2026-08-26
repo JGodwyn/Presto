@@ -35,6 +35,10 @@ export function GeneratePanel({
 
   return (
     <GlowPanel
+      // Off per direct request: the marker was static, with no behavior
+      // wired to it, and this corner already carries a control that does
+      // something. GlowPanel keeps drawing it for the Content page.
+      showInfoMarker={false}
       cornerAction={
         onResetCalendar ? (
           <Tooltip>

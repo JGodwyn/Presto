@@ -28,6 +28,14 @@ import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
 import { SectionSpinner } from "@/components/shared/section-spinner"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
+import {
+  nextPostAccount,
+  resolvePostAccount,
+  type PostAccountTarget,
+} from "@/lib/post-account"
+import { fetchSocialAccounts } from "@/lib/supabase/queries"
+import { createClient } from "@/lib/supabase/client"
+import type { ConnectedSocialAccount } from "@/types/social-account"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { useShake } from "@/hooks/use-shake"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
@@ -107,9 +115,12 @@ interface GeneratedPost {
   topics: string[]
   date: Date | undefined
   // Seeded from whichever account GenerateCard's SelectPill had selected
-  // (the `account` prop below); tapping the card's own social pill cycles
-  // it independently from there.
+  // (the `account`/`isTryout` props below); tapping the card's own account
+  // pill cycles both independently from there. They travel as a pair because
+  // "Try out" is a cycle position, not a platform — a try-out post still has
+  // to be written for somewhere.
   social: SocialPlatform
+  isTryout: boolean
   // Which slot of the batch produced this post — i.e. the loop index it was
   // generated at, which for a calendar-based batch is also the index into
   // scheduledDates that gave it its day. Restart uses this to line each slot
@@ -127,6 +138,7 @@ function toGeneratedPost(post: Post, batchIndex: number): GeneratedPost {
     topics: post.topics,
     date: post.scheduledFor ? new Date(post.scheduledFor) : undefined,
     social: post.platform,
+    isTryout: post.isTryout,
     batchIndex,
   }
 }
@@ -144,12 +156,15 @@ export function GeneratingView({
   projectId,
   count,
   account,
+  isTryout,
   model,
 }: {
   backHref: string
   projectId: string
   count: number
   account: SocialPlatform
+  // The account pill was on "Try out" — see the generating page's own note.
+  isTryout: boolean
   // A built-in id ("gemini-3.6-flash"/"tastetest") or a user_ai_models row
   // id — resolved and validated server-side in post-actions.ts.
   model: string
@@ -175,6 +190,34 @@ export function GeneratingView({
   // its position (posts never reorder, but this is the same reasoning as
   // keying list items on id rather than index).
   const [posts, setPosts] = React.useState<GeneratedPost[]>([])
+  // This project's connected accounts, so a finished card names the account
+  // it goes out as rather than its bare platform — the same thing the Content
+  // page does, and the same browser-side read GenerateCard already makes
+  // (this is a client component; it can't fetch server-side).
+  //
+  // Starts empty and stays empty on failure, which resolves to the platform
+  // label — the pre-existing behaviour, so a failed read costs nothing but
+  // the names.
+  const [socialAccounts, setSocialAccounts] = React.useState<
+    ConnectedSocialAccount[]
+  >([])
+
+  React.useEffect(() => {
+    let cancelled = false
+
+    void withNetworkStatus(fetchSocialAccounts(createClient(), projectId))
+      .then((accounts) => {
+        if (accounts === null || cancelled) return
+        setSocialAccounts(accounts)
+      })
+      .catch(() => {
+        // Non-fatal, same as GenerateCard's own read of this.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [projectId])
   // How many generation calls in this run have failed — surfaced as one
   // summarizing inline error once the batch completes (see the completion
   // effect below and generationErrorMessage), rather than a per-card error
@@ -405,23 +448,22 @@ export function GeneratingView({
     })
   }
 
-  const handleSocialChange = (post: GeneratedPost, social: SocialPlatform) => {
-    const previousSocial = post.social
+  const handleSocialChange = (post: GeneratedPost, target: PostAccountTarget) => {
+    const previous = { social: post.social, isTryout: post.isTryout }
+    const next = { social: target.platform, isTryout: target.isTryout }
     setPosts((prev) =>
-      prev.map((p) => (p.id === post.id ? { ...p, social } : p))
+      prev.map((p) => (p.id === post.id ? { ...p, ...next } : p))
     )
     void withNetworkStatus(updatePost({
       projectId,
       id: post.id,
-      patch: { platform: social },
+      patch: { platform: target.platform, isTryout: target.isTryout },
     })).then((result) => {
       if (result === null || "error" in result) {
         setPosts((prev) =>
-          prev.map((p) =>
-            p.id === post.id ? { ...p, social: previousSocial } : p
-          )
+          prev.map((p) => (p.id === post.id ? { ...p, ...previous } : p))
         )
-        showError("Couldn't change that post's platform")
+        showError("Couldn't change that post's account")
       }
     })
   }
@@ -549,6 +591,7 @@ export function GeneratingView({
             : generateAndSavePost({
                 projectId,
                 platform: account,
+                isTryout,
                 model,
                 batchIndex: i,
                 batchTotal: count,
@@ -594,7 +637,7 @@ export function GeneratingView({
     // per its own comment above), so including them here is safe and never
     // causes an unwanted restart.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runId, count, account, model, projectId, scheduledDates])
+  }, [runId, count, account, isTryout, model, projectId, scheduledDates])
 
   // Separate from the effect above: once every post has finished, the batch
   // is done.
@@ -938,8 +981,15 @@ export function GeneratingView({
                 onDelete={() => handleDeletePost(post)}
                 onTurnToDraft={() => handleTurnToDraft(post)}
                 onRegenerate={() => handleRegeneratePost(post)}
-                social={post.social}
-                onSocialChange={(social) => handleSocialChange(post, social)}
+                account={resolvePostAccount(
+                  { platform: post.social, isTryout: post.isTryout },
+                  socialAccounts
+                )}
+                nextAccount={nextPostAccount(
+                  { platform: post.social, isTryout: post.isTryout },
+                  socialAccounts
+                )}
+                onSocialChange={(target) => handleSocialChange(post, target)}
               />
             </div>
           )

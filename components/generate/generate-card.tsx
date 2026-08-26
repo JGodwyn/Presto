@@ -12,6 +12,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { type DateRange } from "@/components/ui/calendar"
 import { SegmentedControl } from "@/components/ui/segmented-control"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import {
+  buildAccountOptions,
+  TRY_OUT_ACCOUNT_ID,
+} from "@/components/generate/account-options"
 import { GenerateCalendarColumn } from "@/components/generate/generate-calendar-column"
 import { type MonthSelection } from "@/components/generate/month-grid"
 import { NumberStepper } from "@/components/generate/number-stepper"
@@ -21,22 +26,27 @@ import {
   SelectPill,
   type SelectPillOption,
 } from "@/components/generate/select-pill"
-import { SOCIAL_PLATFORM_OPTIONS } from "@/components/generate/social-platform-options"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/generate"
 import { generateSettingsStorageKey } from "@/lib/generate-settings"
-import { fetchUserAiModels } from "@/lib/supabase/queries"
+import { fetchSocialAccounts, fetchUserAiModels } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/client"
 import { withNetworkStatus } from "@/lib/network-status"
 import {
   clearScheduledDates,
   writeScheduledDates,
 } from "@/lib/generate-schedule"
+import type { PostPlatform } from "@/types/post"
 
 // Figma radii as px for the squircle path math: the surface-3 stepper box
 // (--rad-lg) and the "Instructions plugged in" tag (--rad-md).
 const STEPPER_BOX_CORNER_RADIUS = 16
 const PLUGGED_TAG_CORNER_RADIUS = 8
+
+// Half the app's usual 600ms tooltip delay, per direct request — these two
+// name what a control is for rather than adding detail to something already
+// legible, so they should arrive while the pointer is still on the pill.
+const PILL_TOOLTIP_DELAY_MS = 300
 
 // 1–31: up to a full month of dailies (raised from the UX doc §8.2's 20 per
 // direct feedback).
@@ -50,19 +60,10 @@ const MAX_POSTS = 31
 // hand with lib/ai/generate.ts's BUILTIN_MODELS. Anything the user has added
 // on the Connections page is appended to these at runtime (see the fetch
 // below) — a user model's `value` is its user_ai_models row id.
-// The account list still belongs to Connections, which hasn't built social
-// OAuth yet.
 const BUILTIN_MODEL_OPTIONS: SelectPillOption[] = [
   { value: BUILTIN_MODEL_ID, label: "Gemini 3.6 Flash" },
   { value: TASTE_TEST_MODEL_ID, label: "TasteTest" },
 ]
-
-// SOCIAL_PLATFORM_OPTIONS already matches SelectPillOption's shape
-// (value/label/icon) — reused as-is rather than a second, parallel list, so
-// GeneratedPostCard's own social pill (components/generate/
-// social-platform-options.tsx) can never drift out of sync with what's
-// selectable here.
-const ACCOUNT_OPTIONS: SelectPillOption[] = SOCIAL_PLATFORM_OPTIONS
 
 const CADENCE_OPTIONS = [
   { value: "daily", label: "Daily" },
@@ -238,7 +239,45 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       () => [...BUILTIN_MODEL_OPTIONS, ...userModelOptions],
       [userModelOptions]
     )
-    const [account, setAccount] = React.useState(ACCOUNT_OPTIONS[0].value)
+    // "Try out" is the resting default, and deliberately so: generation
+    // needs no social account at all (nothing is ever published — see
+    // AGENTS.md's publishing constraint), and the common case today is a
+    // project with nothing connected. Defaulting to a platform would put a
+    // greyed-out, unpickable account in the pill on a fresh project.
+    const [account, setAccount] = React.useState<string>(TRY_OUT_ACCOUNT_ID)
+    // Which platforms this project has actually connected on Connections —
+    // everything else in the menu renders greyed out. Fetched with the
+    // browser client for the same reason as the models above.
+    const [connectedPlatforms, setConnectedPlatforms] = React.useState<
+      PostPlatform[]
+    >([])
+    // Same distinction as userModelsLoaded: "nothing connected" and "we
+    // haven't asked yet" look identical in an empty list, and only the first
+    // of them justifies resetting a persisted account.
+    const [socialAccountsLoaded, setSocialAccountsLoaded] =
+      React.useState(false)
+
+    React.useEffect(() => {
+      let cancelled = false
+
+      void withNetworkStatus(fetchSocialAccounts(createClient(), projectId))
+        .then((accounts) => {
+          if (accounts === null) return
+          if (cancelled) return
+          setConnectedPlatforms(accounts.map((a) => a.platform))
+          setSocialAccountsLoaded(true)
+        })
+        .catch(() => {
+          // Non-fatal, same as the model fetch: "Try out" is always
+          // selectable, so a failed read costs the user nothing but the
+          // real accounts, and left unloaded on purpose so a persisted
+          // account isn't reset on no evidence.
+        })
+
+      return () => {
+        cancelled = true
+      }
+    }, [projectId])
 
     const [cadence, setCadence] = React.useState<"daily" | "monthly">("daily")
     const [dateSelectMethod, setDateSelectMethod] = React.useState<
@@ -355,7 +394,28 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
         setModel(BUILTIN_MODEL_OPTIONS[0].value)
       }
     }, [model, modelOptions, userModelsLoaded])
-    const selectedAccount = ACCOUNT_OPTIONS.find((o) => o.value === account)!
+    const accountOptions = React.useMemo(
+      () => buildAccountOptions(connectedPlatforms),
+      [connectedPlatforms]
+    )
+
+    // No non-null assertion, for the same reason as selectedModel above:
+    // `account` is restored from localStorage unvalidated, and an account
+    // disconnected since the last visit leaves a value matching nothing here.
+    // The fallback is the "Try out" option, which heads the list and can
+    // never be unavailable. Deliberately tolerant of a *disabled* match
+    // (rather than requiring a selectable one) so the pill doesn't flicker
+    // through "Try out" on every load while the fetch below is still out.
+    const selectedAccount =
+      accountOptions.find((o) => o.value === account) ?? accountOptions[0]
+
+    React.useEffect(() => {
+      // Gated on the fetch having resolved — before it does, every platform
+      // legitimately reads as unconnected.
+      if (!socialAccountsLoaded) return
+      if (accountOptions.some((o) => o.value === account && !o.disabled)) return
+      setAccount(TRY_OUT_ACCOUNT_ID)
+    }, [account, accountOptions, socialAccountsLoaded])
 
     const hasCalendarSelection =
       cadence === "daily"
@@ -505,33 +565,40 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     // pills and the button (per the corrected export) while number-based
     // keeps rendering both pieces back to back, unchanged.
     const modelPills = (
-      <div className="flex items-center gap-dist-md">
-        <SelectPill
-          options={modelOptions}
-          value={model}
-          onChange={setModel}
-          ariaLabel="AI model"
-        >
-          <span className="text-text-subtle">Using</span>
-          <span className="text-text-bold">{selectedModel.label}</span>
-          {/* Same rotate-on-open caret as the account pill, per direct
-            feedback — was a pencil, which read as "edit" rather than
-            "open this dropdown". */}
-          <CaretDown className="size-4 text-icon-subtle transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180" />
-        </SelectPill>
-        <SelectPill
-          options={ACCOUNT_OPTIONS}
-          value={account}
-          onChange={setAccount}
-          ariaLabel="Social account"
-        >
-          {selectedAccount.icon}
-          <span className="text-text-bold">{selectedAccount.label}</span>
-          {/* Points up while the menu is open — rotated rather than
-            icon-swapped so the flip animates. */}
-          <CaretDown className="size-4 text-icon-subtle transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180" />
-        </SelectPill>
-      </div>
+      // One Provider around both pills rather than one each: Base UI groups
+      // tooltips that share a provider, so moving from one pill to the other
+      // shows the second immediately instead of waiting the delay out again.
+      <TooltipProvider delay={PILL_TOOLTIP_DELAY_MS}>
+        <div className="flex items-center gap-dist-md">
+          <SelectPill
+            options={modelOptions}
+            value={model}
+            onChange={setModel}
+            ariaLabel="AI model"
+            tooltip="Model to use"
+          >
+            <span className="text-text-subtle">Using</span>
+            <span className="text-text-bold">{selectedModel.label}</span>
+            {/* Same rotate-on-open caret as the account pill, per direct
+              feedback — was a pencil, which read as "edit" rather than
+              "open this dropdown". */}
+            <CaretDown className="size-4 text-icon-subtle transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180" />
+          </SelectPill>
+          <SelectPill
+            options={accountOptions}
+            value={account}
+            onChange={setAccount}
+            ariaLabel="Social account"
+            tooltip="Socials to generate for"
+          >
+            {selectedAccount.triggerIcon}
+            <span className="text-text-bold">{selectedAccount.label}</span>
+            {/* Points up while the menu is open — rotated rather than
+              icon-swapped so the flip animates. */}
+            <CaretDown className="size-4 text-icon-subtle transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180" />
+          </SelectPill>
+        </div>
+      </TooltipProvider>
     )
 
     // Split so calendar-based can pair the button tightly with the
@@ -605,21 +672,28 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
 
         {mode === "number" ? (
           <div className="flex w-110 max-w-full flex-col items-center gap-dist-xl">
-            <p className="text-center text-body-lg-bold text-text-bold">
-              How many posts do you want to generate?
-            </p>
+            {/* The question and the stepper it asks about are one group at
+              dist-lg (16px), tighter than the dist-xl rhythm around it — per
+              direct request to cut 8px from this gap specifically. A nested
+              wrapper rather than a cancelling negative margin, so the value
+              stays a real token. */}
+            <div className="flex w-full flex-col items-center gap-dist-lg">
+              <p className="text-center text-body-lg-bold text-text-bold">
+                How many posts do you want to generate?
+              </p>
 
-            <div
-              ref={boxRef}
-              style={boxStyle}
-              className="flex w-full flex-col items-center gap-dist-md rounded-rad-lg bg-surface-3 py-pad-md"
-            >
-              <NumberStepper
-                value={count}
-                onChange={setCount}
-                min={MIN_POSTS}
-                max={MAX_POSTS}
-              />
+              <div
+                ref={boxRef}
+                style={boxStyle}
+                className="flex w-full flex-col items-center gap-dist-md rounded-rad-lg bg-surface-3 py-pad-md"
+              >
+                <NumberStepper
+                  value={count}
+                  onChange={setCount}
+                  min={MIN_POSTS}
+                  max={MAX_POSTS}
+                />
+              </div>
             </div>
 
             {modelPills}

@@ -1,11 +1,13 @@
 import Image from "next/image"
 import { XLogo } from "@phosphor-icons/react"
 
-// Shared between GenerateCard's account SelectPill (choosing which social
-// the whole batch posts to) and GeneratedPostCard's own per-card social
-// pill (tap-to-cycle, and the initial value each card is seeded with) — one
-// canonical list rather than two, so a platform added here shows up
-// correctly in both places automatically.
+// GeneratedPostCard's per-card social pill (tap-to-cycle, and the initial
+// value each card is seeded with).
+//
+// The Generate page's *account* pill used to reuse this list too, but no
+// longer does: its rows are driven by what this project has actually
+// connected, and carry the export's own 20px brand marks —
+// components/generate/account-options.tsx owns that shape now.
 export type SocialPlatform = "linkedin" | "x"
 
 export interface SocialPlatformOption {

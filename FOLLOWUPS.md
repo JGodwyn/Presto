@@ -13,34 +13,6 @@ and cross-cutting work is finally safe.
 
 ---
 
-## 1. Nothing consumes a connected social account yet
-
-**From:** `feat/connections-page`, 2026-08-21.
-
-Connecting LinkedIn now stores a real, working account
-(`public.social_accounts`, one row per project+platform) — and changes nothing
-downstream. The Generate page's social-account pill is still the hardcoded
-placeholder list it always was.
-
-**Do:** feed `fetchSocialAccounts(supabase, projectId)` (lib/supabase/queries.ts)
-into the account pill in `components/generate/generate-card.tsx`, the same way
-that file already merges user AI models into the model pill — it fetches with
-the *browser* Supabase client, since its page is a client component, and
-queries.ts accepts either client. Decide what the pill shows when a project has
-no connection at all (today's placeholders imply one always exists) and when the
-only connection is expired.
-
-**Why it waited:** `generate-card.tsx` belonged to the live `feat/generate-page`
-worktree while connections was being built. Editing it there would have
-guaranteed a conflict in a file neither branch owned outright.
-
-**Gotcha:** the account pill's persisted value has the same latent bug
-generate-card.tsx already fixed once for models — a stored id whose row has
-since been deleted must not be non-null-asserted into a render. Reuse that
-pattern (an explicit `loaded` flag, not "the list is empty").
-
----
-
 ## 2. A token revoked at LinkedIn's end is invisible to us
 
 **From:** `feat/connections-page`, 2026-08-21.
@@ -201,3 +173,59 @@ the first paint.
 **Why it waited:** `content-view.tsx` and `day-deck.tsx` were both dirty in the
 live `post-accounts` worktree while the dashboard was being built. Safe to do
 once that has landed.
+## 7. `GlowPanel`'s info marker is now dead code
+
+**From:** `feat/generate-page`, 2026-08-24.
+
+Every caller passes `showInfoMarker={false}` — Content dropped the marker
+earlier, and the Generate page dropped it on 2026-08-24, which was the last
+place it rendered. The prop still defaults to `true`, so `components/shared/
+glow-panel.tsx` carries a branch (and a Phosphor `Info` import) nothing
+reaches. Either flip the default and delete the four now-redundant props, or
+remove the prop and the marker outright — a decision about whether that corner
+ever gets a real info affordance, not a mechanical cleanup, which is why this
+branch left it alone rather than editing a shared component on the way past.
+
+## 8. A regenerate can save on the server while the page rejects it
+
+**From:** `feat/post-accounts`, 2026-08-25.
+
+The regenerate stream now refuses any response that doesn't carry the server's
+end-of-stream marker, which stops a truncated stream being written into the
+page as if it were finished. The opposite drift is still possible: the server
+can persist a new version while the browser gives up (a stall timeout, a
+severed connection). The post is safe — the page is just showing the previous
+text until it is reloaded.
+
+The toast says so ("The connection dropped" / "Try reloading"), which was the
+deliberate cheap fix. The real fix is for the page to re-sync itself, and that
+is not a one-liner: `post-details.tsx` seeds `currentPost` from its prop once
+and never re-reads it, so `router.refresh()` alone changes nothing, and a
+props-to-state effect is the pattern this codebase lints against
+(`react-hooks/set-state-in-effect`). Needs a decision on how that page should
+hold its data, which is why this branch left it.
+
+Most reachable on the TasteTest path specifically, which persists *before*
+responding rather than in the stream's `onEnd`.
+
+## 9. Regeneration cannot be cancelled
+
+**From:** `feat/post-accounts`, 2026-08-25.
+
+A hung generation now gives up on its own after 45s of silence
+(`STREAM_STALL_TIMEOUT_MS` in post-details.tsx), so it is no longer
+unrecoverable — but until then there is no way to stop it. The Regenerate
+button is disabled with a spinner while a run is in flight; turning that into a
+stop control, or adding a separate one, is new UI with no export behind it, so
+it was flagged rather than invented.
+
+## 10. `maxDuration` on the regenerate route is set for the free tier
+
+**From:** `feat/post-accounts`, 2026-08-25.
+
+`app/api/regenerate-post/route.ts` declares `export const maxDuration = 60`.
+Without it the ceiling is whatever the platform defaults to (10-15s on Vercel),
+which is shorter than a real generation — so this was a fix, not a tuning. 60s
+is the Hobby-tier maximum; raise it alongside the plan if generations ever bump
+it. The client's own 45s stall timeout sits just under it deliberately.
+

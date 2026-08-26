@@ -2,20 +2,18 @@
 
 import Link from "next/link"
 
-import {
-  SOCIAL_PLATFORM_OPTIONS,
-  type SocialPlatform,
-} from "@/components/generate/social-platform-options"
+import { PostAccountPill } from "@/components/shared/post-account-pill"
 import { Chip } from "@/components/ui/chip"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
+import { resolvePostAccount } from "@/lib/post-account"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
+import type { ConnectedSocialAccount } from "@/types/social-account"
 
-// Figma --rad-lg / --rad-md as px for the squircle path math.
+// Figma --rad-lg as px for the squircle path math (the pill owns its own).
 const CARD_CORNER_RADIUS = 16
-const PILL_CORNER_RADIUS = 8
 
 // How far the pill/topics row dissolves at each end once it has more to
 // scroll to — small, since the row itself is only 28px tall.
@@ -32,27 +30,30 @@ const ROW_FADE_PX = 16
 // own surface-3 tray, which is what separates it from its neighbours.
 export function KanbanPostCard({
   post,
+  accounts,
+  activeTopics,
   href,
 }: {
   post: Post
+  // This project's connected accounts, so the pill can name the account this
+  // post goes out as instead of just its platform.
+  accounts: ConnectedSocialAccount[]
+  // The project's current Instructions topics — anything on this post that
+  // isn't in here has since been deleted, and renders retired.
+  activeTopics: Set<string>
   // This post's own page.
   href: string
 }) {
   const { ref, style } = useSquircleClipPath<HTMLAnchorElement>({
     cornerRadius: CARD_CORNER_RADIUS,
   })
-  const { ref: pillRef, style: pillStyle } =
-    useSquircleClipPath<HTMLSpanElement>({ cornerRadius: PILL_CORNER_RADIUS })
   const { ref: topicsRef, onScroll: onTopicsScroll } = useScrollFade({
     axis: "x",
     start: ROW_FADE_PX,
     end: ROW_FADE_PX,
   })
 
-  const platform: SocialPlatform = post.platform
-  const social =
-    SOCIAL_PLATFORM_OPTIONS.find((option) => option.value === platform) ??
-    SOCIAL_PLATFORM_OPTIONS[0]
+  const account = resolvePostAccount(post, accounts)
 
   return (
     <Link
@@ -90,18 +91,21 @@ export function KanbanPostCard({
           HIDE_NATIVE_SCROLLBAR_CLASSNAME
         )}
       >
-        <span
-          ref={pillRef}
-          style={pillStyle}
-          className="flex h-7 shrink-0 items-center gap-dist-sm rounded-rad-md border-[length:var(--stroke-lg)] border-border-subtle bg-surface-3 px-pad-sm"
-        >
-          {social.icon}
-          <span className="text-body-md-bold text-text-bold">
-            {social.label}
-          </span>
-        </span>
+        <PostAccountPill
+          account={account}
+          // Display-only here: the whole card is a single link to the post's
+          // own page, so a button inside it would be a nested control.
+          nextAccount={null}
+          className="shrink-0"
+        />
         {post.topics.map((topic) => (
-          <Chip key={topic} size="md" selected={false} className="shrink-0">
+          <Chip
+            key={topic}
+            size="md"
+            selected={false}
+            retired={!activeTopics.has(topic)}
+            className="shrink-0"
+          >
             {topic}
           </Chip>
         ))}

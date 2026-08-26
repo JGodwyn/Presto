@@ -22,6 +22,7 @@ function makePost(overrides: Partial<Post> = {}): Post {
     topics: [],
     scheduledFor: null,
     createdAt: new Date().toISOString(),
+    isTryout: false,
     ...overrides,
   }
 }
