@@ -17,6 +17,11 @@ import {
 import { cn } from "@/lib/utils"
 import { startSectionNavigation } from "@/lib/section-navigation"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import {
+  CHROME_LOCK_CLASSNAME,
+  CHROME_UNLOCK_CLASSNAME,
+  useGenerationLock,
+} from "@/hooks/use-generation-lock"
 import { useOnboarding } from "@/components/onboarding/onboarding-context"
 
 // Figma --rad-* as pixel numbers for the squircle path math (same reason as
@@ -108,6 +113,10 @@ function SidebarItem({
 // project's name pinned to the bottom.
 export function ProjectSidebar({ projectName }: { projectName: string }) {
   const pathname = usePathname()
+  // Dimmed and inert while a generation is running — leaving that page ends
+  // the run, so the tabs must not be reachable by pointer *or* keyboard until
+  // it stops. See lib/generation-lock.ts.
+  const locked = useGenerationLock()
   const { projectId } = useParams<{ projectId: string }>()
   const { activePath } = useOnboarding()
   // The clicked item highlights immediately (optimistic), not when the
@@ -136,7 +145,11 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
       // so max-content adds them up correctly on its own. Below that natural
       // height the card stops shrinking with the viewport and holds this
       // size instead.
-      className="relative flex w-64 min-h-max shrink-0 flex-col overflow-hidden rounded-rad-lg bg-surface-4 p-pad-md"
+      inert={locked}
+      className={cn(
+        "relative flex w-64 min-h-max shrink-0 flex-col overflow-hidden rounded-rad-lg bg-surface-4 p-pad-md",
+        locked ? CHROME_LOCK_CLASSNAME : CHROME_UNLOCK_CLASSNAME
+      )}
     >
       {/* The 384×930 pixel-gradient artwork scaled to card width (the Figma
           frame shows it exactly this way: full image, natural aspect — white

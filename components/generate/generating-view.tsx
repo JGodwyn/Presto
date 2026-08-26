@@ -41,6 +41,7 @@ import { useShake } from "@/hooks/use-shake"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import type { GenerationFailureReason } from "@/lib/ai/generate"
 import { readScheduledDates } from "@/lib/generate-schedule"
+import { setGenerationLock } from "@/lib/generation-lock"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -177,6 +178,17 @@ export function GeneratingView({
   const [status, setStatus] = React.useState<
     "generating" | "stopped" | "completed"
   >("generating")
+  // Lock the app's chrome for as long as a run is in flight. Leaving this page
+  // unmounts the view, and that unmount *is* what stops the run, so a sidebar
+  // tab or the back arrow would quietly discard whatever was left to generate.
+  // Released the moment the run stops or completes — by then leaving costs
+  // nothing — and on unmount, so the lock can't outlive the page that set it
+  // (Close, a failed run that navigates away, a route error).
+  React.useEffect(() => {
+    setGenerationLock(status === "generating")
+    return () => setGenerationLock(false)
+  }, [status])
+
   // How many of the `count` posts have finished so far — drives the reveal
   // pacing and the "batch complete" check below, same role the old plain
   // `generatedCount` number played. Kept separate from `posts` (below)

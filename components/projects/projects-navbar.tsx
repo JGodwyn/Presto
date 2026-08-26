@@ -6,6 +6,12 @@ import { ArrowLeft, ArrowLeftIcon, Gear, GearFine } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import {
+  CHROME_LOCK_CLASSNAME,
+  CHROME_UNLOCK_CLASSNAME,
+  useGenerationLock,
+} from "@/hooks/use-generation-lock"
+import { cn } from "@/lib/utils"
 
 // Figma --rad-lg as a pixel number for the squircle path math (same reason
 // as dialog.tsx: the clip-path calculation can't read CSS vars).
@@ -52,9 +58,20 @@ export function ProjectsNavbar({
       cornerRadius: CHIP_CORNER_RADIUS,
       cornerSmoothing: 1,
     })
+  // Same lock as the sidebar: while a generation is running, Back and the
+  // gear are the other two ways off the page. This navbar also serves
+  // /projects, where nothing can be generating, so reading the lock here
+  // costs that screen nothing.
+  const locked = useGenerationLock()
 
   return (
-    <header className="flex items-center justify-between">
+    <header
+      inert={locked}
+      className={cn(
+        "flex items-center justify-between",
+        locked ? CHROME_LOCK_CLASSNAME : CHROME_UNLOCK_CLASSNAME
+      )}
+    >
       <div className="flex items-center gap-dist-md">
         {backHref && (
           <Button

@@ -27,19 +27,7 @@ function Legend({ colorClassName, label }: { colorClassName: string; label: stri
   )
 }
 
-export function TotalPostsCard({
-  totals,
-  monthScheduled,
-  monthQueued,
-  monthPublished,
-}: {
-  totals: PostTotals
-  // "of N this month" — how many posts sit on this month's calendar at all,
-  // the denominator the Queued and Published mini cards count against.
-  monthScheduled: number
-  monthQueued: number
-  monthPublished: number
-}) {
+export function TotalPostsCard({ totals }: { totals: PostTotals }) {
   const { total, draft, queued, published } = totals
   const share = (count: number) => (total === 0 ? 0 : (count / total) * 100)
 
@@ -159,17 +147,23 @@ export function TotalPostsCard({
           value={draft}
           caption="with no dates"
         />
+        {/* Project-wide, like the bar and the legend beside them (per direct
+            request). These two used to count only the reference month, which
+            put two different "Queued" figures on one card — 85 in the bar, 10
+            here — with nothing but a caption to say why. The month has its own
+            row of cards below and its own calendar; this card is headed "Total
+            posts", so everything on it reads as a library figure. */}
         <MiniStatCard
           label="Queued"
           icon={Queue}
-          value={monthQueued}
-          caption={`of ${monthScheduled} this month`}
+          value={queued}
+          caption={`of ${total} total`}
         />
         <MiniStatCard
           label="Published"
           icon={Queue}
-          value={monthPublished}
-          caption={`of ${monthScheduled} this month`}
+          value={published}
+          caption={`of ${total} total`}
         />
       </div>
     </DashboardCard>

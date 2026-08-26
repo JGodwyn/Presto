@@ -19,7 +19,11 @@ const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"]
 //
 //   has content     → Date/Calendar-item/surface-selected (purple), inverse text
 //   in month, empty → surface-hover (the canvas grey), bold text
-//   today           → surface-rest (white) with a stroke-xl border-brand ring
+//   today           → a stroke-xl border-brand ring *on top of* whichever fill
+//                     the day already earns: purple when it has posts (per
+//                     direct request — being today shouldn't hide the fact
+//                     that something is scheduled), surface-rest (white)
+//                     when it doesn't
 //   adjacent month  → no fill, minimal text
 //
 // The frame.json disagrees with its own screenshot on the first row (it marks
@@ -29,12 +33,17 @@ const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"]
 function DayCell({
   day,
   state,
+  isToday = false,
   label,
   href,
   onSelect,
 }: {
   day: number
-  state: "content" | "empty" | "today" | "adjacent"
+  // What the day *is* — the fill it earns. Today is a separate flag rather
+  // than a fourth value here, because it's a ring drawn over one of these
+  // rather than a state of its own.
+  state: "content" | "empty" | "adjacent"
+  isToday?: boolean
   label?: string
   // Set only for a day that actually has posts — those link through to
   // Content; an empty day has nothing to show, so it stays inert rather than
@@ -48,10 +57,14 @@ function DayCell({
     // smooth an 8px corner is not a trade worth making.
     "flex h-10 items-center justify-center rounded-rad-md text-body-lg",
     state === "content" && "bg-date-calendar-item-surface-selected text-text-inverse",
-    state === "empty" && "bg-date-calendar-item-surface-hover text-text-bold",
-    state === "today" &&
-      "border-[length:var(--stroke-xl)] border-border-brand bg-date-calendar-item-surface-rest text-text-bold",
+    // Today with nothing on it takes surface-rest (white) rather than the grey
+    // every other empty day gets — the ring needs something to sit against.
+    state === "empty" &&
+      (isToday
+        ? "bg-date-calendar-item-surface-rest text-text-bold"
+        : "bg-date-calendar-item-surface-hover text-text-bold"),
     state === "adjacent" && "text-text-minimal",
+    isToday && "border-[length:var(--stroke-xl)] border-border-brand",
     // 150ms press feedback per the animation standards' button rule; the hover
     // tint is the same color-mix recipe DayChip and SelectPill use, which
     // works over any of the cell fills above rather than needing one per state.
@@ -129,9 +142,6 @@ export function MonthCalendarCard({
     const day = index + 1
     const count = summary.countsByDay[day - 1]
     const label = `${formatFullDate(new Date(summary.year, summary.month, day))} — ${count} ${count === 1 ? "post" : "posts"}`
-    // Keyed on the count, not the rendered state: a day that is *both* today
-    // and has posts renders as "today" (the ring wins) but must still be
-    // clickable.
     const hasContent = count > 0
     const ids = postIdsByDay.get(day) ?? []
     // One post on the day: go straight to it, exactly as a Next-up card does.
@@ -143,7 +153,8 @@ export function MonthCalendarCard({
       <DayCell
         key={day}
         day={day}
-        state={summary.today === day ? "today" : hasContent ? "content" : "empty"}
+        state={hasContent ? "content" : "empty"}
+        isToday={summary.today === day}
         label={label}
         href={
           !hasContent ? undefined : single ? `${postBase}/${ids[0]}` : contentHref

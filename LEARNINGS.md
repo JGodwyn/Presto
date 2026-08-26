@@ -669,3 +669,29 @@ tell: any code path keyed on `scheduled_for` silently excludes every draft, and
 try-out posts are usually drafts. Usually, not always — calendar-based
 generation carries whatever the account pill was on, so a dated try-out post is
 reachable. `postsInMonth` handles both halves rather than relying on that.
+
+## A `javascript_tool` eval can't observe a page whose commit rides a ViewTransition
+
+**Symptom.** Verifying the generation chrome-lock: `hasStop: true` (so a run
+was demonstrably in flight and rendered) while the store read `locked: false`
+and the sidebar carried none of its lock classes. Every eval agreed, across
+several full page loads, and a `console.log` in the writing effect produced
+nothing — the picture of an effect that simply never runs. Screenshots of the
+same page, in the same state, showed the lock plainly applied.
+
+**Cause.** The generating page is wrapped in React's `<ViewTransition
+enter="blur-in">`, and **every `javascript_tool` eval backgrounds the tab**
+(already documented above for animations). A hidden document can't run a view
+transition, so the commit that the transition gates — and the effects that
+follow it — sits pending for as long as the tab stays hidden. The eval then
+reports a tree that has rendered but not committed: real DOM from an earlier
+paint, none of the state the pending commit would have produced.
+
+**Rule.** On any route wrapped in `ViewTransition`, evals are not a source of
+truth about post-commit state (effects, external stores, class flips). Verify
+those with `computer` screenshots, which foreground the tab. And treat "the
+effect never ran" as a claim needing a foregrounded check before acting on it —
+here it sent me instrumenting the store, then hunting a stale-bundle theory,
+before a plain screenshot showed the feature working the whole time. A visible
+one-off probe string rendered by the component under test is the cheap way to
+tell a stale bundle from a stalled commit.

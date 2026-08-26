@@ -22,35 +22,63 @@ import { cn } from "@/lib/utils"
 //
 // `action` is optional and hugs its content — these buttons are never
 // full-width, unlike the ones inside cards and forms.
+//
+// `size="sm"` is the same three pieces at the scale the
+// EmptyDashboardPostSection export draws them: a 32px icon, dist-md between
+// the pieces, and a title-lg title instead of the page-sized heading-sm. It
+// exists because that export puts this layout *inside* a 200px tray rather
+// than on a blank page — the full-size one doesn't fit, and inventing a second
+// component for the same three pieces in the same order would let the two
+// drift.
+const SIZES = {
+  md: { icon: "size-12", gap: "gap-dist-lg", title: "text-heading-sm" },
+  sm: { icon: "size-8", gap: "gap-dist-md", title: "text-title-lg" },
+} as const
+
 export function EmptyState({
   icon: EmptyIcon,
   caption,
   title,
   action,
+  size = "md",
   className,
 }: {
   icon: Icon
   caption: React.ReactNode
   title: string
   action?: React.ReactNode
+  size?: keyof typeof SIZES
   className?: string
 }) {
+  const scale = SIZES[size]
+  // The full-size layout *is* the page, so its title is the page's h1. The
+  // compact one sits inside a tray under a heading of its own (the Next-up
+  // column's "Next up . . ."), where a second h1 would be wrong — it's a
+  // paragraph that happens to be the loudest thing in its box.
+  const Title = size === "md" ? "h1" : "p"
+
   return (
     <div
       className={cn(
-        "flex flex-1 flex-col items-center justify-center gap-dist-lg",
+        "flex flex-1 flex-col items-center justify-center",
+        scale.gap,
         className
       )}
     >
-      <EmptyIcon weight="bold" className="size-12 text-icon-minimal" />
+      <EmptyIcon weight="bold" className={cn(scale.icon, "text-icon-minimal")} />
       {/* Both text blocks are a fixed 272px in the export rather than fluid,
           which is what gives the title its deliberate 3-4 line wrap. */}
       <p className="w-68 text-center text-body-md text-text-subtle">{caption}</p>
       <div className="flex flex-col items-center gap-dist-xl">
         {/* font-display (Phudu) renders caps on its own — no `uppercase`. */}
-        <h1 className="w-68 text-center text-heading-sm font-display text-text-bold">
+        <Title
+          className={cn(
+            "w-68 text-center font-display text-text-bold",
+            scale.title
+          )}
+        >
           {title}
-        </h1>
+        </Title>
         {action}
       </div>
     </div>

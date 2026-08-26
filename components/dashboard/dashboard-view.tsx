@@ -12,7 +12,6 @@ import {
   createdWithinDays,
   nextUp,
   platformSplit,
-  postsInMonth,
   summariseMonth,
   topTopics,
   totalsByState,
@@ -115,13 +114,6 @@ export function DashboardView({
     else postIdsByDay.set(day, [post.id])
   }
 
-  // Wider than `monthPosts` on purpose: that set is scheduled-only, which the
-  // calendar above needs and this card doesn't — a dateless post still says
-  // something about what you're writing. Try-out posts are the case that made
-  // this necessary: the usual Try out path schedules nothing, so the bar sat
-  // at zero however many had been generated.
-  const monthContentPosts = postsInMonth(posts, nowDate)
-
   const monthName = summary.label.split(" ")[0]
   const emptyRemaining = summary.daysRemaining - summary.remainingDaysCovered
 
@@ -180,23 +172,26 @@ export function DashboardView({
     // Same unified blur+opacity mount-in as every other section (see
     // /create-project for the @starting-style rationale) — one transition on
     // the whole group, no stagger.
-    <div className="flex flex-1 flex-col gap-dist-xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
+    <div className="flex flex-1 flex-col gap-dist-2xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
       <h1 className="text-heading-sm font-display text-text-bold">{projectName}</h1>
 
       <div className="flex flex-col gap-dist-lg">
-        <TotalPostsCard
-          totals={totals}
-          monthScheduled={summary.scheduled}
-          monthQueued={summary.upcoming}
-          monthPublished={summary.past}
-        />
+        <TotalPostsCard totals={totals} />
 
         <div className="flex flex-col gap-dist-md xl:flex-row">
           <StatCard
-            label="Still to go out"
+            label="To go out this month"
             icon={CalendarCheck}
             value={summary.upcoming}
-            caption={`of ${summary.scheduled} total queued ${monthName}`}
+            // "queued" would now clash with the Queued mini card above, which
+            // counts the whole project; this one is the month's own calendar.
+            caption={`of ${summary.scheduled} scheduled in ${monthName}`}
+          />
+          <StatCard
+            label="Empty days ahead"
+            icon={CalendarBlank}
+            value={emptyRemaining}
+            caption={`${summary.daysRemaining} days left this month`}
           />
           <StatCard
             label="Written this week"
@@ -208,12 +203,6 @@ export function DashboardView({
             // figure and could exceed it ("6 of 1 total this month"). Two
             // plain figures, no implied subset.
             caption={`${createdInMonth(posts, new Date(now))} written in ${monthName}`}
-          />
-          <StatCard
-            label="Empty days ahead"
-            icon={CalendarBlank}
-            value={emptyRemaining}
-            caption={`${summary.daysRemaining} days left this month`}
           />
         </div>
       </div>
@@ -249,10 +238,16 @@ export function DashboardView({
       <DottedDivider />
 
       <div className="flex flex-col gap-dist-lg xl:flex-row xl:items-start">
+        {/* Every post, not this month's — the card asks what you write about,
+            which is a property of the library rather than of a calendar page,
+            and its title carries no month to say otherwise. It *was* scoped to
+            the month, which read as plainly wrong: a project with 72 LinkedIn
+            posts reported 26, the rest being scheduled for later months. Same
+            scope as the Total-posts bar above it. */}
         <PostingAboutCard
-          topics={topTopics(monthContentPosts, TOP_TOPICS_LIMIT)}
-          split={platformSplit(monthContentPosts)}
-          total={monthContentPosts.length}
+          topics={topTopics(posts, TOP_TOPICS_LIMIT)}
+          split={platformSplit(posts)}
+          total={posts.length}
           className="xl:w-108 xl:shrink-0"
         />
         <SetupCard rows={setupRows} className="xl:min-w-0 xl:flex-1" />

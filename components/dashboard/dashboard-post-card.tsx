@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { CalendarDots } from "@phosphor-icons/react"
+import { CalendarDots, Eyes } from "@phosphor-icons/react"
 
 import type { Post } from "@/types/post"
 import { formatRelativeDay } from "@/lib/dashboard-summary"
@@ -12,7 +12,7 @@ import { SocialIcon } from "@/components/shared/social-icon"
 // rounder than the rad-xmd cards holding them.
 const CARD_CORNER_RADIUS = 16
 
-// The export's "Post" instance: a date row with the platform mark opposite,
+// The export's "Post" instance: a date row with the account's mark opposite,
 // then two lines of the post itself. The whole card links to the post's own
 // page — the same destination the Kanban card and the day deck's "Open up"
 // already use, so a post is reached the same way from everywhere.
@@ -63,7 +63,23 @@ export function DashboardPostCard({
           ) : null}
         </span>
 
-        <SocialIcon platform={post.platform} className="size-6 shrink-0" />
+        {/* `isTryout` is read *before* the platform, the same precedence
+            resolvePostAccount and platformSplit use: a try-out post carries a
+            real platform (it has to be written for somewhere), so keying the
+            mark off `platform` alone badged it with the user's LinkedIn. No
+            account name is shown here, so the flag is all this needs — the
+            full resolution wants a `social_accounts` list this card isn't
+            given. */}
+        {post.isTryout ? (
+          // 28px against the brand marks' 24: Phosphor's Eyes paints ~84% of
+          // its own box where the LinkedIn mark fills its square edge to edge,
+          // so matching boxes leaves this visibly smaller — and here the cards
+          // stack, putting the two marks in a column at the same x. Same
+          // optical fit as the filter menu's Social row.
+          <Eyes weight="bold" className="size-7 shrink-0 text-icon-subtle" />
+        ) : (
+          <SocialIcon platform={post.platform} className="size-6 shrink-0" />
+        )}
       </span>
 
       {/* Two lines then an ellipsis, as the export draws it — this is a

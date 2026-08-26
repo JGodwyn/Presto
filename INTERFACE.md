@@ -838,6 +838,16 @@ hand-composed mockup §12 describes. What changed and what holds:
   exceptions are deliberate: the three mini stat cards inside the Total-posts
   card get a `stroke-md border-subtle` (they sit on white), and the post cards
   in the Next-up column are `rad-lg`.
+- **The Total-posts card is entirely project-wide.** Its bar, its legend and
+  all three mini cards (Drafts / Queued / Published) count the whole library.
+  The two mini cards were month-scoped at first, which put two different
+  "Queued" numbers on one card — 85 in the bar, 10 in the card — with only a
+  caption to explain it; changed per direct request. Month figures live on the
+  row below, which is about the month by definition.
+  - That row reads **To go out this month → Empty days ahead → Written this
+    week** (order and first label per direct request): the two calendar
+    figures sit together, and the activity figure — the only one measuring what
+    you have *written* rather than planned — reads last.
 - **Two stat shapes, and the difference is semantic**: the bordered mini card
   labels itself `body-lg`/text-bold (it heads a breakdown), the plain one
   `body-lg-bold`/text-subtle (it captions its own number).
@@ -847,9 +857,14 @@ hand-composed mockup §12 describes. What changed and what holds:
   rather than three blocks with seams.
 - **Calendar day states** map to Figma's `_calendar-item`: content →
   `surface-selected` + inverse text; in-month empty → `surface-hover` + bold;
-  today → `surface-rest` + `stroke-xl border-brand`; adjacent month → no fill,
-  `text-minimal`. Cells skip the squircle clip-path, as `ui/calendar.tsx`'s own
-  cells do.
+  adjacent month → no fill, `text-minimal`. Cells skip the squircle clip-path,
+  as `ui/calendar.tsx`'s own cells do.
+  - **Today is a ring, not a state**: the `stroke-xl border-brand` outline is
+    drawn *over* whichever fill the day already earns, so today with posts on
+    it stays purple and today with nothing takes `surface-rest` (white — the
+    ring needs something to sit against). It was a fourth mutually-exclusive
+    state at first, which meant being today silently erased the fact that
+    something was scheduled; changed per direct request.
 - **The Next-up column is a scroller, not a growing list.** The export clips it
   mid-"Recently out" at the calendar card's height; it's bounded by the
   `relative` + `absolute inset-0` pair (the Content page's trick), because
@@ -859,3 +874,39 @@ hand-composed mockup §12 describes. What changed and what holds:
 - Platform bar colours are each brand's own, taken literally from the export —
   the same documented exception as `file-type-icon.tsx`. X and Try out land on
   real Gray/Purple tokens; only LinkedIn's blue is a literal.
+- **"What you're posting about" covers every post, not the reference month.**
+  It asks what you write about, which is a property of the library rather than
+  of a calendar page, and its title carries no month to say otherwise — the
+  same scope as the Total-posts bar. It *was* month-scoped, which read as
+  simply wrong (a project with 72 LinkedIn posts reported 26, the rest being
+  scheduled for later months). The calendar card and the coverage stats stay
+  month-scoped; they are about a month by definition.
+
+### 12b. Dashboard — empty post sections, and the compact EmptyState
+
+From `design-sync/emptydashboardpostsection`:
+
+- **A Next-up/Recently-out section with nothing in it draws a tray, not a
+  sentence.** Fixed 200px, `surface-2`, `rad-xmd` (squircled), `pad-2xl`,
+  holding the empty-state block centred. Surface-2 rather than the post cards'
+  surface-4: nothing is being carded, so the tray reads as the hollow where
+  cards would be. The height is fixed so a one-line and a two-line message
+  produce the same box.
+- **`EmptyState` gained `size="sm"`** for it — the same three pieces in the
+  same order at the export's smaller scale: 32px icon, `dist-md` between the
+  pieces, `title-lg` title instead of the page-sized `heading-sm`. Text blocks
+  stay `w-68`, as at full size. Reach for this whenever an empty state sits
+  *inside* something rather than being the page.
+  - The compact title renders as a `<p>`, not the full-size one's `<h1>`: it
+    sits under a heading of its own ("Next up . . ."), so a second h1 would be
+    wrong. It's still the loudest thing in its box.
+- **Sections are `dist-2xl` apart** — both the two post sections inside the
+  Next-up column (the export's own spacing) and the dashboard's own top-level
+  sections, raised from `dist-xl` by request so the page reads as blocks rather
+  than a single run.
+- **The zero-posts dashboard has no action button.** The "Get started" CTA is
+  gone by request: the sidebar is right there, and it was never wired to
+  anything. `EmptyState`'s `action` slot stays — nothing else uses it today.
+- Copy fixes on the export, the same call made on Content's "view it's
+  content": "Your have no posts scheduled for later." → "You have no posts
+  scheduled for later."

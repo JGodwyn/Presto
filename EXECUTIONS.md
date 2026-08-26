@@ -1918,3 +1918,153 @@ the same call the page-level `<main>` did. The top/bottom edge fades are what
 signal there's more to see. Verified in-browser: the list still scrolls under
 the wheel, no thumb appears, and both fades still track the remaining scroll
 distance.
+
+## 2026-08-26 — Dashboard: empty post sections, wider section spacing, no CTA
+
+Built from `design-sync/emptydashboardpostsection` (read via the figma-bridge
+skill — frame.json + screenshot, no REST/MCP).
+
+1. **The empty tray.** `PostList`'s empty branch in next-up-column.tsx was a
+   grey one-liner ("Nothing scheduled ahead."); it is now the export's 200px
+   `surface-2` `rad-xmd` tray (squircle-clipped like every other radius here)
+   with the empty-state block centred inside at `pad-2xl`. `emptyLabel` became
+   `emptyTitle`, since the string is now the loud Phudu line rather than a
+   caption.
+2. **`EmptyState` gained `size="sm"`** rather than a second component: the
+   export draws the same icon/caption/title stack, just at 32px / `dist-md` /
+   `title-lg` instead of 48px / `dist-lg` / `heading-sm`. Two components for
+   one layout would drift. The compact title renders as `<p>` — inside the
+   column it sits under an `<h3>`, so the full-size `<h1>` would be wrong.
+3. **Spacing → `dist-2xl`**, per request: DashboardView's top-level gap
+   (`dist-xl` → `dist-2xl`) and the gap between the two post sections in
+   NextUpColumn (`dist-lg` → `dist-2xl`, which is also what the export's own
+   root frame specifies).
+4. **"Get started" is gone** from the zero-posts dashboard, per request. The
+   `Button` import went with it; `EmptyState`'s `action` slot stays for
+   whatever wants it later.
+
+Verified in-browser against the export by measuring the live DOM: tray 200px,
+`rgb(231,223,220)` = surface-2, 32px padding, 12px radius *with* a clip-path
+applied, 32px Eyes, 14px text-subtle caption, 22/28 Phudu title at 272px, 8px
+gaps — every value the frame.json specifies. The empty branch was exercised by
+temporarily passing `upcoming={[]} recent={[]}` (backed up and restored; the
+one project with posts has both lists populated). The zero-posts dashboard was
+checked on a real empty project — icon, caption, title, no button.
+
+Gates: tsc clean, **124/124 tests** (the Gemini live test passed this run),
+eslint clean on every touched file — the one error in the touched *directories*
+is project-sidebar.tsx's pre-existing `set-state-in-effect`, untouched here.
+
+**A try-out post in the Next-up / Recently-out lists wore the LinkedIn mark.**
+`DashboardPostCard` keyed its icon off `post.platform` alone, and a try-out
+post carries a real platform — so it was badged with the user's connected
+LinkedIn. Now `isTryout` is read first, exactly as `resolvePostAccount` and
+`platformSplit` do, and a try-out post gets the Eyes glyph. The flag is all
+this card needs, since it shows a mark and no account name (the full
+resolution wants a `social_accounts` list this card isn't handed).
+
+Sized `size-7` (28px) against the brand marks' `size-6`, for the reason found
+in the filter menu earlier: Eyes paints ~84% of its own box where the LinkedIn
+mark fills its square edge to edge, and here the cards stack, putting the two
+in a column at the same x. Verified in-browser on the one scheduled try-out
+post in the DB.
+
+Also corrected a claim this file and lib/dashboard-summary.ts made last round —
+"every try-out post is dateless" is how they *start*, not an invariant: 1 of
+the 5 try-out posts in the DB now carries a date. `postsInMonth` covers both
+halves, so nothing about it changes.
+
+**Today no longer hides its own posts on the dashboard calendar.** `DayCell`'s
+`state` had `"today"` as a fourth mutually-exclusive value, so a day that was
+both today *and* had posts rendered as the white-with-orange-ring today cell —
+losing the purple that every other day with content carries. `state` is now
+just the fill a day earns (`content` / `empty` / `adjacent`) with `isToday` as
+a separate flag that adds the ring on top, per direct request. Today with
+nothing on it still takes `surface-rest` white rather than the grey of an
+ordinary empty day: the ring needs something to sit against. Verified
+in-browser — the 26th renders purple with inverse text inside the orange ring,
+flush with its neighbours.
+
+## 2026-08-26 — Generate: the chrome locks while a run is in flight
+
+Per direct request: leaving the generating page unmounts the view, and that
+unmount *is* what ends the run — so a sidebar tab or the navbar's Back arrow
+silently threw away whatever was left to generate. Both are now dimmed and
+non-interactive for exactly as long as the run lasts.
+
+- `lib/generation-lock.ts` — a module-level store in the shape of
+  lib/network-status.ts / lib/section-navigation.ts. Context wasn't an option
+  in any honest form: the writer is a page component and the readers are two
+  pieces of chrome *above* it in the tree, so a provider would have had to be
+  threaded through the project layout to connect them.
+- `hooks/use-generation-lock.ts` — the `useSyncExternalStore` read plus the two
+  class constants, so both pieces of chrome dim identically instead of the
+  treatment being written twice.
+- **`inert`, not `pointer-events-none`.** The latter blocks the mouse and
+  nothing else: Tab + Enter would still walk into the sidebar and navigate away
+  mid-run. `inert` takes the subtree out of the tab order and out of the
+  accessibility tree as well. React 19 renders it as a real attribute, so no
+  ref work is needed.
+- The dim is `opacity-40` on a 300ms `ease-out` fade rather than a hard cut —
+  the lock lands the instant Generate is pressed, and snapping there reads as a
+  glitch.
+- Released on `status !== "generating"` (Stop, completion) *and* on unmount, so
+  the lock can never outlive the page that set it — Close, a failed run that
+  navigates itself away, or a route error would otherwise leave the app's
+  chrome permanently dead.
+- `lib/generation-lock.test.ts` pins the store: default false, notify on
+  change, **no** notify on a repeat write (Stop → Resume → Stop shouldn't
+  re-render the chrome for a value it already holds), and silence after
+  unsubscribe.
+
+Verified in-browser through the real in-app path (Generate → "Generate posts"):
+mid-run at 4/12 with Stop showing, both the sidebar card and the navbar render
+at 40% while the page itself stays crisp, and a click on the Dashboard tab does
+nothing at all — the URL stays on /generating. The chrome comes back the moment
+the batch finishes.
+
+Gates: tsc clean, eslint clean on every new file, **128/128 tests** (4 new).
+
+**"What you're posting about" was reporting a month, not the library.** Chased
+from a report that LinkedIn showed 26 for a project that plainly has more.
+Nothing was miscounted: the card was fed `postsInMonth(posts, now)`, so 26 =
+19 scheduled in August + 7 undated written in August, with 16 September and 30
+November LinkedIn posts outside the window. The Try out figure looked right
+only by coincidence — 88 is also August-only, missing 19 try-out posts
+scheduled for October.
+
+The card now takes every post. Its title carries no month, it sits under a
+globally-scoped Total-posts bar, and "what you write about" is a property of
+the library rather than of a calendar page. `postsInMonth` (added earlier today
+for the Try-out-shows-zero fix) has no callers left and is deleted along with
+its tests — a global set covers undated posts by definition, which is what that
+helper existed to do. The calendar card and coverage stats keep their own
+month-scoped set, which is `monthPosts`, untouched.
+
+Verified in-browser: LinkedIn 72 · 40%, X 0, Try out 107 · 60% — summing to the
+project's 179, and matching the DB exactly (19+7+16+30 and 88+19). Gates: tsc
+clean, eslint clean, 126/126 tests.
+
+**The Total-posts card now counts one thing.** Per direct request (option 1 of
+three offered): its Queued and Published mini cards read the project-wide
+`totalsByState` figures instead of the reference month's, so the card's bar,
+legend and three tiles all describe the same set — 104 / 85 / 9 of 198, where
+Queued and Published used to say 10 and 9 "of 19 this month". `TotalPostsCard`
+lost its `monthScheduled`/`monthQueued`/`monthPublished` props entirely; the
+month still has the row below and the calendar.
+
+Two more, same request: "Still to go out" is now **"To go out this month"** (it
+was the one month-scoped figure whose label didn't say so), and its caption
+drops the word "queued" — "of 19 scheduled in August" — which would otherwise
+have meant something different from the Queued tile directly above it. The stat
+row reorders to **To go out this month → Empty days ahead → Written this week**,
+putting the two calendar figures side by side and the activity figure last.
+
+Verified in-browser against the DB: 104 drafts / 85 queued / 9 published of 198,
+"To go out this month 10, of 19 scheduled in August". Gates: tsc clean, eslint
+clean, 126/126 tests.
+
+(Aside worth noting: the first load after this edit landed on `error.tsx` — an
+HMR hiccup, not the change — and its "Try again" button recovered the page in
+one click, which is the first time that recovery path has been exercised for
+real rather than by forcing a throw.)

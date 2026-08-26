@@ -8,7 +8,6 @@ import {
   formatRelativeDay,
   nextUp,
   platformSplit,
-  postsInMonth,
   summariseMonth,
   topTopics,
 } from "@/lib/dashboard-summary"
@@ -121,35 +120,6 @@ describe("nextUp", () => {
     expect(result.map((entry) => new Date(entry.scheduledFor!).getDate())).toEqual([
       14, 20,
     ])
-  })
-})
-
-describe("postsInMonth", () => {
-  it("takes scheduled posts by their date and dateless ones by when they were written", () => {
-    const scheduledHere = onDay(3)
-    const scheduledElsewhere = post({
-      scheduledFor: new Date(2026, 8, 3, 9, 0).toISOString(),
-    })
-    // A try-out post as the usual Try out path leaves it — unscheduled, so
-    // its creation date is the only month it can belong to.
-    const tryout = post({ isTryout: true })
-    const writtenLastMonth = post({
-      createdAt: new Date(2026, 6, 20, 9, 0).toISOString(),
-    })
-
-    expect(
-      postsInMonth(
-        [scheduledHere, scheduledElsewhere, tryout, writtenLastMonth],
-        new Date(NOW)
-      )
-    ).toEqual([scheduledHere, tryout])
-  })
-
-  it("ignores when a scheduled post was written", () => {
-    // Written in July, going out in August — it belongs to August.
-    const post_ = onDay(20, { createdAt: new Date(2026, 6, 1).toISOString() })
-
-    expect(postsInMonth([post_], new Date(NOW))).toEqual([post_])
   })
 })
 

@@ -1,6 +1,5 @@
 import { Eyes } from "@phosphor-icons/react/dist/ssr"
 
-import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/shared/empty-state"
 import { ReplayOnboardingButton } from "@/components/onboarding/replay-onboarding-button"
 import { DashboardView } from "@/components/dashboard/dashboard-view"
@@ -53,15 +52,12 @@ export default async function DashboardPage({
           <ReplayOnboardingButton />
         </div>
 
+        {/* No action button, by request — the sidebar is right there, and a
+            CTA that isn't wired to anything is worse than none. */}
         <EmptyState
           icon={Eyes}
           caption="Nothing here"
           title="Create some posts & your dashboard will come alive."
-          action={
-            <Button variant="brand" size="xl">
-              Get started
-            </Button>
-          }
         />
       </div>
     )
