@@ -28,7 +28,9 @@ function StatBody({
   return (
     <>
       <span className="flex items-center gap-dist-md">
-        <StatIcon weight="bold" className="size-6 shrink-0 text-icon-bold" />
+        {/* icon-subtle, not icon-bold: the figure beside it is the loud part
+            of a stat card, and the mark only says which one it is. */}
+        <StatIcon weight="bold" className="size-6 shrink-0 text-icon-subtle" />
         <NumberFlow
           value={value}
           className="text-heading-lg font-display text-text-bold"

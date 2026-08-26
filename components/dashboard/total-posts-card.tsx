@@ -1,7 +1,7 @@
 "use client"
 
 import NumberFlow from "@number-flow/react"
-import { CalendarDots, Queue, Scribble } from "@phosphor-icons/react"
+import { CalendarDots, ListChecks, Queue, Scribble } from "@phosphor-icons/react"
 
 import type { PostTotals } from "@/lib/dashboard-summary"
 import {
@@ -76,7 +76,10 @@ export function TotalPostsCard({ totals }: { totals: PostTotals }) {
         <div className="flex flex-col">
           <span className="text-body-lg-bold text-text-subtle">Total posts</span>
           <span className="flex items-center gap-dist-md">
-            <CalendarDots weight="bold" className="size-6 shrink-0 text-icon-bold" />
+            {/* icon-subtle, matching every stat tile on this card and the row
+                below (see StatBody): the number is the loud part, the mark
+                only says which figure it is. */}
+            <CalendarDots weight="bold" className="size-6 shrink-0 text-icon-subtle" />
             <NumberFlow
               value={total}
               className="text-heading-lg font-display text-text-bold"
@@ -161,7 +164,7 @@ export function TotalPostsCard({ totals }: { totals: PostTotals }) {
         />
         <MiniStatCard
           label="Published"
-          icon={Queue}
+          icon={ListChecks}
           value={published}
           caption={`of ${total} total`}
         />
