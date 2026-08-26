@@ -1,10 +1,17 @@
+import { TRY_OUT_LABEL } from "@/lib/post-account"
 import type { Post, PostPlatform } from "@/types/post"
 
 // The Content page's filter (design-sync/content-filter-1, content-filter-2):
 // one social platform and any number of topics. Kept separate from the tab
 // split and the search query in lib/content-grouping.ts — those decide *what
 // section of the app you're in*, this narrows what's shown inside it.
-export type PlatformFilter = "all" | PostPlatform
+//
+// "tryout" is a position of its own rather than a platform, for the same
+// reason lib/post-account.ts makes it one on the account pill: a try-out post
+// carries a real platform (it has to be written for somewhere) with `isTryout`
+// set alongside, so filtering by "linkedin" alone would hand back the try-out
+// posts too, which is exactly what the person filtering was trying to exclude.
+export type PlatformFilter = "all" | PostPlatform | "tryout"
 
 export interface ContentFilter {
   platform: PlatformFilter
@@ -20,14 +27,17 @@ export interface ContentFilter {
 export const NO_CONTENT_FILTER: ContentFilter = { platform: "all", topics: [] }
 
 // The Social row is a cycling control (the export gives it the same
-// ArrowsClockwise the "Show as" pill uses), not a dropdown — with three
-// values a tap-through is fewer interactions than open-then-pick.
-const PLATFORM_CYCLE: PlatformFilter[] = ["all", "linkedin", "x"]
+// ArrowsClockwise the "Show as" pill uses), not a dropdown — with four
+// values a tap-through is still fewer interactions than open-then-pick.
+// "Try out" comes last, after the real accounts, matching the order the
+// dashboard's own platform bars read in.
+const PLATFORM_CYCLE: PlatformFilter[] = ["all", "linkedin", "x", "tryout"]
 
 export const PLATFORM_FILTER_LABELS: Record<PlatformFilter, string> = {
   all: "All",
   linkedin: "LinkedIn",
   x: "X",
+  tryout: TRY_OUT_LABEL,
 }
 
 export function nextPlatformFilter(current: PlatformFilter): PlatformFilter {
@@ -52,6 +62,19 @@ export function topicsInPosts(posts: Post[]): string[] {
   return [...topics].sort((a, b) => a.localeCompare(b))
 }
 
+// Whether a post sits under the selected social. `isTryout` is checked first,
+// the same precedence post-account.ts resolves a pill by and
+// dashboard-summary.ts's platformSplit counts by — so the three values are
+// disjoint and every post falls under exactly one of them.
+export function matchesPlatformFilter(
+  post: Pick<Post, "platform" | "isTryout">,
+  platform: PlatformFilter
+): boolean {
+  if (platform === "all") return true
+  if (platform === "tryout") return post.isTryout
+  return !post.isTryout && post.platform === platform
+}
+
 // Platform ANDs with topics; topics OR among themselves — picking Design and
 // Leadership asks for posts about either, which is what ticking two boxes in a
 // list reads as.
@@ -59,9 +82,7 @@ export function filterPosts(posts: Post[], filter: ContentFilter): Post[] {
   if (!isContentFilterActive(filter)) return posts
   const topics = new Set(filter.topics)
   return posts.filter((post) => {
-    if (filter.platform !== "all" && post.platform !== filter.platform) {
-      return false
-    }
+    if (!matchesPlatformFilter(post, filter.platform)) return false
     if (topics.size === 0) return true
     return post.topics.some((topic) => topics.has(topic))
   })

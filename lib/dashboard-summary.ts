@@ -129,6 +129,31 @@ export function nextUp(posts: Post[], now: number, limit: number): Post[] {
     .slice(0, limit)
 }
 
+// Which posts a month's *content* summary covers — the topic chips and the
+// platform bars, as opposed to the calendar and the coverage figures, which
+// are scheduled-only by nature.
+//
+// A scheduled post falls under the month it goes out in; a post with no date
+// at all falls under the month it was written in, which is the same rule the
+// Content page's Draft tab groups by (groupingDate in lib/content-grouping.ts)
+// and the only reading that gives a dateless post a month at all.
+//
+// The undated half is why this exists. Try-out posts are the case that forced
+// it: the common Try out path is a number-based generation, which schedules
+// nothing, so a scheduled-only set reported zero try-out posts no matter how
+// many had been generated. Not an invariant, though — calendar-based
+// generation carries whatever the account pill was on, so a *dated* try-out
+// post is reachable, and any post can be scheduled by hand afterwards. Both
+// halves below are load-bearing for that reason.
+export function postsInMonth(posts: Post[], reference: Date): Post[] {
+  const year = reference.getFullYear()
+  const month = reference.getMonth()
+  return posts.filter((post) => {
+    const date = new Date(post.scheduledFor ?? post.createdAt)
+    return date.getFullYear() === year && date.getMonth() === month
+  })
+}
+
 export interface TopicCount {
   topic: string
   count: number

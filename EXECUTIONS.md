@@ -1855,3 +1855,66 @@ Not done, and deliberately: the dashboard page still ships every post's full
 `content` into a client component to render 12 cards and some counts, which is
 a real payload concern at scale but a restructure rather than a fix. Left as a
 review finding.
+
+## 2026-08-26 — Two small fixes on main (no branch, by request)
+
+**1. "Try out" is a Content-page filter value.** `PlatformFilter` gained a
+`"tryout"` position and the Social row's cycle became
+all → LinkedIn → X → Try out → all. The matching is a new
+`matchesPlatformFilter`, which checks `isTryout` *before* platform — the same
+precedence `lib/post-account.ts` resolves a pill by and
+`dashboard-summary.ts`'s `platformSplit` counts by — so the three values are
+disjoint and, crucially, picking LinkedIn no longer hands back the try-out
+posts that borrow LinkedIn as their platform. In the menu, "Try out" draws the
+Eyes glyph (`PlatformFilterIcons` in content-filter.tsx) rather than a brand
+mark, matching post-account-icon.tsx and the dashboard's own platform bars.
+Verified in-browser on Design content's Draft tab: All → 17 drafts,
+LinkedIn → the 3 real ones only, X → the empty-filter state, Try out → the 14.
+
+**2. The dashboard's "What you're posting about" was counting Try out as 0.**
+Not a bug in `platformSplit` (which already partitions on `isTryout`) but in
+what it was handed: `dashboard-view.tsx` passed `monthPosts`, which is
+scheduled-only, and **every try-out post is dateless** — the Try out flow
+writes posts, it never schedules them. New `postsInMonth` in
+dashboard-summary.ts takes a scheduled post by its date and a dateless one by
+when it was written (the same rule the Content page's Draft tab groups by), and
+the card now reads that set. Its topic chips pick up the same posts, which they
+were also missing. The calendar and coverage figures still use the
+scheduled-only set — those are scheduled-only by nature. Verified in-browser:
+that row went from "0 posts • 0%" to "Try out • 14 posts • 42%", with LinkedIn
+at 19 and the two summing to the card's total.
+
+Gates: tsc clean, `lib/content-filter.test.ts` 19/19 and
+`lib/dashboard-summary.test.ts` 19/19 (four new tests across the two, covering
+the cycle, the isTryout-before-platform precedence, the stored value round-trip
+and `postsInMonth`'s two halves). Full suite 123/124 — the one failure is
+`lib/ai/generate.test.ts`, a live Gemini call, environmental and untouched
+here. `npm run lint` reports 17 pre-existing `react-hooks/refs` errors in files
+this change doesn't touch (switch.tsx, generate-calendar-column.tsx, others);
+no new ones.
+
+**Follow-ups on the same filter row, per direct feedback.** (a) The "All" value
+now draws the Try out mark alongside the two brand ones — `PLATFORM_ICONS` maps
+each filter value to *the values it covers* rather than to platforms, so `all`
+is `["linkedin", "x", "tryout"]` and one branch in `PlatformFilterIcons`
+renders Eyes wherever that entry appears (the `PostPlatform` import went with
+the old shape). (b) The Eyes glyph read smaller than its neighbours, and it
+was: measured in the live DOM, three identical 16px boxes paint 16.0×16.0
+(LinkedIn's mark fills its square edge to edge), 14.7×13.3 (X) and 13.5×12.5
+(Eyes). Boxes matching is not glyphs matching. Eyes is now `size-4.5` (18px),
+which paints 15.2×14.1 — between the other two — the same optical-fit reasoning
+as FilterCheckbox's `size-3.5` Check inside its 20px well. The other Eyes call
+sites (post-account-icon.tsx, the dashboard's PlatformRow) are untouched, since
+nothing sits a brand mark beside them in the same row.
+
+**The filter menu's topic list lost its scrollbar thumb, per direct request.**
+`useScrollThumb`/`ScrollbarThumb` are gone from content-filter.tsx, along with
+the `relative` wrapper that only existed to position the thumb and the callback
+ref that composed the two hooks onto one node — `useScrollFade` now owns the
+list's ref and scroll handler outright. `HIDE_NATIVE_SCROLLBAR_CLASSNAME`
+stays: hiding the native bar is the standing rule (AGENTS.md Conventions),
+showing a custom one is the per-container call, and this container now makes
+the same call the page-level `<main>` did. The top/bottom edge fades are what
+signal there's more to see. Verified in-browser: the list still scrolls under
+the wheel, no thumb appears, and both fades still track the remaining scroll
+distance.

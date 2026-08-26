@@ -28,10 +28,11 @@ function makePost(overrides: Partial<Post> = {}): Post {
 }
 
 describe("nextPlatformFilter", () => {
-  it("cycles all → linkedin → x → all", () => {
+  it("cycles all → linkedin → x → tryout → all", () => {
     expect(nextPlatformFilter("all")).toBe("linkedin")
     expect(nextPlatformFilter("linkedin")).toBe("x")
-    expect(nextPlatformFilter("x")).toBe("all")
+    expect(nextPlatformFilter("x")).toBe("tryout")
+    expect(nextPlatformFilter("tryout")).toBe("all")
   })
 })
 
@@ -63,7 +64,14 @@ describe("filterPosts", () => {
     topics: ["Leadership"],
   })
   const untagged = makePost({ platform: "linkedin", topics: [] })
-  const posts = [linkedinDesign, xDesign, linkedinLeadership, untagged]
+  // A try-out post carries a real platform alongside the flag — the case the
+  // platform filter has to read as "Try out" rather than as LinkedIn.
+  const tryout = makePost({
+    platform: "linkedin",
+    topics: ["Design"],
+    isTryout: true,
+  })
+  const posts = [linkedinDesign, xDesign, linkedinLeadership, untagged, tryout]
 
   it("returns everything when nothing is selected", () => {
     expect(filterPosts(posts, NO_CONTENT_FILTER)).toEqual(posts)
@@ -73,10 +81,30 @@ describe("filterPosts", () => {
     expect(filterPosts(posts, { platform: "x", topics: [] })).toEqual([xDesign])
   })
 
+  it("keeps try-out posts out of their own platform's results", () => {
+    expect(filterPosts(posts, { platform: "linkedin", topics: [] })).toEqual([
+      linkedinDesign,
+      linkedinLeadership,
+      untagged,
+    ])
+  })
+
+  it("narrows to try-out posts, whatever platform they carry", () => {
+    expect(filterPosts(posts, { platform: "tryout", topics: [] })).toEqual([
+      tryout,
+    ])
+  })
+
+  it("ANDs try out with the topics like any other platform", () => {
+    expect(
+      filterPosts(posts, { platform: "tryout", topics: ["Leadership"] })
+    ).toEqual([])
+  })
+
   it("ORs the selected topics among themselves", () => {
     expect(
       filterPosts(posts, { platform: "all", topics: ["Design", "Leadership"] })
-    ).toEqual([linkedinDesign, xDesign, linkedinLeadership])
+    ).toEqual([linkedinDesign, xDesign, linkedinLeadership, tryout])
   })
 
   it("ANDs the platform with the topics", () => {
@@ -121,6 +149,13 @@ describe("parseContentFilter", () => {
     expect(parseContentFilter('{"platform":"all","topics":[]}')).toBe(
       NO_CONTENT_FILTER
     )
+  })
+
+  it("restores try out, which is a filter value but not a platform", () => {
+    expect(parseContentFilter('{"platform":"tryout","topics":[]}')).toEqual({
+      platform: "tryout",
+      topics: [],
+    })
   })
 
   it("drops values that aren't part of the filter any more", () => {

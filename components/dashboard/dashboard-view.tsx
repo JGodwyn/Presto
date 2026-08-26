@@ -12,6 +12,7 @@ import {
   createdWithinDays,
   nextUp,
   platformSplit,
+  postsInMonth,
   summariseMonth,
   topTopics,
   totalsByState,
@@ -113,6 +114,13 @@ export function DashboardView({
     if (existing) existing.push(post.id)
     else postIdsByDay.set(day, [post.id])
   }
+
+  // Wider than `monthPosts` on purpose: that set is scheduled-only, which the
+  // calendar above needs and this card doesn't — a dateless post still says
+  // something about what you're writing. Try-out posts are the case that made
+  // this necessary: the usual Try out path schedules nothing, so the bar sat
+  // at zero however many had been generated.
+  const monthContentPosts = postsInMonth(posts, nowDate)
 
   const monthName = summary.label.split(" ")[0]
   const emptyRemaining = summary.daysRemaining - summary.remainingDaysCovered
@@ -242,9 +250,9 @@ export function DashboardView({
 
       <div className="flex flex-col gap-dist-lg xl:flex-row xl:items-start">
         <PostingAboutCard
-          topics={topTopics(monthPosts, TOP_TOPICS_LIMIT)}
-          split={platformSplit(monthPosts)}
-          total={monthPosts.length}
+          topics={topTopics(monthContentPosts, TOP_TOPICS_LIMIT)}
+          split={platformSplit(monthContentPosts)}
+          total={monthContentPosts.length}
           className="xl:w-108 xl:shrink-0"
         />
         <SetupCard rows={setupRows} className="xl:min-w-0 xl:flex-1" />

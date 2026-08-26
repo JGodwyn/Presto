@@ -6,16 +6,13 @@ import {
   ArrowCounterClockwise,
   ArrowsClockwise,
   Check,
+  Eyes,
   FunnelSimple,
 } from "@phosphor-icons/react"
 
 import { SocialIcon } from "@/components/shared/social-icon"
 import { Menu, MenuItem } from "@/components/ui/menu"
-import { ScrollbarThumb } from "@/components/ui/scrollbar-thumb"
-import {
-  HIDE_NATIVE_SCROLLBAR_CLASSNAME,
-  useScrollThumb,
-} from "@/hooks/use-scroll-thumb"
+import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/hooks/use-scroll-thumb"
 import { useIconSpin } from "@/hooks/use-icon-spin"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
@@ -26,9 +23,9 @@ import {
   nextPlatformFilter,
   toggleTopicFilter,
   type ContentFilter,
+  type PlatformFilter,
 } from "@/lib/content-filter"
 import { cn } from "@/lib/utils"
-import type { PostPlatform } from "@/types/post"
 
 // Figma radii as px for the squircle path math: the header chip is rad-xmd,
 // the Social row rad-md, each checkbox rad-sm.
@@ -54,12 +51,37 @@ const LIST_FADE_BOTTOM_PX = 32
 // The gap the export leaves between the chip and the menu below it (dist-md).
 const MENU_OFFSET_PX = 8
 
-// Which social marks the Social row shows for each value — "All" draws both,
-// matching design-sync/content-filter-1.
-const PLATFORM_ICONS: Record<ContentFilter["platform"], PostPlatform[]> = {
-  all: ["linkedin", "x"],
-  linkedin: ["linkedin"],
-  x: ["x"],
+// Which marks the Social row shows for each value — "All" draws every value it
+// covers, which is what design-sync/content-filter-1 does with the two
+// platforms and now includes Try out alongside them. "Try out" has no brand
+// mark of its own, so it borrows the Eyes glyph every other try-out affordance
+// uses (post-account-icon.tsx, the dashboard's platform bars).
+const PLATFORM_ICONS: Record<PlatformFilter, Exclude<PlatformFilter, "all">[]> =
+  {
+    all: ["linkedin", "x", "tryout"],
+    linkedin: ["linkedin"],
+    x: ["x"],
+    tryout: ["tryout"],
+  }
+
+function PlatformFilterIcons({ platform }: { platform: PlatformFilter }) {
+  return (
+    <>
+      {PLATFORM_ICONS[platform].map((entry) =>
+        entry === "tryout" ? (
+          // 18px against the brand marks' 16, which is what makes the three
+          // read as one size: Phosphor's Eyes paints 13.5×12.5 inside its own
+          // box, where the LinkedIn mark fills its 16 square edge to edge, so
+          // matching the boxes leaves the glyphs visibly unequal. Sized to the
+          // painted mark, not the box — the same optical fit as FilterCheckbox's
+          // size-3.5 Check inside a 20px well.
+          <Eyes key={entry} weight="bold" className="size-4.5 text-icon-subtle" />
+        ) : (
+          <SocialIcon key={entry} platform={entry} className="size-4" />
+        )
+      )}
+    </>
+  )
 }
 
 // The 20px box in each topic row's right slot. Its border is an inset shadow
@@ -128,34 +150,18 @@ export function ContentFilterMenu({
     useSquircleClipPath<HTMLButtonElement>({
       cornerRadius: SOCIAL_CORNER_RADIUS,
     })
-  // The row count changes as topics come and go, and scrollHeight can change
-  // without the box's own size changing (it's pinned at max-h).
-  const {
-    ref: listRef,
-    thumb,
-    visible: thumbVisible,
-    onScroll: updateThumb,
-  } = useScrollThumb<HTMLDivElement>([topics.length, open])
-  // Same edge treatment every other overflowing area in the app gets — each
-  // edge's fade is the scroll distance actually left there, so a list that
-  // fits (or sits at an end) is never dimmed.
-  const { ref: listFadeRef, onScroll: updateListFade } = useScrollFade({
+  // No thumb on this list, by request — the native scrollbar stays hidden
+  // either way (see the Conventions note in AGENTS.md: hiding it is the rule,
+  // showing a custom one is a per-container call), and the edge fade below is
+  // what says there's more to see. Same call the page-level `<main>` made.
+  //
+  // Each edge's fade is the scroll distance actually left there, so a list
+  // that fits (or sits at an end) is never dimmed.
+  const { ref: listRef, onScroll: handleListScroll } = useScrollFade({
     axis: "y",
     start: LIST_FADE_TOP_PX,
     end: LIST_FADE_BOTTOM_PX,
   })
-  // Both hooks want the same node and the same scroll events.
-  const setListNode = React.useCallback(
-    (node: HTMLDivElement | null) => {
-      listRef(node)
-      listFadeRef(node)
-    },
-    [listRef, listFadeRef]
-  )
-  const handleListScroll = () => {
-    updateThumb()
-    updateListFade()
-  }
   // The Social row cycles rather than opening a list, so its icon turns on
   // each tap — the same treatment (and hook) as the "Show as" pill.
   const { ref: socialIconRef, style: socialIconStyle, spin } = useIconSpin()
@@ -276,13 +282,7 @@ export function ContentFilterMenu({
                     className="flex h-8 w-full cursor-pointer items-center gap-dist-md rounded-rad-md bg-surface-3 px-pad-sm py-pad-xs transition-[background-color,scale] duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
                   >
                     <span className="flex shrink-0 items-center gap-dist-sm">
-                      {PLATFORM_ICONS[filter.platform].map((platform) => (
-                        <SocialIcon
-                          key={platform}
-                          platform={platform}
-                          className="size-4"
-                        />
-                      ))}
+                      <PlatformFilterIcons platform={filter.platform} />
                     </span>
                     <span className="flex-1 truncate text-left text-body-lg text-text-bold">
                       {PLATFORM_FILTER_LABELS[filter.platform]}
@@ -310,76 +310,62 @@ export function ContentFilterMenu({
                   <span className="px-pad-lg text-body-md text-text-subtle">
                     Topics
                   </span>
-                  {/* relative, with the scroll box as its only child sharing
-                      its top edge: the thumb's offset is measured against the
-                      scroll container, so an ancestor starting higher (here,
-                      the label) would push it out of step. */}
-                  <div className="relative">
-                    <div
-                      ref={setListNode}
-                      onScroll={handleListScroll}
-                      className={cn(
-                        "flex flex-col overflow-y-auto",
-                        TOPIC_LIST_MAX_HEIGHT,
-                        HIDE_NATIVE_SCROLLBAR_CLASSNAME
-                      )}
+                  <div
+                    ref={listRef}
+                    onScroll={handleListScroll}
+                    className={cn(
+                      "flex flex-col overflow-y-auto",
+                      TOPIC_LIST_MAX_HEIGHT,
+                      HIDE_NATIVE_SCROLLBAR_CLASSNAME
+                    )}
+                  >
+                    <MenuItem
+                      onClick={() => onFilterChange({ ...filter, topics: [] })}
+                      role="menuitemradio"
+                      aria-checked={allTopics}
                     >
-                      <MenuItem
-                        onClick={() => onFilterChange({ ...filter, topics: [] })}
-                        role="menuitemradio"
-                        aria-checked={allTopics}
-                      >
-                        <span className="flex-1 truncate">All topics</span>
-                        {allTopics ? (
-                          <Check
-                            weight="bold"
-                            className="size-6 shrink-0 text-icon-success transition-[opacity,scale] duration-150 ease-out starting:scale-75 starting:opacity-0"
-                          />
-                        ) : null}
-                      </MenuItem>
+                      <span className="flex-1 truncate">All topics</span>
+                      {allTopics ? (
+                        <Check
+                          weight="bold"
+                          className="size-6 shrink-0 text-icon-success transition-[opacity,scale] duration-150 ease-out starting:scale-75 starting:opacity-0"
+                        />
+                      ) : null}
+                    </MenuItem>
 
-                      {topics.map((topic) => {
-                        const checked = filter.topics.includes(topic)
-                        return (
-                          <MenuItem
-                            key={topic}
-                            onClick={() =>
-                              onFilterChange({
-                                ...filter,
-                                topics: toggleTopicFilter(filter.topics, topic),
-                              })
-                            }
-                            role="menuitemcheckbox"
-                            aria-checked={checked}
-                            withDivider
-                            // left/right, not `before:inset-x-0`: MenuItem's
-                            // own `before:inset-x-pad-md` survives
-                            // tailwind-merge (a named spacing value it doesn't
-                            // recognise as part of the inset group), so the
-                            // two both land in the stylesheet and *CSS* order
-                            // decides — which the inset shorthand wins. The
-                            // longhands are ordered after it, so these do.
-                            // The negative offsets cancel MenuItem's own
-                            // transparent border (stroke-xl), which insets the
-                            // padding box a pseudo-element is positioned
-                            // against — the same cancellation its
-                            // `-top-[…stroke-xl]` already does vertically.
-                            className="before:-left-[length:var(--stroke-xl)] before:-right-[length:var(--stroke-xl)]"
-                          >
-                            <span className="flex-1 truncate">{topic}</span>
-                            <FilterCheckbox checked={checked} />
-                          </MenuItem>
-                        )
-                      })}
-                    </div>
-                    {/* The list runs to the card's edges, so the thumb needs
-                        its own gutter — dist-md off the edge, clear of the
-                        card's own border. */}
-                    <ScrollbarThumb
-                      thumb={thumb}
-                      visible={thumbVisible}
-                      className="right-2"
-                    />
+                    {topics.map((topic) => {
+                      const checked = filter.topics.includes(topic)
+                      return (
+                        <MenuItem
+                          key={topic}
+                          onClick={() =>
+                            onFilterChange({
+                              ...filter,
+                              topics: toggleTopicFilter(filter.topics, topic),
+                            })
+                          }
+                          role="menuitemcheckbox"
+                          aria-checked={checked}
+                          withDivider
+                          // left/right, not `before:inset-x-0`: MenuItem's
+                          // own `before:inset-x-pad-md` survives
+                          // tailwind-merge (a named spacing value it doesn't
+                          // recognise as part of the inset group), so the
+                          // two both land in the stylesheet and *CSS* order
+                          // decides — which the inset shorthand wins. The
+                          // longhands are ordered after it, so these do.
+                          // The negative offsets cancel MenuItem's own
+                          // transparent border (stroke-xl), which insets the
+                          // padding box a pseudo-element is positioned
+                          // against — the same cancellation its
+                          // `-top-[…stroke-xl]` already does vertically.
+                          className="before:-left-[length:var(--stroke-xl)] before:-right-[length:var(--stroke-xl)]"
+                        >
+                          <span className="flex-1 truncate">{topic}</span>
+                          <FilterCheckbox checked={checked} />
+                        </MenuItem>
+                      )
+                    })}
                   </div>
                 </div>
               </Menu>

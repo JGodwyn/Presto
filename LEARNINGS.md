@@ -642,3 +642,30 @@ Keep both tees' "did we get real content" test byte-identical. And never abort
 an in-flight request just to silence setState-after-unmount: use a cancelled
 flag and let the read loop run out, or the server stops persisting the work the
 user already paid for.
+
+## A correct aggregator over the wrong input set reads as a broken feature
+
+**Symptom.** The dashboard's "What you're posting about" reported Try out at
+"0 posts • 0%" for a project holding 14 try-out posts, while the LinkedIn bar
+beside it counted fine.
+
+**Cause.** `platformSplit()` was right — it partitions on `isTryout` before
+platform, and its tests pin exactly that. The bug was one level up, in what it
+was handed: `dashboard-view.tsx` passed `monthPosts`, a **scheduled-only** set
+(it exists for the month calendar, which has nothing to draw for a post with no
+date). And try-out posts are normally dateless — the usual Try out path is a
+number-based generation, which schedules nothing. So the class of post the row
+exists to count was filtered out before the counting started, and no test of
+the counter could ever catch it.
+
+**Rule.** When a derived figure reads as zero, check the set before checking
+the derivation — a filter applied upstream for a *different* consumer's needs
+is invisible at the point the number is computed, and passes every unit test
+the computation has. Where a set is reused across consumers, name it for what
+it *contains* (`monthPosts` = scheduled in this month) rather than for the
+month it belongs to, and give a consumer with different needs its own set
+(`postsInMonth`, which takes a dateless post by its creation date). The wider
+tell: any code path keyed on `scheduled_for` silently excludes every draft, and
+try-out posts are usually drafts. Usually, not always — calendar-based
+generation carries whatever the account pill was on, so a dated try-out post is
+reachable. `postsInMonth` handles both halves rather than relying on that.
