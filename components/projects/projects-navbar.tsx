@@ -1,10 +1,10 @@
 "use client"
 
-import Image from "next/image"
 import Link from "next/link"
-import { ArrowLeft, ArrowLeftIcon, Gear, GearFine } from "@phosphor-icons/react"
+import { ArrowLeftIcon } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
+import { UserAvatar } from "@/components/shared/user-avatar"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import {
   CHROME_LOCK_CLASSNAME,
@@ -40,26 +40,33 @@ function PrestoLogoMono() {
   )
 }
 
-// settingsHref: the gear points at the user-level /settings stub by default;
-// inside a project the layout passes that project's settings path instead.
+// profileHref: the name chip is the way into the profile screen (there is no
+// gear here any more). It points at the user-level /profile stub by default;
+// inside a project the layout passes that project's profile path instead.
 // backHref: only set inside a project (by ProjectTopbar) — the picker itself
 // has nothing to go "back" to, so this navbar's /projects usage omits it.
 export function ProjectsNavbar({
   userName,
-  settingsHref = "/settings",
+  userId,
+  avatarUrl,
+  gradientId,
+  profileHref = "/profile",
   backHref,
 }: {
   userName: string
-  settingsHref?: string
+  userId?: string | null
+  avatarUrl?: string | null
+  gradientId?: string | null
+  profileHref?: string
   backHref?: string
 }) {
   const { ref: chipRef, style: chipStyle } =
-    useSquircleClipPath<HTMLDivElement>({
+    useSquircleClipPath<HTMLAnchorElement>({
       cornerRadius: CHIP_CORNER_RADIUS,
       cornerSmoothing: 1,
     })
   // Same lock as the sidebar: while a generation is running, Back and the
-  // gear are the other two ways off the page. This navbar also serves
+  // name chip are the other two ways off the page. This navbar also serves
   // /projects, where nothing can be generating, so reading the lock here
   // costs that screen nothing.
   const locked = useGenerationLock()
@@ -86,34 +93,28 @@ export function ProjectsNavbar({
         <PrestoLogoMono />
       </div>
 
-      <div className="flex items-center gap-dist-md">
-        <div
-          ref={chipRef}
-          style={chipStyle}
-          className="flex items-center gap-dist-md rounded-rad-lg bg-surface-inverse py-pad-xs pr-pad-md pl-pad-sm"
-        >
-          <Image
-            src="/images/create-project/avatar.svg"
-            alt=""
-            width={28}
-            height={28}
-          />
-          <span className="text-heading-sm font-display text-text-inverse">
-            {userName}
-          </span>
-        </div>
-
-        <Button
-          variant="brand-secondary"
-          size="icon-md"
-          // Base UI requires this when `render` swaps the underlying element
-          // to a non-<button> (here a Link) — silences its semantics warning.
-          nativeButton={false}
-          render={<Link href={settingsHref} aria-label="Settings" />}
-        >
-          <GearFine weight="bold" />
-        </Button>
-      </div>
+      {/* The chip is the only way into the profile screen now that the gear
+          is gone, so it's a real link — same press feedback as the folder
+          cards on /projects (150ms per the animation standards). */}
+      <Link
+        ref={chipRef}
+        href={profileHref}
+        style={chipStyle}
+        className="flex items-center gap-dist-md rounded-rad-lg bg-surface-inverse py-pad-xs pr-pad-md pl-pad-sm transition-[scale] duration-150 ease-out active:scale-[0.97]"
+      >
+        <UserAvatar
+          userId={userId}
+          avatarUrl={avatarUrl}
+          gradientId={gradientId}
+          size={28}
+        />
+        {/* max-w + truncate so a very long name can't stretch the chip off
+            the edge of the navbar; min-w-0 is what lets a flex child shrink
+            below its content width at all. */}
+        <span className="min-w-0 max-w-40 truncate text-heading-sm font-display text-text-inverse">
+          {userName}
+        </span>
+      </Link>
     </header>
   )
 }

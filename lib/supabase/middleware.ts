@@ -4,8 +4,14 @@ import { NextResponse, type NextRequest } from "next/server"
 import { isNetworkError } from "@/lib/network-error"
 
 // Everything signed-in lives under these three: the dashboard sections all
-// moved to /projects/<id>/…, and /settings is the gear's redirect stub.
-const PROTECTED_PREFIXES = ["/create-project", "/projects", "/settings"]
+// moved to /projects/<id>/…; /profile and /settings are redirect stubs into
+// the first project (the name chip on /projects has no project in scope).
+const PROTECTED_PREFIXES = [
+  "/create-project",
+  "/projects",
+  "/profile",
+  "/settings",
+]
 
 // @supabase/ssr stores the session as `sb-<project-ref>-auth-token`, split
 // across `.0`/`.1` suffixes when it outgrows one cookie. Its presence isn't

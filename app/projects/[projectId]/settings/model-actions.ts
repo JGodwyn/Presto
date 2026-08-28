@@ -279,7 +279,7 @@ export async function addUserAiModel(
     return { error: "Couldn't save that model. Please try again." }
   }
 
-  revalidatePath(`/projects/${parsed.data.projectId}/settings`)
+  revalidatePath(`/projects/${parsed.data.projectId}/profile`)
 
   return { ok: true, model: mapRow(data) }
 }
@@ -309,7 +309,7 @@ export async function deleteUserAiModel(
     return { error: "Couldn't remove that model. Please try again." }
   }
 
-  revalidatePath(`/projects/${parsed.data.projectId}/settings`)
+  revalidatePath(`/projects/${parsed.data.projectId}/profile`)
 
   return { ok: true }
 }

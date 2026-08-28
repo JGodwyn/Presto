@@ -201,3 +201,58 @@ the first paint.
 **Why it waited:** `content-view.tsx` and `day-deck.tsx` were both dirty in the
 live `post-accounts` worktree while the dashboard was being built. Safe to do
 once that has landed.
+
+---
+
+## `lib/ai/generate.test.ts` is flaky — it calls the live Gemini API
+
+**From:** `feat/settings-profile`, 2026-08-28.
+
+The test is gated on `GOOGLE_GENERATIVE_AI_API_KEY` being set, which it is
+locally via `.env.local`, so it makes a real model call on every `npm test`.
+Observed on this branch: failed (30s timeout), failed, passed on clean HEAD,
+passed again with the same changes reapplied — i.e. pure latency variance, not
+a regression. It also makes the whole suite take ~30s instead of ~7s.
+
+**It also spends real quota.** Later the same day it started failing with
+`AI_APICallError: You exceeded your current quota … limit: 20, model:
+gemini-3.6-flash` — the free tier's per-window request cap, burned purely by
+re-running `npm test` during a UI task that touches none of the AI code. So the
+suite is not just flaky, it is self-limiting: run it enough times in a session
+and it goes red until the window resets (~40s here, but the daily cap is the
+one that bites).
+
+**Why it matters:** a gate that goes red at random trains you to ignore it,
+`/handoff` runs the suite, and every run costs a request nobody asked for.
+
+**Do:** one of — raise just this test's timeout (`it(..., { timeout: 60000 })`)
+so slow-but-working calls pass; move it behind an explicit opt-in env var so it
+doesn't run in the default suite; or record the response and assert against a
+fixture, keeping the live call as a separate manual check. The last is the only
+one that also makes the suite fast again.
+
+---
+
+## `npm run lint` is red on `main`, so `/handoff`'s lint gate can't be met
+
+**From:** `feat/settings-profile`, 2026-08-28.
+
+`npm run lint` reports **19 errors on `main` itself** — `react-hooks/refs` in
+`components/ui/switch.tsx` (4) and `components/generate/generate-calendar-column.tsx`
+(9), plus `react-hooks/set-state-in-effect` in create-project-modal,
+generating-view, onboarding-context and project-sidebar. None are new; the
+generate-calendar-column ones are already noted in AGENTS.md as pre-existing.
+
+**Why it matters:** `/handoff` says "do not mark a branch ready with a failing
+gate", and that instruction is currently impossible to follow — every branch
+inherits a red gate it didn't cause. A gate nobody can pass is a gate everybody
+learns to wave through, which is how a *real* failure gets missed.
+
+**Do:** either fix the two rule families (both are mechanical — the `refs` ones
+want the value read in a callback ref or effect rather than during render), or
+downgrade those two rules to warnings in `eslint.config.mjs` with a comment
+pointing here. Fixing is better; `switch.tsx` is four lines and would prove the
+pattern for the other nine.
+
+Meanwhile the honest gate is **"no *new* errors"**: this branch took the count
+from 19 to 17.

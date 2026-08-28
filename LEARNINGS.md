@@ -121,6 +121,41 @@ its `fixed` descendants.** A `fixed inset-0` overlay rendered inside a
 squircle-clipped panel lays out *inside the panel* and gets cropped. → Portal
 overlays to `<body>`.
 
+This has now bitten three times — day-deck's overlay, post-details' toast, and
+Profile's change-password toast, which appeared to slide out of the password
+card instead of down from the top of the screen. Every squircled card in this
+app carries a clip-path, so **any toast raised from inside a card hits it**. →
+`components/shared/toast-slot.tsx` is the shared fix; reach for it rather than
+writing another `fixed inset-x-0 top-pad-2xl` wrapper in place.
+
+**Identical transitions do not make two elements move as one.** A popover card
+and its tip, each with the same duration and easing but scaling around its own
+transform-origin, travel at different rates in screen space — the tip visibly
+detaches and re-seats. → Put the smaller part *inside* the element that
+animates, so one transform moves both. Same reasoning as the FLIP/offsetParent
+note below: geometry, not timing.
+
+**Base UI's enter/exit animations need `data-starting-style` /
+`data-ending-style`, not a React `open ?` ternary.** The element mounts with
+`open` already true, so a ternary renders it at its final state with nothing to
+transition from — it snaps, and any dials driving it look dead. → Keep the
+resting state as the base classes and put the from-states on the two data
+variants, as dialog.tsx does.
+
+**"Declared" is not "running".** Reading `transition-duration` /
+`transition-timing-function` off a settled element proves only that the
+transition exists, not that it ever played — a snapping element reports exactly
+the same computed values. → Verify motion by catching a mid-flight frame with
+`computer` (screenshots foreground the tab), or by cranking the duration up
+first. Never conclude from computed styles alone.
+
+**Base UI's `Popup` parts ignore the `style` prop.** Dialog.Popup and
+Popover.Popup both write their own `style` attribute straight to the DOM,
+outside React, clobbering anything passed in that way — an inline
+`transitionDuration` silently reverts to whatever the class list says. → Set
+CSS variables on the *positioner* (or any ancestor you own) and reference them
+from the popup's className; variables inherit and nothing overwrites them.
+
 **A `transform` makes the element its descendants' `offsetParent`.** FLIP
 measurements taken inside a transformed row miss the row's own re-centring. →
 Put the transform on a wrapper *around* the scrolling row.
@@ -695,3 +730,23 @@ here it sent me instrumenting the store, then hunting a stale-bundle theory,
 before a plain screenshot showed the feature working the whole time. A visible
 one-off probe string rendered by the component under test is the cheap way to
 tell a stale bundle from a stalled commit.
+
+## A backgrounded tab hides CSS transitions too, not just rAF animations
+
+**Symptom:** verifying the Profile disclosure's open/close, no
+`transitionrun`/`transitionstart`/`transitionend` ever fired on the animated
+element; `element.getAnimations()` returned `[]` immediately after a click that
+demonstrably changed the state; and injecting a `transition-duration: 3000ms
+!important` override still produced a fully-settled screenshot.
+
+**Cause:** every `javascript_tool` eval backgrounds the tab (already noted in
+AGENTS.md for Motion/rAF animations, which freeze at their initial frame). The
+same suspension applies to *CSS transitions* — they complete without dispatching
+their events while hidden, so any listener installed by an eval has nothing to
+catch by the time the next eval reads it.
+
+**Rule:** through this automation path you can verify a transition's
+*declarations* (`transition-property`, duration, timing function, delay) and its
+two *settled* states, and that's it. Don't claim to have watched a transition
+play. If the interpolation itself is genuinely in doubt, that needs a real pair
+of eyes or a screen recording, not another eval.

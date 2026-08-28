@@ -2068,3 +2068,826 @@ clean, 126/126 tests.
 HMR hiccup, not the change — and its "Try again" button recovered the page in
 one click, which is the first time that recovery path has been exercised for
 real rather than by forcing a throw.)
+
+## 2026-08-26 — Profile reachable from the name chip; gear retired
+
+`feat/settings-profile`, port 3002. The branch's original brief (fold Profile
+*into* Settings, since nothing linked to /profile) is superseded: Profile
+becomes the screen the navbar's name chip opens, and the gear goes away.
+
+1. `app/projects/[projectId]/profile/page.tsx` now renders the in-project
+   section loading screen — `SectionSpinner` centered in a `flex-1` box, the
+   same markup `app/projects/[projectId]/loading.tsx` uses — as a deliberate
+   placeholder until the Figma export lands. Its old heading/paragraph and
+   Log out form are gone; `logout-button.tsx` **stays**, because
+   `settings/page.tsx` imports `LogoutButton` from this folder.
+2. `components/projects/projects-navbar.tsx`: the gear button is deleted
+   (`Gear`/`GearFine` imports with it), and the user chip is now the `<Link>`
+   into Profile — a `Link` carrying the squircle ref (typed
+   `HTMLAnchorElement`) plus the app's standard 150ms `active:scale-[0.97]`
+   press feedback. The `settingsHref` prop became `profileHref`.
+3. `components/shared/project-topbar.tsx` and
+   `app/projects/[projectId]/layout.tsx` follow the rename; the layout now
+   passes `/projects/${projectId}/profile`.
+4. New `app/profile/page.tsx` — the same redirect stub `app/settings/page.tsx`
+   already was, for the same reason: the /projects navbar has no project in
+   scope, so the chip there forwards into the first project's profile.
+
+Verified in-browser on :3002 — no gear on either navbar, the chip on /projects
+lands on `/projects/<id>/profile` via the stub, and that page shows exactly the
+section spinner. Gates: tsc clean, eslint clean on the touched files, 126/126 tests.
+
+**One flaky test caught while checking those gates**, worth knowing about:
+`lib/ai/generate.test.ts` makes a *real* Gemini call and vitest's default 30s
+timeout is not always enough — it failed twice, passed on clean HEAD, then
+passed again with the same changes applied. Not caused by anything here (none
+of these files are in that test's import graph), but it means a red suite on
+this branch should be re-run before it's believed. Logged in FOLLOWUPS.
+
+**Left undone, flagged to the user:** the gear was the only UI route to
+Settings, so Settings is now reachable by URL only. See FOLLOWUPS.md.
+
+### Same day, follow-up — Settings merged into Profile
+
+The spinner placeholder above was doing exactly what it looked like: loading
+forever. Replaced by the actual merge, which is the branch's original brief
+run in the opposite direction (fold Settings *into* Profile, not the reverse —
+Profile is the screen the name chip now opens, so it's the one that should hold
+the content).
+
+1. `profile/page.tsx` is now Settings' old body verbatim — `AiModelsCard` +
+   the Log out form, same `@starting-style` mount-in — and takes `params` for
+   the `projectId` the card threads to its server actions.
+2. `settings/page.tsx` became a redirect to `../profile`, and the top-level
+   `app/settings/page.tsx` stub now forwards to the first project's *profile*.
+   Kept as redirects rather than deleted so bookmarks and any stale link land
+   on the screen that holds the content.
+3. `model-actions.ts`'s two `revalidatePath` calls repointed to `/profile`.
+   The file itself stays under `settings/` — its path is an implementation
+   detail imported by three `components/settings/*` files, and moving it would
+   be churn for no behavior change.
+4. The dashboard's setup checklist: `hrefs.settings` → `hrefs.profile`
+   (renamed, not just repointed, in both `dashboard/page.tsx` and
+   `dashboard-view.tsx`).
+5. `PROTECTED_PREFIXES` in `lib/supabase/middleware.ts` gained `/profile`.
+
+Verified in-browser on :3002: `/projects/<id>/settings` lands on `/profile`
+showing the AI Models card and Log out; a DOM sweep for `a[href*=settings]`
+comes back empty, with both the name chip and the dashboard's "AI Model" row
+pointing at `/profile`. Gates: tsc clean, eslint clean. FOLLOWUPS' "Settings
+has no UI entry point" entry is deleted — this is what resolved it.
+
+### Same day, follow-up — Profile mocked up
+
+No Figma export exists for Profile (checked all of design-sync/), so this is a
+placeholder to be restyled when the frame lands. It borrows the Instructions
+page's three-column rhythm and `InstructionsCard` shell, which is already the
+app's generic card despite the name.
+
+Three cards: **Account** (avatar + name + email header, an editable Name field,
+"Member since"), **Security** (Change password → the existing forgot-password
+flow, Log out), and the **AI models** card the merge brought over.
+
+Everything on it is really wired — nothing is a dead control. The only new
+server action is `profile/account-actions.ts`'s `updateDisplayName`, a
+blur-save onto `auth.users`' `user_metadata.name` (Supabase scopes
+`updateUser` to the caller's session, so there's no ownership check to make).
+It revalidates the **layout** segment, not just the page: the navbar chip
+renders from the layout's own `getUser()`, so a page-only revalidate would
+leave the chip on the old name.
+
+**One bug found and fixed in the making:** the Name field started as
+`defaultValue={name}`, and a successful save revalidates this route — so the
+prop came back *changed* under an uncontrolled input, which is exactly what
+Base UI warns about ("changing the default value state of an uncontrolled
+FieldControl"). It's now controlled, with a `savedName` ref holding the last
+value the server accepted so a blur that changed nothing doesn't fire a save.
+Worth knowing generally: the Instructions fields get away with uncontrolled
+blur-saves because none of them revalidate a path whose props feed the field.
+
+Also dropped a duplicate — email was rendering both in the card header and as
+a fact row below.
+
+Verified in-browser on :3002: name saved, header and navbar chip both picked it
+up, restored to its original value, and the console shows no new Base UI
+warning after the fix (the two in the buffer are stale, timestamped before it;
+the dev overlay's issue badge is gone). Gates: tsc clean, eslint clean.
+
+## 2026-08-27 — Profile rebuilt from the `profilescreen` export
+
+The mock is gone; this is the real frame (design-sync/profilescreen). One
+centred column on the plain surface-3 canvas — no GlowPanel, same as
+Connections, whose "Connection - connected" frame this one was duplicated from
+(the export still carries that node name).
+
+Layout, all measured against the export and verified in-browser: header block
+272×104 (40px avatar, dist-md, then heading-sm/Phudu name over a body-md
+"Member since …" at dist-sm), the connection pill, three 312×40 surface-4 rows
+at dist-md, then the log-out button — the four blocks at dist-lg.
+
+- `components/profile/profile-row.tsx` — the menu row. **The caret follows the
+  destination, not the styling**: the export draws the dotted rule and caret on
+  the two rows that lead somewhere and omits both from "Replay onboarding",
+  which acts in place, so `href` vs `onClick` is what decides. The rule is the
+  existing `DottedDivider` as a `flex-1` filler — the export's own line asset
+  is the same 0.5/4 round-cap dash it already draws. Link and button can't
+  share one element: `useSquircleClipPath` is typed to the node it measures.
+- `components/profile/profile-screen.tsx` — composes it, plus the red power
+  button. Its glow is the export's filter read literally (dilate 4, dy 4,
+  stdDeviation 8 → a 16px CSS blur, #a20000 at 20%): `0 4px 16px 4px
+  rgba(162,0,0,0.2)`. Not a token, same exception as the app's other literal
+  shadows.
+- Icons are all Phosphor and match the exported SVGs one for one: Password,
+  Robot, ArrowArcLeft, CaretRight, Power. No asset was copied.
+- **`ConnectionCountBadge` moved out of connections-panel.tsx** into
+  `components/shared/connection-count-badge.tsx` — the export puts the same
+  pill on this screen, and the count is real (live connections, not rows;
+  expired tokens don't count, matching the Connections page's own rule).
+- **"Replay onboarding" is now part of the design.** It calls the same
+  `restart()` the dashboard's understated dev button does. That button is now
+  redundant but left in place — removing it wasn't asked for.
+
+What the export removed, and so this did too: the email, and the editable name
+field. `profile/account-actions.ts` (`updateDisplayName`) went with it, along
+with the mock's `account-card.tsx` / `security-card.tsx` — all three were from
+yesterday's placeholder, which this replaces wholesale.
+
+**The one thing the export doesn't specify: where "AI models" goes.** Its row
+has a caret, so it leads somewhere, but there's no frame for the destination.
+Built as `profile/models/` — the existing `AiModelsCard` on Profile's own
+centred rhythm with a back button. Restyle if a frame turns up.
+
+Verified in-browser on :3002 against the export: rows 312×40 at rad-lg with the
+squircle clip applied and surface-4 (#fffffe), header block 272×104, name 27px
+Phudu, outer gap 16px — all exact. Both interactions work: "AI models" reaches
+the sub-page and comes back, "Replay onboarding" brings up the tour cover.
+Gates: tsc clean, eslint clean, 126/126 tests.
+
+### Same day — the expanded state (`profilescreenexpanded`)
+
+Change password and AI models are no longer links: they expand in place. That
+retires the `profile/models/` sub-page invented last round (the caret did lead
+somewhere — just not to another screen) and `ai-models-card.tsx` with it.
+
+- `components/profile/profile-disclosure.tsx` is the animated row.
+  **Height animates via `grid-template-rows: 0fr → 1fr`.** Two reasons, both
+  from `.agents/skills/review-animations/STANDARDS.md`: an accordion has to
+  change layout height or it can't push the rows below it, so the standards'
+  transform/opacity-only rule can't be followed literally here; and it's a
+  *transition*, which the standards call for on anything triggerable rapidly —
+  it retargets from wherever it is mid-flight, where keyframes restart at zero.
+  - **Durations are asymmetric**: 220ms open, 160ms close. Both sit in the
+    standards' 150–250ms "dropdowns, selects" band, and closing is faster per
+    "slow where the user is deciding, fast where the system responds."
+  - **Easing is the standards' strong ease-out**, `cubic-bezier(0.23,1,0.32,1)`,
+    in *both* directions — never ease-in on UI. Written literally at each use;
+    Tailwind only sees class strings it can read in the source.
+  - **The content's fade is offset from the height change rather than parallel
+    to it**: opening it waits 60ms for room to appear in, closing it runs with
+    no delay so it's gone before the edge reaches it. Otherwise text smears
+    against the collapsing boundary. 140ms either way, opacity + translate
+    only.
+  - **The caret rotates instead of swapping glyphs** — the export's CaretUp is
+    its CaretRight a quarter turn anticlockwise, so `-rotate-90` covers it, and
+    a rotation is a transform per the performance rule.
+  - **`inert` when closed, not `hidden`**: the panel has to stay in layout for
+    its height to animate. Verified `input.focus()` doesn't land in a closed
+    panel.
+  - Reduced motion drops the height and translate and keeps the fade —
+    "fewer and gentler, not zero."
+- `components/profile/change-password-panel.tsx` + `changePassword`
+  (profile/account-actions.ts). **Supabase has no "verify this password" call,
+  so re-authenticating is the check** — `signInWithPassword` with the old one,
+  then `updateUser`. On success that just refreshes the same user's session; a
+  wrong guess leaves the existing session alone, so it can't sign anyone out.
+  Deliberately no `signOut` afterwards, unlike the recovery flow, which ends a
+  *recovery* session. Network failures are separated from "wrong password"
+  per lib/network-error.ts — the offline toast owns those, not the field.
+- `ai-models-card.tsx` → `components/settings/ai-models-panel.tsx`: same
+  add/delete behaviour, minus the InstructionsCard shell. The card used to move
+  the "+" into its header once entries existed; the disclosure header has no
+  room beside the caret, so the full-width button stays at the foot and the
+  list grows above it — matching the export exactly when empty. `AddModelModal`
+  gained a `block` trigger for that full-width `xl` button.
+- **Icons are `icon-subtle` throughout**, per direct request — the row icons
+  were `icon-bold`.
+- `ProfileRow` lost its link variant: with both caret rows now disclosures, the
+  only plain row left is Replay onboarding.
+
+Verified in-browser on :3002 against the export: Change password card 312×188,
+AI models 312×180, Replay onboarding 312×40, icon colour rgb(119,112,109) =
+`--icon-subtle` — all exact. Both settled states check out: open →
+`grid-template-rows` resolves to 148px/140px, transition 220ms on the strong
+ease-out, content 140ms at 60ms delay, caret −90deg; closed → 0px, 160ms, 0ms
+delay, caret cleared, `inert` true and focus genuinely blocked.
+
+**Not verified: a mid-flight frame.** Every `javascript_tool` eval backgrounds
+the tab, and that suspends the transition — `transitionrun`/`start`/`end` never
+fired, `getAnimations()` came back empty after a click, and a 3s slow-motion
+override still screenshotted fully settled. AGENTS.md already documents this
+for rAF-driven animation; it applies to CSS transitions and their events too
+(added to LEARNINGS). The declarations and both endpoints are confirmed; the
+interpolation between them is inferred, not seen.
+
+**Also unexercised: the password change itself.** The form and its states are
+verified, but submitting means entering a real credential, which I don't do.
+
+Gates: tsc clean, 126/126 tests. eslint reports 17 errors, all pre-existing —
+confirmed by stashing this work and re-running against HEAD, which reports 19;
+none of the flagged files are new here.
+
+### Same day — log-out confirmation, pill removed, wider gap
+
+Three items, all by direct request.
+
+1. **Log out asks first.** The power button no longer submits; it opens
+   `components/ui/confirmation-modal.tsx` — the app's existing pattern (Figma
+   "DefaultConfirmationModal"), already used by the delete-post and disconnect
+   flows, and already carrying the danger top-right X as its dismiss, so
+   nothing new was built. Icon is Power, matching the disconnect modal's own
+   rule that the icon shows the state the button leads to. The modal can't be
+   dismissed while the sign-out is in flight: `logout` redirects, so closing
+   early would just show a dead page for a beat. That also means the pending
+   flag is never cleared on the success path — by design, the page is gone.
+2. **The "n connections active" pill is gone** from Profile. `connectionCount`
+   and the page's `fetchSocialAccounts` call went with it — nothing else on
+   this screen used them. `ConnectionCountBadge` stays in components/shared/:
+   the Connections screen still renders it, which is where it earns its keep.
+3. **32px between the menu and the log-out button** (`mt-dist-lg` on top of the
+   column's own `dist-lg`), against the export's 16px — by request. Measured
+   in-browser at exactly 32.
+
+Verified in-browser on :3002: the dialog opens with the Power icon, "LOG OUT",
+the copy, a full-width danger action and the corner X; the X dismisses it; no
+"connection active" text remains anywhere on the page; gap measures 32px.
+**Not exercised: confirming the log out** — that ends the session, and nothing
+in the request asked for it. Gates: tsc clean, eslint clean on the touched
+files, 126/126 tests.
+
+## 2026-08-27 — Profile pictures
+
+**This branch now owns the schema slot** (`.worktree` SCHEMA=none → owned; it
+was free, `post-time` doesn't hold it). Migration `create_avatars_bucket`
+applied to the live remote project.
+
+**The bucket is public-read, unlike the other two.** writing-style-files and
+content-reference-files are private with signed URLs; an avatar renders in the
+navbar on every page, and minting a signed URL per render for something that
+isn't secret is cost with no benefit. Paths are uuid-based so they aren't
+guessable, but they are not access-controlled — that was the explicit choice.
+Writes stay owner-scoped exactly as the other buckets do (first path segment
+must equal `auth.uid()`), and the bucket carries its own 5MB limit and MIME
+allow-list so a bypassed client check still can't land a bad file.
+
+- **The upload goes browser → Storage directly, never through a Server
+  Action.** Next caps a Server Action body at exactly 1MB — the ceiling that
+  bit the writing-style uploads (see the note further up this file) — and most
+  photos off a phone exceed it. The Supabase JS client talks to the Storage
+  endpoint itself, so that limit never applies.
+- The resulting URL is saved to **auth `user_metadata.avatar_url`**, not a
+  table: it belongs to the person, not a project, and it already rides along on
+  the session every page reads. No second query anywhere.
+- Replacing a picture best-effort deletes the old object, so the bucket doesn't
+  accumulate every picture a user has ever had. A failure there is deliberately
+  silent — the new avatar is already saved, and an orphan isn't the user's
+  problem.
+- **Centred in the circle** is `object-cover object-center` on a fixed square
+  box: the image fills the frame and is cropped evenly rather than squashed.
+  Verified with a deliberately wide 400×200 test image — the centre marker
+  landed dead centre with equal slivers either side.
+
+**Default avatars are now randomised, deterministically.**
+`components/shared/gradient-avatar.tsx` inlines the Figma avatar SVG so its
+three blurred blobs take colours as props, with six palettes (the first is the
+export's own colours exactly). `avatarPaletteFor(seed)` is FNV-1a over the
+user's uuid, `% palettes.length`.
+
+The important part is that it is **not random**: `Math.random()` would give a
+different avatar on every render, so the server render and hydration would
+disagree (a mismatch) and the picture would change on every navigation. Hashing
+a stable id gives one user one gradient, on every device, forever — with
+nothing stored and no schema involved. Two footguns handled in the code: the
+`>>> 0` (JS bitwise ops are signed, so a hash with the top bit set yields a
+negative index) and `useId()`-namespaced filter ids (the export's ids are fixed
+strings, and two avatars on one page would otherwise define them twice).
+
+`components/shared/user-avatar.tsx` is the read-only pairing of the two
+(picture if there is one, else the hashed gradient), now used by the navbar
+chip and the create-project greeting. `connected-account-row.tsx` still uses
+the flat SVG deliberately — that one is a *social account's* photo with the
+gradient as its fallback, a different subject entirely.
+
+Verified in-browser on :3002: this user hashes to the blue palette, and the
+profile header and navbar chip agree; a real upload persisted across a
+navigation and rendered centred at both 40px and 28px. **Then reverted** — the
+test image was deleted from Storage and `avatar_url` cleared, since it was a
+test, not a picture anyone chose. Bucket is back to 0 objects.
+
+**Gap worth naming: there is no way to remove a picture.** Once uploaded, a
+user can only replace it, never go back to their gradient — reverting my own
+test needed SQL and a raw Storage call. The export doesn't draw that control,
+so it wasn't invented; flagged rather than built. Also note direct
+`delete from storage.objects` is blocked by Supabase (`protect_delete`) — the
+Storage API is the only way, which is worth knowing for any future cleanup.
+
+Gates: tsc clean, 126/126 tests, eslint 17 errors — all pre-existing (same
+files as before; none new).
+
+### Same day — 12 palettes, bigger avatar, live navbar update
+
+1. **Twelve palettes, not six.** The original six stay (only palette 0 is the
+   export's; the other five were invented — see the note in
+   gradient-avatar.tsx), and six more are built from the token ramps in
+   app/globals.css: flame / amber / green / lime / purple / red at
+   {200,400,600}, which mirrors the export's own light → saturated → deep
+   structure. Those six need no colour exception at all. The hexes are written
+   literally rather than through `var()` — they're SVG `fill` attributes on
+   filtered shapes and the array is also indexed in plain JS — so they're a
+   hand-synced pair with globals.css, same arrangement as EDGE_FADE_PX.
+2. **Profile avatar 40 → 56px** (+16), per request. Confirmed 56×56 in-browser.
+3. **The navbar chip now updates without a reload.** `lib/avatar-store.ts` +
+   `hooks/use-avatar-url.ts`, the same module-store shape as generation-lock /
+   network-status / section-navigation, and for the same reason: every avatar
+   renders from a *server* component reading `user_metadata`, while the writer
+   (the picker) sits below them in the tree — so a server render was the only
+   thing that could ever refresh them. `UserAvatar` became a client leaf so it
+   can subscribe; `null` override means "fall back to the server value", which
+   stays authoritative on every fresh load and navigation.
+
+**Verified in-browser, and this one needed care.** By the time I tested, the
+user had uploaded a real 4.5MB JPEG of their own — so testing the fix meant
+uploading over it, and the picker deletes the previous file on replace. Copied
+their object to a backup key via the Storage API first, ran the test (the chip
+updated to the test image with **no reload** — the reported bug, fixed), then
+restored the original from the backup, deleted both the test file and the
+backup, and put `avatar_url` back to its original value. Bucket ends with
+exactly their one object at its original path; their picture renders unchanged.
+
+Incidental confirmation from that upload: 4.5MB went through fine, which is the
+browser → Storage path doing its job — it would have been rejected outright by
+a Server Action's 1MB body cap.
+
+Two notes for anyone testing uploads here: `file_upload` populated the input
+but React's `onChange` didn't always fire, so the handler needed a manual
+`dispatchEvent(new Event('change', {bubbles:true}))`; and direct
+`delete from storage.objects` is blocked by Supabase's `protect_delete` — the
+Storage API is the only route.
+
+Gates: tsc clean, 126/126 tests, eslint 17 errors — all pre-existing.
+
+### Same day — uploads are compressed in the browser
+
+They weren't before: a 4.5MB photo was stored at 4.5MB and re-fetched at that
+size on every page render, for something drawn at 56px.
+
+`lib/compress-image.ts` resizes to fit 512px and re-encodes as WebP at q80 —
+the same quality the Figma bridge already uses for raster assets. No package
+added; `createImageBitmap` + canvas + `toBlob` are built in. 512 is chosen off
+the render size: 56px on Profile, 28px in the chip, so even at a 3× DPR that's
+168px, and 512 leaves room for a larger frame later.
+
+Three details that matter:
+
+- **EXIF orientation is honoured** via `createImageBitmap(file, {
+  imageOrientation: "from-image" })`. Phone photos routinely carry a rotation
+  flag rather than rotated pixels; drawing one to a canvas without this bakes
+  in the *unrotated* pixels, so a portrait selfie uploads sideways.
+- **An animated GIF becomes a still** — a canvas only ever sees one frame.
+  There's no way around that on this path; the first frame is what's stored.
+- **The stored extension comes from the output, not the input** (`.webp`
+  always). Storing WebP bytes under a `.png` name makes every consumer guess.
+
+The size check moved from 5MB to a deliberately generous 25MB and now guards
+the *decode* rather than the upload — nothing near that is ever stored, so
+picking a 12MB photo just works. The bucket's own 5MB limit remains the
+backstop on what actually lands.
+
+**Verified end-to-end with a deliberately hostile input**: a 1800×1200 PNG of
+pure random noise, 6.18MB, which is about the least compressible thing there
+is. Stored result: **68.3KB WebP — a 93× reduction**, and a real photo will do
+better still. The navbar chip updated live during the same upload, so that fix
+held too.
+
+Same care as last time around the user's own avatar: they had uploaded a new
+76KB PNG since, so it was copied to a backup key first, the test run, then the
+original restored to its exact path and both the test file and the backup
+deleted. Bucket ends with exactly their one object at its original URL,
+rendering unchanged. (Their PNG predates this change, so it is still stored
+uncompressed — only new uploads go through the compressor.)
+
+Note for future testing here: the Storage access token pulled out of the cookie
+expires within the session, and every call then returns a 400 whose body is a
+404 `NoSuchKey`-style error rather than anything auth-shaped. Re-read the
+cookie and retry before concluding an object is missing.
+
+Gates: tsc clean, 126/126 tests, eslint 17 errors — all pre-existing.
+
+## 2026-08-28 — Password toast position + auto-collapse
+
+**The toast appeared to come out of the password field**, not down from the top
+of the screen. Cause was a trap already written up in LEARNINGS: a `clip-path`
+makes the element the containing block for its `fixed` descendants *and* crops
+them, and `ProfileDisclosure`'s card carries the squircle clip. So the toast —
+`fixed inset-x-0 top-pad-2xl`, correct in itself — was being positioned and
+clipped to the card. My mistake when writing the panel; the entry existed.
+
+`components/shared/toast-slot.tsx` extracts the fix that day-deck.tsx and
+post-details.tsx had each written inline: portal to `<body>`, same fixed
+top-centre wrapper. Adopted by change-password-panel, ai-models-panel and
+avatar-picker (the last isn't inside a clipped card, but it costs nothing and
+keeps the screen consistent). The portal target deliberately isn't gated on
+whether a toast is open — the toast's own presence drives its exit animation,
+so unmounting the target with it would tear that out mid-exit. LEARNINGS'
+clip-path entry now points at the component instead of just describing the fix.
+
+**The panel also collapses itself on success** — `ChangePasswordPanel` takes an
+`onSuccess`, and ProfileScreen passes `setPasswordOpen(false)`, so it folds
+away on the same 160ms close the header toggle uses. Toast fires first and
+lives outside the subtree, so it stays up while the panel closes underneath it.
+
+Verified in-browser: all three toast slots are now direct children of `<body>`,
+none inside a clip-path ancestor, measured at top 32px across the full
+viewport; a real (avatar) error toast rendered its text inside that body-level
+slot. **Not verified: the success path itself** — that needs a real password
+change, which isn't mine to make. The collapse is wired to the same state the
+header toggle sets, whose animation was verified when the disclosure was built.
+
+Gates: tsc clean, 126/126 tests, eslint 17 — all pre-existing.
+
+### Same day — password errors land on the field they're about
+
+"That's not your current password." was marking *both* fields invalid and
+printing under the new one, which is the wrong field twice over.
+
+Rather than just moving it, the action now names the field it belongs to —
+`ChangePasswordError = ActionError & { field?: "current" | "new" }` — because
+the failures genuinely belong to different inputs:
+
+- `"That's not your current password."` → **current**
+- `"New password must be at least 8 characters."` → new
+- `"That's already your password."` → new
+- whatever `updateUser` objects to → new (the current one has already been
+  accepted by that point)
+- signed-out → no field; the panel falls back to the new-password slot
+
+The panel holds `{ message, field }` instead of a bare string, and each
+`PillInput` takes its `aria-invalid` and `helperText` only when the error is
+its own — so nothing marks a field the error isn't about.
+
+Also renamed the reveal button's label and the comment above it from "old
+password" to "current password", matching the field label as it now reads.
+
+Verified in-browser by submitting a deliberately wrong current password (a
+string that is nobody's credential, and which fails at the re-auth step before
+`updateUser` is ever reached, so nothing could change): the danger border,
+warning icon and message all appear on the current-password field, and the new
+password field stays in its resting state.
+
+Gates: tsc clean, eslint clean on the touched files.
+
+### Same day — no tick on the "Password changed" toast
+
+`showIcon={false}` on that one Toast. The icon `<span>` is conditionally
+rendered as a whole and the pill's `gap-dist-sm` sits *between* flex children,
+so removing it leaves no stray gap — the toast becomes a correctly-padded
+text-only pill. First `showIcon={false}` in the app; every other toast keeps
+its variant icon.
+
+Verified by reading toast.tsx's layout rather than in-browser: firing this
+toast needs a real password change, which isn't mine to make (same limit noted
+when the panel was built). Gates: tsc clean, eslint clean.
+
+### Same day — shorter length-error copy
+
+"New password must be at least 8 characters." → **"Must be at least 8
+characters."** It renders directly under the field it's about (since errors
+started routing to their own field), so naming the field there said the same
+thing twice.
+
+Scoped to Profile only. The signup and forgot-password flows keep their own
+wording — those sit under a lone password field with no second one to
+distinguish from, so "Password must be…" still reads correctly there.
+
+Verified in-browser: a 5-character new password marks only the new field and
+prints the new copy; the current-password field stays in its resting state.
+Gates: tsc clean, eslint clean on the touched file.
+
+### Same day — bug: "That's already your password." on a password that wasn't
+
+**Reported and reproduced:** typing the *same wrong string* into both fields
+reported "That's already your password." The sameness check ran before the
+current password had been verified, so it was asserting something the action
+had never checked — the two fields matched each other, which says nothing about
+what the account's password actually is.
+
+Validation is now explicitly ordered, per the requested sequence:
+
+1. **New password length** — the only rule judgeable without the auth server,
+   so nothing is spent before it.
+2. *(defensive)* empty current password → its own message rather than falling
+   through to the re-auth call and coming back as "not your current password",
+   which would be true and useless. Unreachable through the UI, which disables
+   submit until both fields have content.
+3. **Verify the current password** via re-auth → wrong ⇒ "That's not your
+   current password." on the **current** field.
+4. **Only then compare the two** → equal ⇒ **"Passwords must be different."**
+   on the **new** field. By this point the current password is known correct,
+   so equality genuinely does mean the new one is unchanged.
+5. Update.
+
+The zod schema is shape-only now (`z.string()` for both). The length and
+sameness rules moved into the body deliberately: **their order is part of the
+contract**, and a schema collapses every rule into one undifferentiated parse
+failure with no way to say which field or which reason.
+
+Copy note: written as "Passwords must be different." with a full stop, to match
+its siblings ("That's not your current password.", "Must be at least 8
+characters.") — the request wrote it without one.
+
+Verified in-browser by reproducing the exact report — the same wrong string in
+both fields now correctly returns "That's not your current password." on the
+current field, and the new field stays in its resting state. The "Passwords
+must be different." path can only be reached with a genuinely correct current
+password, so it remains unexercised, along with the success path.
+
+Gates: tsc clean, eslint clean on the touched file.
+
+## 2026-08-28 — Pick a gradient (design-sync/profilescreenpickprofile)
+
+**The export's 24 swatches are only 6 distinct gradients** — the other 18 are
+the default `sunset` repeated, i.e. placeholder fill (verified by diffing the
+fills across all 24 exported SVGs). Rather than render 19 identical circles,
+the popover maps the real list and lets the row wrap, so the grid grows with
+the list instead of being pinned to a 5×5 that can't be filled honestly.
+**17 distinct gradients today**: the export's 6, the 5 hand-picked ones kept by
+request, and the 6 token-derived.
+
+- `AVATAR_PALETTES` became `AVATAR_GRADIENTS`, each entry carrying a **stable
+  id** (`sunset`, `lagoon`, `flame`, …). **The stored pick is that id, never an
+  array index** — an index would silently reassign everyone's avatar the moment
+  the list is reordered or something is inserted mid-way. `gradientById()` is
+  the lookup; an unknown id falls back to the hashed default, so a removed
+  gradient degrades instead of crashing.
+- `components/profile/avatar-gradient-popover.tsx` — Base UI Popover (already a
+  dependency, no package added), dark `surface-inverse` card, the export's
+  pointer (the same single rotated path tooltip.tsx uses), a dashed "+" upload
+  cell, then the swatches. Grows out of the anchor at 150ms on the app's strong
+  ease-out, per STANDARDS.md's 125–200ms popover band, from scale-95 never 0.
+- The avatar is now the popover's **trigger** rather than a direct file-dialog
+  button; uploading is one option among the gradients instead of the only one.
+- **Picking a gradient clears the photo and deletes the file** — a photo
+  outranks a gradient, so leaving it behind would make the choice look ignored.
+  Optimistic per AGENTS.md, reverting both fields on failure. Note this is
+  irreversible: there's no photo history in the design.
+- `lib/avatar-store.ts` gained a second channel plus an explicit
+  `photoCleared` flag — a `null` photo override can't otherwise be told from
+  "this tab never touched it", which would let the server's stale photo win and
+  make the pick look ignored. `useAvatarUrl` → `useAvatarDisplay`, returning
+  both. `gradientId` is threaded through every avatar site (navbar, topbar,
+  layout, /projects, /create-project).
+
+**On the database cost — measured, not estimated.** The pick is one key in
+`auth.users.raw_user_meta_data`, the JSONB the session already carries and
+every `getUser()` already returns. After picking, the *entire* metadata blob
+for this user — name, gradient, everything — was **179 bytes**
+(`pg_column_size`). No new table, no new query, no migration, no extra
+round-trip. A gradient is also *cheaper than a photo*: no Storage object and no
+CDN fetch, since it renders as inline SVG.
+
+Verified in-browser: the popover matches the export, all 17 swatches render
+distinctly, picking one switched the avatar and the navbar chip instantly with
+no reload, and the DB showed `avatar_gradient: "azure"` with `avatar_url: null`
+and the old file removed. **Then restored** — the user's photo was copied to a
+backup key first (it had changed again since the last round, now a compressed
+`.webp`, so the compression path is in real use), and afterwards put back at
+its exact path with `avatar_gradient` cleared. Bucket ends with exactly their
+one object.
+
+Testing note: the Supabase auth cookie is **chunked** across
+`sb-…-auth-token.0` and `.1` once it grows past a size limit. Reading only
+chunk 0 yields a truncated JWT and every Storage call fails with
+`Invalid Compact JWS`. Sort the chunks by their numeric suffix, join, *then*
+strip the `base64-` prefix and decode.
+
+Gates: tsc clean, eslint 17 (all pre-existing), 126/126 tests.
+
+### Same day — five fixes on the gradient popover
+
+1. **Hover icon is a pencil, not a camera** (`PencilSimple`) — the avatar can
+   now be a gradient as well as a photo, so a camera named the wrong action.
+2. **The tip was hidden on open.** Base UI places the arrow at the popup's own
+   top edge, which for a bottom-side popover is *behind* the card. Two changes:
+   `sideOffset` now reserves the export's 12px Pointer height, and the arrow
+   gets `-translate-y-full` to lift it by its own height into that gap.
+   Tailwind's `translate-*` sets the standalone `translate` property, so it
+   can't collide with the `scale` the transition animates. Verified: arrow top
+   530 against the card's 541.
+3. **Bounce + easing, wired to DialKit** ("Profile image popover", explicit id
+   per AGENTS.md). Enter: duration / scale / bounce / fade; exit: duration /
+   scale. The bounce is real overshoot, not an approximation: `lib/spring-
+   easing.ts` samples a damped spring into a CSS `linear()` string —
+   **`linear()` sets progress point by point, so a spring's trajectory can be
+   baked into a plain CSS transition**, which is the only kind Base UI's own
+   mount/unmount can drive. `bounce: 0` short-circuits to the app's strong
+   ease-out rather than approximating one in 24 stops. Opacity stays on its own
+   shorter ease-out tween and never rides the bounce — an overshooting fade
+   passes 1, clamps, and reads as a flicker (toast.tsx makes the same call).
+4. **The tip no longer outlives the card.** It had no transition at all, so on
+   close the card faded over its duration while the arrow stayed fully opaque
+   until unmount. Both now carry the identical transition — verified in-browser
+   as byte-identical `transition-duration` *and* `transition-timing-function`
+   on the two elements.
+5. **The upload cell is drawn as SVG, not `border-dashed`.** CSS gives no
+   control over dash length, gap, or cap shape. A `<circle>` with
+   `stroke-dasharray="0.5 7"` and `stroke-linecap="round"` in `--border-bold`
+   gives round-capped dots with a wide gap; the plus is two round-capped
+   strokes in `--icon-minimal`, matching. Round caps extend each dash by half
+   the stroke width at both ends, which is why the dash is short and the gap
+   generous — otherwise they merge back into a solid ring.
+
+**The find that cost the most time, worth knowing:** `Popover.Popup` ignores
+the `style` prop — Base UI writes its own `style` attribute straight to the
+DOM, outside React. Measured directly: the arrow (a plain element) picked up an
+inline duration while the popup silently fell back to Tailwind's 150ms default.
+dialog.tsx already documents this for `Dialog.Popup`; it holds for Popover too.
+Fix is CSS variables set on the *positioner*, which inherit down to both parts
+and nothing overwrites. Added to LEARNINGS.
+
+Second gotcha, already in AGENTS.md but hit again here: measuring the popup
+through `javascript_tool` shows `transition: none` with `data-starting-style`
+still attached, because Base UI applies the starting style with transitions
+disabled and clears both on the next frame — and an eval backgrounds the tab,
+so that frame never arrives. Foreground with `computer` first, *then* measure.
+
+Gates: tsc clean, eslint 17 (all pre-existing), 126/126 tests.
+
+### Same day — the popover was snapping: my regression, plus the missing shadow
+
+**Reported: "it still snaps and nothing changes it on DialKit." Correct, and it
+was a regression I introduced.**
+
+When I moved the transition values from the `style` prop onto CSS variables
+(because Base UI clobbers `style` on Popup), I also rewrote the from-state as a
+React ternary — `open ? "scale-100 opacity-100" : "opacity-0 …"`. That looks
+equivalent and is not: **by the time the element mounts, `open` is already
+true**, so it renders at its final scale with nothing to transition *from*. It
+snapped, and with no transition running every dial appeared dead.
+
+The from-state has to come from Base UI's own `data-starting-style` /
+`data-ending-style` attributes — the element mounts carrying the starting one,
+Base UI clears it a frame later, and the transition runs between the two. This
+is the pattern dialog.tsx already uses; my first version of this file had it and
+the rewrite dropped it.
+
+**How I got it wrong, worth recording:** I "verified" by reading computed styles
+in the *settled* state and finding the duration and easing correct on both
+parts. That only proves the transition is *declared*, never that it *ran* — and
+I had already written in this log that mid-flight sampling isn't possible
+through `javascript_tool`. Declared ≠ running. This time it was verified by
+catching the popover mid-animation in a screenshot: visibly smaller than its
+settled 262px and semi-transparent, with the page showing through it.
+
+**Shadow added, from the export I'd missed.** frame.json carries a `DROP_SHADOW`
+on the Tooltip frame — radius 8, offset 0,0, `#1919193d` (25,25,25 at 24%) — and
+the first pass never read the effects. It's a `drop-shadow` filter on the Popup,
+i.e. *outside* the squircle-clipped card, per LEARNINGS' "a clip-path cuts the
+element's own drop-shadow"; the shadow traces the clipped silhouette. Applied to
+the arrow too, so the tip and card read as one object.
+
+**Where to tweak it:** the DialKit panel, "Profile image popover" → **Shadow**
+folder — Blur (0–48), Y (−12–24), Opacity (0–0.8). Alongside Enter
+(duration/scale/bounce/fade) and Exit (duration/scale). All six now visibly
+respond, since the transition actually runs.
+
+Gates: tsc clean, eslint 17 (all pre-existing), 125/125 excluding the
+quota-blocked live-Gemini test (see FOLLOWUPS).
+
+### Same day — the tip detaching during the animation
+
+**Reported: the tip looks detached while the animation runs, and lingers for a
+split second on close.** My previous "fix" gave the arrow the *same* transition
+as the card, which is not the same as making them move together.
+
+Cause: they were two separate elements, each scaling around its **own**
+transform-origin — the card around the anchor's, the tip around its own centre.
+Identical duration and easing don't help when the geometry differs: they travel
+at different rates in screen space, so the tip visibly separates and re-seats.
+
+Fix: **`Popover.Arrow` is gone**; the tip is drawn inside `Popover.Popup`,
+absolutely positioned at top-centre, so it belongs to the same scaled subtree as
+the card. Detaching is now geometrically impossible rather than merely
+synchronised. Safe to hand-place because this popover's `side`/`align` are fixed
+(`bottom`/`center`) — collision-aware repositioning was the only thing the Arrow
+part was buying, and nothing here needs it. The tip sits outside the clipped
+card (a clip-path would cut it) but inside the Popup, so the single
+`drop-shadow` filter now traces card *and* tip as one silhouette instead of
+outlining each separately.
+
+Verified: `tipInsidePopup: true`, exactly **one** element carrying a transition,
+zero separate arrow elements, and the tip's own wrapper at `transition-duration:
+0s` — it rides the popup rather than animating itself. Also caught mid-flight in
+a screenshot with the exit duration temporarily dialled to 400ms: the card
+part-faded and part-scaled with the tip still seated on its edge.
+
+Note the DialKit values are **not persisted** — no localStorage keys — so the
+400ms used for that test reverted to the code default on reload.
+
+**The lesson, added to LEARNINGS:** giving two elements identical transitions
+does not make them move as one. Only a shared transform parent does.
+
+Gates: tsc clean, eslint 17 (all pre-existing), 125/125 excluding the
+quota-blocked live-Gemini test.
+
+### Same day — popover motion values frozen
+
+The dialled-in values, now the defaults in the `useDialKit` call (same
+treatment as toast.tsx's entrance and the day deck's fan — these are what was
+tuned on the panel, not theoretical starting points):
+
+| | | |
+| --- | --- | --- |
+| enter | duration 320 · scale 0.8 · bounce 0.25 · fade 200 | |
+| exit | duration 200 · scale 0.7 | |
+| shadow | blur 16 · y 2 · opacity 0.4 | |
+
+Three notes on why these read the way they do:
+
+- **fade 200 finishes before the 320ms scale**, so the card is solid while the
+  bounce is still settling — which is what keeps a bouncing entrance from
+  looking like a flicker.
+- **exit collapses further than the entrance grew from** (0.7 vs 0.8). Not
+  symmetry for its own sake: going smaller on the way out reads as being put
+  away rather than merely reversed.
+- **The shadow is deliberately heavier than the export**, which specifies
+  radius 8 at 24%. Against the real dark card on the real canvas that all but
+  disappeared; 16px at 40%, nudged 2px down, is what actually reads.
+
+The dials stay wired, so all nine remain adjustable on the panel.
+
+Verified from a fresh load: the panel shows all nine values, confirming they
+come from the code rather than an in-memory override, and the entrance was
+caught mid-flight — part-scaled and part-faded with the tip seated on the
+card's edge.
+
+Gates: tsc clean, eslint 17 (all pre-existing), 125/125 excluding the
+quota-blocked live-Gemini test.
+
+## 2026-08-28 — Editable name, email in the header, member-since moved
+
+Four changes, by request.
+
+1. **The navbar chip truncates.** `max-w-40` + `truncate`, and `min-w-0` —
+   which is the part that actually does the work, since a flex child won't
+   shrink below its content width without it.
+2. **The name is edited in place.** Hovering reveals a pencil; clicking swaps
+   the heading for a borderless input styled with the identical type classes,
+   so the only thing that visibly changes is the caret. **The caret lands at
+   the end rather than selecting the name** — the common case is fixing or
+   appending a character, not retyping. Enter blurs (so the blur handler stays
+   the single commit path and Enter can't double-save), Escape reverts. Focus
+   and caret placement happen in a **callback ref**, not an effect: the input
+   only exists once editing starts, so the ref fires exactly when the node
+   attaches, which is also the only moment `setSelectionRange` can work.
+3. **"Member since …" moved below Replay onboarding**, where it reads as a
+   footnote to the account rather than a caption on the person.
+4. **The email takes its place under the name**, deliberately not editable —
+   changing the address on an account is a verified flow of its own, not an
+   inline edit.
+
+`updateDisplayName` is back in account-actions.ts (it was deleted when the
+first export dropped the name field). It revalidates the **layout** segment,
+not just the page: the navbar chip renders from the layout's own `getUser()`,
+so a page-only revalidate would leave the chip on the old name.
+
+Verified in-browser end to end: pencil on hover; clicking gives
+`caretStart/End = 6/6` on "Godwin" with nothing selected; renaming to a
+23-character single word truncated to "BARTHOLOME…" in the chip (still inside
+the navbar) and "BARTHOLOMEWQUIXO…" in the heading (still inside the 272px
+column), and the chip updated from the server, which also confirms the layout
+revalidation. **Name then restored to "Godwin"** — verified in the DB.
+
+Gates: tsc clean, eslint 17 (all pre-existing), 125/125 excluding the
+quota-blocked live-Gemini test.
+
+### Same day — name centring, DialKit removed, member-since spacing
+
+1. **The name was off-centre in display mode.** `opacity-0` hides an element
+   but still reserves its width, so the hidden pencil — a flex sibling — was
+   pushing the name left by half the icon-plus-gap. That's also why it looked
+   correct the moment you clicked: editing swaps in an input with no icon
+   beside it. The pencil is now absolutely positioned against the text's own
+   box (`left-full`, out of flow), so it contributes nothing to centring at any
+   name length. Verified: name, email and button centres all land on 1168.
+2. **DialKit is gone from this page** — values frozen as `ENTER` / `EXIT` /
+   `SHADOW` constants, exactly what was dialled in, same treatment as
+   toast.tsx and use-shake.ts. `ENTER_EASING` is computed once at module level
+   now that the bounce is a constant. **No `useDialKit` call remains anywhere
+   in the app.** `DialRoot` stays mounted in app/layout.tsx — it's the panel
+   host, harmless with nothing registered, and removing it would mean putting
+   it back for the next thing that needs tuning.
+3. **"Member since …" gained clearance** — `mt-dist-md` on top of the column's
+   own `dist-md`, so 16px instead of 8. Measured in-browser. It now separates
+   from the menu rather than reading as a fourth row that lost its card.
+
+Gates: tsc clean, eslint 17 (all pre-existing), 125/125 excluding the
+quota-blocked live-Gemini test.

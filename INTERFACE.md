@@ -910,3 +910,49 @@ From `design-sync/emptydashboardpostsection`:
 - Copy fixes on the export, the same call made on Content's "view it's
   content": "Your have no posts scheduled for later." → "You have no posts
   scheduled for later."
+
+## 13. The navbar chip is the profile entry point
+
+The gear is gone from `ProjectsNavbar` (both the /projects picker and the
+in-project chrome). The user chip is the only affordance in that corner now,
+and it is a `<Link>` to the Profile screen — same squircle, same
+`surface-inverse` treatment as before, plus the app's standard press feedback
+(`active:scale-[0.97]`, 150ms ease-out, matching the folder cards on
+/projects). Its href comes in as `profileHref` (was `settingsHref`), defaulting
+to the `/profile` redirect stub for the picker, which has no project in scope.
+
+**Profile** (design-sync/profilescreen) is one centred column on the plain
+canvas — avatar, name, "Member since …", the live connection pill, three menu
+rows, and a red circular log-out button. No GlowPanel: the export puts the
+content straight on the page background, same as Connections.
+
+- **The menu row** — 312×40, surface-4, rad-lg, icon (`icon-subtle`) +
+  `body-lg-bold` label. **The dotted rule and caret mark a row that opens
+  something**: the export omits both from "Replay onboarding", which acts in
+  place. So there are two components, and which one you reach for is decided by
+  that, not by styling — `profile-row.tsx` for a row that just does the thing,
+  `profile-disclosure.tsx` for one that expands.
+- **The disclosure** (`components/profile/profile-disclosure.tsx`) expands in
+  place to 312×188 / 312×180, caret rotating a quarter turn to point up. Its
+  motion is the reference implementation for any accordion in this app, and
+  every value is justified in the file against
+  `.agents/skills/review-animations/STANDARDS.md`: height on
+  `grid-template-rows` 0fr→1fr (the one place the transform-only rule can't
+  hold — nothing else pushes the rows below it), 220ms open / 160ms close on
+  the strong ease-out both ways, and a 140ms content fade *offset* from the
+  height rather than parallel to it so text never smears against the closing
+  edge. Closed panels are `inert`, not hidden.
+- **The log-out button** is a 40px `surface-danger` circle carrying the
+  export's own red glow (`0 4px 16px 4px rgba(162,0,0,0.2)` — dilate 4, dy 4,
+  stdDeviation 8 read off the exported SVG's filter). Not a token; the same
+  literal-shadow exception toast.tsx takes.
+- **`ConnectionCountBadge` is shared** (components/shared/) between this screen
+  and Connections — the same pill, the same "live connections, not rows" rule.
+
+**Profile and Settings are one screen.** Neither held enough to justify two,
+and with the gear gone there was only one way into that corner anyway, so
+Profile now renders what Settings had — the AI-models card and Log out, on the
+Instructions page's column rhythm — until the Figma export replaces it.
+`/projects/<id>/settings` and the top-level `/settings` stub both redirect into
+it rather than being deleted, so old links still land somewhere real, and the
+dashboard's "AI Model" setup row points at Profile directly.

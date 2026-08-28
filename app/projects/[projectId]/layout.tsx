@@ -20,7 +20,7 @@ import { fetchProject } from "@/lib/supabase/queries"
 const projectIdSchema = z.string().uuid()
 
 // Chrome from the Figma "Dashboard" frame: the same full-bleed navbar as
-// /projects (gear re-pointed at this project's settings) beside a floating
+// /projects (name chip re-pointed at this project's profile) beside a floating
 // sidebar card, on the shared surface-3 canvas. OnboardingProvider wraps all
 // of it so the cover, the navbar swap, and the sidebar's forced-active state
 // share one source of truth for tour progress.
@@ -64,7 +64,14 @@ export default async function ProjectLayout({
       <div className="flex h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl xl:px-pad-9xl">
         <ProjectTopbar
           userName={firstName}
-          settingsHref={`/projects/${projectId}/settings`}
+          userId={user?.id}
+          avatarUrl={
+            (user?.user_metadata?.avatar_url as string | undefined) ?? null
+          }
+          gradientId={
+            (user?.user_metadata?.avatar_gradient as string | undefined) ?? null
+          }
+          profileHref={`/projects/${projectId}/profile`}
         />
 
         <div className="flex min-h-0 flex-1 items-stretch gap-dist-xl">
