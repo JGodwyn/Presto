@@ -10,10 +10,16 @@ import { useOnboarding } from "@/components/onboarding/onboarding-context"
 // know about onboarding state itself.
 export function ProjectTopbar({
   userName,
-  settingsHref,
+  userId,
+  avatarUrl,
+  gradientId,
+  profileHref,
 }: {
   userName: string
-  settingsHref: string
+  userId?: string | null
+  avatarUrl?: string | null
+  gradientId?: string | null
+  profileHref: string
 }) {
   const { step } = useOnboarding()
 
@@ -22,7 +28,10 @@ export function ProjectTopbar({
   return (
     <ProjectsNavbar
       userName={userName}
-      settingsHref={settingsHref}
+      userId={userId}
+      avatarUrl={avatarUrl}
+      gradientId={gradientId}
+      profileHref={profileHref}
       backHref="/projects"
     />
   )

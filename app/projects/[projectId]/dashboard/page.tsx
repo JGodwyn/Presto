@@ -1,7 +1,6 @@
 import { Eyes } from "@phosphor-icons/react/dist/ssr"
 
 import { EmptyState } from "@/components/shared/empty-state"
-import { ReplayOnboardingButton } from "@/components/onboarding/replay-onboarding-button"
 import { DashboardView } from "@/components/dashboard/dashboard-view"
 import { createClient } from "@/lib/supabase/server"
 import {
@@ -47,11 +46,7 @@ export default async function DashboardPage({
 
   if (posts.length === 0) {
     return (
-      <div className="relative flex flex-1 flex-col transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
-        <div className="absolute top-0 right-0">
-          <ReplayOnboardingButton />
-        </div>
-
+      <div className="flex flex-1 flex-col transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
         {/* No action button, by request — the sidebar is right there, and a
             CTA that isn't wired to anything is worse than none. */}
         <EmptyState
@@ -84,7 +79,7 @@ export default async function DashboardPage({
         content: `${base}/calendar`,
         instructions: `${base}/instructions`,
         connections: `${base}/connections`,
-        settings: `${base}/settings`,
+        profile: `${base}/profile`,
         postBase: `${base}/calendar`,
       }}
     />

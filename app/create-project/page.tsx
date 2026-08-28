@@ -1,4 +1,6 @@
 import Image from "next/image"
+
+import { UserAvatar } from "@/components/shared/user-avatar"
 import { redirect } from "next/navigation"
 
 import { CreateProjectModal } from "@/components/create-project/create-project-modal"
@@ -56,11 +58,16 @@ export default async function CreateProjectPage() {
       >
         <div className="flex w-68 flex-col items-center gap-dist-xl">
           <div className="flex flex-col items-center gap-dist-md">
-            <Image
-              src="/images/create-project/avatar.svg"
-              alt=""
-              width={32}
-              height={32}
+            <UserAvatar
+              userId={user.id}
+              avatarUrl={
+                (user.user_metadata?.avatar_url as string | undefined) ?? null
+              }
+              gradientId={
+                (user.user_metadata?.avatar_gradient as string | undefined) ??
+                null
+              }
+              size={32}
             />
             <p className="text-title-lg font-display text-text-bold">
               Hi, {firstName}

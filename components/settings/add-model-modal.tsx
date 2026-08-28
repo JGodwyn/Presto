@@ -38,10 +38,14 @@ function AddModelModal({
   projectId,
   onAdded,
   compact = false,
+  block = false,
 }: {
   projectId: string
   onAdded: (model: UserAiModel) => void
   compact?: boolean
+  // Profile's expanded "AI models" panel draws the trigger full-width at the
+  // export's 40px button size, rather than the inline `sm` the card uses.
+  block?: boolean
 }) {
   const [open, setOpen] = React.useState(false)
   const [stage, setStage] = React.useState<Stage>("key")
@@ -165,6 +169,8 @@ function AddModelModal({
         render={
           compact ? (
             <Button variant="brand" size="icon-sm" />
+          ) : block ? (
+            <Button variant="brand" size="xl" className="w-full" />
           ) : (
             <Button variant="brand" size="sm" className="self-start" />
           )

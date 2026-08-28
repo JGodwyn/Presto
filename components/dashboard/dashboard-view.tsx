@@ -84,7 +84,7 @@ export function DashboardView({
     content: string
     instructions: string
     connections: string
-    settings: string
+    profile: string
     postBase: string
   }
 }) {
@@ -164,7 +164,7 @@ export function DashboardView({
           ? "Built-in"
           : `${aiModels.length} of your own`,
       state: modelErrored ? "warning" : "done",
-      href: hrefs.settings,
+      href: hrefs.profile,
     },
   ]
 

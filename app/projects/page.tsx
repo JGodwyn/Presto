@@ -34,7 +34,16 @@ export default async function ProjectsPage() {
 
   return (
     <div className="flex min-h-screen w-full flex-col gap-dist-5xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl xl:px-pad-9xl">
-      <ProjectsNavbar userName={firstName} />
+      <ProjectsNavbar
+        userName={firstName}
+        userId={user.id}
+        avatarUrl={
+          (user.user_metadata?.avatar_url as string | undefined) ?? null
+        }
+        gradientId={
+          (user.user_metadata?.avatar_gradient as string | undefined) ?? null
+        }
+      />
 
       {/* The standard fluid card grid: fit as many ≥16rem (256px, the Figma
           folder width) columns as possible, then stretch them equally to fill

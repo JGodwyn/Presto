@@ -228,5 +228,51 @@ of a key — something like `RUN_LIVE_AI_TESTS=1` — so the default suite is
 hermetic and a handoff gate can't fail on someone else's quota. If it's meant
 to test the wrapper, mock the model.
 
-**Why it waited:** it is not this branch's file and not this branch's failure;
-changing the default test suite's behaviour is a decision, not a fix.
+**Also seen from `feat/settings-profile`, 2026-08-28**, independently — the two
+branches filed this separately and the entries were merged here during
+/integrate. That branch saw it first as *flakiness* rather than exhaustion:
+failed (30s timeout), failed, passed on clean HEAD, passed again with the same
+changes reapplied — pure latency variance, not a regression — before it
+started returning the quota error later the same day. It also makes the whole
+suite take ~30s instead of ~7s. So the test has two distinct failure modes,
+and the slow one is what gets misread as "did I break this?".
+
+**Why it matters:** a gate that goes red at random trains you to ignore it,
+`/handoff` runs the suite, and every run costs a request nobody asked for.
+
+**Do (consolidated):** one of — move it behind an explicit opt-in env var
+(`RUN_LIVE_AI_TESTS=1`) so the default suite is hermetic; record the response
+and assert against a fixture, keeping the live call as a separate manual check
+(the only option that also makes the suite fast again); or, as a stopgap only,
+raise just this test's timeout (`it(..., { timeout: 60000 })`) so
+slow-but-working calls pass. If it is meant to test the wrapper rather than the
+API, mock the model.
+
+**Why it waited:** it is not either branch's file and not either branch's
+failure; changing the default test suite's behaviour is a decision, not a fix.
+
+---
+
+## 13. `npm run lint` is red on `main`, so `/handoff`'s lint gate can't be met
+
+**From:** `feat/settings-profile`, 2026-08-28.
+
+`npm run lint` reports **19 errors on `main` itself** — `react-hooks/refs` in
+`components/ui/switch.tsx` (4) and `components/generate/generate-calendar-column.tsx`
+(9), plus `react-hooks/set-state-in-effect` in create-project-modal,
+generating-view, onboarding-context and project-sidebar. None are new; the
+generate-calendar-column ones are already noted in AGENTS.md as pre-existing.
+
+**Why it matters:** `/handoff` says "do not mark a branch ready with a failing
+gate", and that instruction is currently impossible to follow — every branch
+inherits a red gate it didn't cause. A gate nobody can pass is a gate everybody
+learns to wave through, which is how a *real* failure gets missed.
+
+**Do:** either fix the two rule families (both are mechanical — the `refs` ones
+want the value read in a callback ref or effect rather than during render), or
+downgrade those two rules to warnings in `eslint.config.mjs` with a comment
+pointing here. Fixing is better; `switch.tsx` is four lines and would prove the
+pattern for the other nine.
+
+Meanwhile the honest gate is **"no *new* errors"**: this branch took the count
+from 19 to 17.

@@ -3,11 +3,11 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { fetchProjects } from "@/lib/supabase/queries"
 
-// Settings merged into Profile, so this old stub forwards to the same place
-// app/profile/page.tsx does — the first project's profile — rather than to a
-// settings route that is itself now just a redirect. Placeholder until that
-// screen gets a dedicated user-level route (its content is per-user).
-export default async function SettingsRedirectPage() {
+// The profile screen renders inside a project's chrome, but the name chip on
+// the "Your projects" navbar has no project in scope — so this route forwards
+// it into the first project's profile, exactly as /settings does for the gear
+// it replaced. Placeholder until profile gets a real user-level route.
+export default async function ProfileRedirectPage() {
   const supabase = await createClient()
   const {
     data: { user },
