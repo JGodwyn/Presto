@@ -42,6 +42,23 @@ export function from24Hour(hours: number, minutes: number): TimeOfDay {
   }
 }
 
+// Move the hour by `delta`, carrying the meridiem with it.
+//
+// Not modular arithmetic on the hour alone, which is what this used to be
+// (inline in time-field.tsx) and why it was wrong: wrapping 1-12 in place
+// leaves the meridiem untouched, so 11 AM + 1 produced 12 *AM* — midnight,
+// eleven hours earlier — and 12 PM − 1 produced 11 PM. Going through the
+// 24-hour form makes the carry fall out for free, and reuses the one function
+// here that already gets the 12 AM/12 PM pair right in both directions.
+//
+// Wraps the whole day rather than clamping: 11 PM + 1 is 12 AM, since a clock
+// has no ends. Minutes are carried through untouched — stepping the hour is
+// not meant to move them.
+export function stepHour(time: TimeOfDay, delta: number): TimeOfDay {
+  const { hours, minutes } = to24Hour(time)
+  return from24Hour((((hours + delta) % 24) + 24) % 24, minutes)
+}
+
 // "09:00" — the 24-hour form used for persistence
 // (lib/generate-settings.ts's stored shape). Round-trippable and
 // timezone-free, unlike the "YYYY-MM-DD" dates stored beside it, which have

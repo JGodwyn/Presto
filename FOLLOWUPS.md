@@ -276,3 +276,35 @@ pattern for the other nine.
 
 Meanwhile the honest gate is **"no *new* errors"**: this branch took the count
 from 19 to 17.
+
+
+---
+
+## 14. Scheduled-time writes don't go through the save queue
+
+**From:** the /integrate review of `feat/post-time`, 2026-08-28.
+
+The time-of-day writes are optimistic patch + fire-and-forget `updatePost`,
+with a 300ms debounce and no queue — `post-details.tsx`'s `handleDateChange`,
+`generated-post-card.tsx`, and `day-deck.tsx`'s `handleDateChange`.
+
+The debounce was originally described (in that branch's merge commit) as
+removing the ordering hazard. **It does not, and that claim is wrong.** It
+guarantees one write in flight *within* a burst. Across bursts it guarantees
+nothing: nudge the hour, pause past the debounce, then tap AM/PM, and two
+`updatePost` calls are in flight against the same row with no ordering
+guarantee between their responses. If the first lands second, the DB keeps the
+earlier time while every card shows the later one — until a reload brings the
+stale value back.
+
+This is exactly the shape AGENTS.md ships `useSaveQueue` for (hooks/use-save-
+queue.ts): at most one save in flight, anything queued behind it collapsed to
+the latest payload.
+
+**Do:** route the three call sites through `useSaveQueue`. Not a one-liner —
+they're spread across three components that each own their own post state, so
+it wants a shared shape rather than three copies.
+
+**Why it waited:** it touches three files in `components/content` and
+`components/generate` at once, and the review that found it landed after the
+merge.

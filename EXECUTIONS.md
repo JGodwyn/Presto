@@ -3359,3 +3359,47 @@ quota-blocked live-Gemini test.
 
 Gates: tsc clean, eslint 17 (all pre-existing), 125/125 excluding the
 quota-blocked live-Gemini test.
+
+## 2026-08-28 15:49 — post-merge fixes from the post-time / settings-profile sweep
+
+Done directly on `main` at the user's explicit instruction (they stopped the
+branch creation and said to work here), so no branch or worktree.
+
+**1. The hour stepper crossed 11↔12 wrongly, in both directions.**
+`time-field.tsx`'s `step()` wrapped inside its own 1-12 span and never touched
+the meridiem, which is a separate control. So ArrowUp from 11 AM committed
+`{hour:12, meridiem:"AM"}`, which `to24Hour` correctly maps to `00:00` —
+eleven hours *earlier*. ArrowDown from 12 PM gave 23:00. Confirmed by tracing
+both before fixing. Worst on the Generate page, where one time applies to the
+whole batch: arrowing past 11 silently rescheduled a month of posts to
+midnight.
+
+Fixed by moving the arithmetic into `lib/time-of-day.ts` as `stepHour`, which
+goes through the 24-hour form and back — so the carry falls out of the one
+function that already handles the 12 AM/12 PM pair correctly, rather than
+being re-derived in a component. `TimeSegmentInput` gained an optional
+`onStep` so the hour can override the default wrap-in-place while the minute
+keeps it.
+
+The telling part: `to24Hour` carries a comment calling 12 AM/PM "the one pair a
+naive `hour + 12` gets wrong", and the conversion is exhaustively tested. The
+*stepper* feeding it had no tests at all. It does now — both boundaries in both
+directions, the 12→1 case that must **not** flip, and a walk right round the
+dial and back asserting every single step moves exactly one hour.
+
+**2. Arrows discarded a half-typed entry.** `step()` read the committed
+`value`, so typing "0" over a 9 and pressing Up jumped to 10 with the typed
+digit gone. It now seeds from the draft, clamped into range.
+
+**3. The avatars bucket's UPDATE policy had no WITH CHECK.** Migration
+`tighten_avatars_update_policy`. `create_avatars_bucket` (from
+feat/settings-profile) gated INSERT and DELETE correctly on
+`storage.foldername(name)[1] = auth.uid()`, but its UPDATE policy validated
+only the row being *replaced*, not the row being written — so a user could
+pass USING on their own object and rename it into another user's prefix. The
+bucket is public-read, so that file would then be served to anyone as that
+user's avatar. Recreated with the same predicate on both sides; strictly
+tightening, every previously-legitimate update still passes.
+
+Also filed FOLLOWUPS 14 for the save-queue gap on the time writes — see
+LEARNINGS for why the debounce that's there isn't the same thing.

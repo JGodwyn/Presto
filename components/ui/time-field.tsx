@@ -4,7 +4,12 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
-import { formatTime12, type Meridiem, type TimeOfDay } from "@/lib/time-of-day"
+import {
+  formatTime12,
+  stepHour,
+  type Meridiem,
+  type TimeOfDay,
+} from "@/lib/time-of-day"
 
 // Figma radii (design-sync/calendar-with-time-daily, -monthly) as px for the
 // squircle path math — the surface-2 tray is rad-lg, each segment rad-xmd.
@@ -39,6 +44,7 @@ function TimeSegmentInput({
   max,
   pad,
   onCommit,
+  onStep,
 }: {
   label: string
   value: number
@@ -47,6 +53,11 @@ function TimeSegmentInput({
   // Minutes read "00", hours read "9" — the export shows both.
   pad: boolean
   onCommit: (value: number) => void
+  // Overrides the arrow keys' default wrap-in-place. The hour needs it: its
+  // range doesn't stand alone, since rolling past 11 has to move the meridiem
+  // too, and this component has no idea that exists. `from` is whatever the
+  // box currently reads, clamped into range.
+  onStep?: (delta: number, from: number) => void
 }) {
   const { ref, style } = useSquircleClipPath<HTMLInputElement>({
     cornerRadius: SEGMENT_CORNER_RADIUS,
@@ -63,10 +74,23 @@ function TimeSegmentInput({
 
   // Arrows step and wrap — a clock has no ends, and wrapping is what lets the
   // hour roll 12 → 1 rather than sticking at either end.
+  //
+  // Stepping starts from what the box actually reads, draft included. Reading
+  // `value` instead meant an out-of-range entry being corrected with an arrow
+  // silently discarded the typed digit and jumped from the last committed
+  // number — type "0" over a 9 and press Up, and you got 10.
   const step = (delta: number) => {
-    const span = max - min + 1
+    const parsed = draft === null || draft === "" ? NaN : Number(draft)
+    const from = Number.isFinite(parsed)
+      ? Math.min(max, Math.max(min, parsed))
+      : value
     setDraft(null)
-    onCommit(min + ((((value - min + delta) % span) + span) % span))
+    if (onStep) {
+      onStep(delta, from)
+      return
+    }
+    const span = max - min + 1
+    onCommit(min + ((((from - min + delta) % span) + span) % span))
   }
 
   return (
@@ -179,6 +203,12 @@ function TimeField({
           max={12}
           pad={false}
           onCommit={(hour) => onChange({ ...value, hour })}
+          // Through stepHour rather than the default wrap: the hour and the
+          // meridiem are one value split across two controls, so 11 AM + 1 is
+          // 12 PM, not 12 AM. See lib/time-of-day.ts.
+          onStep={(delta, from) =>
+            onChange(stepHour({ ...value, hour: from }, delta))
+          }
         />
         <span aria-hidden className="text-body-lg-bold text-text-subtle">
           :

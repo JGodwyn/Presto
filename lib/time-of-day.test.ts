@@ -8,6 +8,7 @@ import {
   formatTime24,
   from24Hour,
   parseTime24,
+  stepHour,
   to24Hour,
   type TimeOfDay,
 } from "@/lib/time-of-day"
@@ -134,5 +135,51 @@ describe("formatClockTime", () => {
   it("names midnight and noon", () => {
     expect(formatClockTime(new Date(2026, 8, 15, 0, 0))).toBe("12 AM")
     expect(formatClockTime(new Date(2026, 8, 15, 12, 0))).toBe("12 PM")
+  })
+})
+
+describe("stepHour", () => {
+  const at = (hour: number, meridiem: "AM" | "PM"): TimeOfDay => ({
+    hour,
+    minute: 30,
+    meridiem,
+  })
+
+  // The two the old in-place 1-12 wrap got wrong, in both directions. It left
+  // the meridiem alone, so stepping up from 11 AM landed on 12 AM — midnight,
+  // eleven hours *earlier* than where it started.
+  it("carries the meridiem across the 11 → 12 boundary going up", () => {
+    expect(stepHour(at(11, "AM"), 1)).toEqual({ hour: 12, minute: 30, meridiem: "PM" })
+    expect(stepHour(at(11, "PM"), 1)).toEqual({ hour: 12, minute: 30, meridiem: "AM" })
+  })
+
+  it("carries the meridiem across the 12 → 11 boundary going down", () => {
+    expect(stepHour(at(12, "PM"), -1)).toEqual({ hour: 11, minute: 30, meridiem: "AM" })
+    expect(stepHour(at(12, "AM"), -1)).toEqual({ hour: 11, minute: 30, meridiem: "PM" })
+  })
+
+  // 12 → 1 is the boundary that must *not* flip: noon to 1 PM is still PM.
+  it("leaves the meridiem alone crossing 12 → 1", () => {
+    expect(stepHour(at(12, "PM"), 1)).toEqual({ hour: 1, minute: 30, meridiem: "PM" })
+    expect(stepHour(at(12, "AM"), 1)).toEqual({ hour: 1, minute: 30, meridiem: "AM" })
+  })
+
+  it("always moves exactly one hour, all the way round the clock", () => {
+    // The property the boundary cases are instances of: a single step is a
+    // one-hour move on the 24-hour clock, wherever on the dial it starts.
+    let time: TimeOfDay = { hour: 12, minute: 0, meridiem: "AM" }
+    for (let expected = 1; expected <= 24; expected += 1) {
+      time = stepHour(time, 1)
+      expect(to24Hour(time).hours).toBe(expected % 24)
+    }
+    // And back down again, landing where it started.
+    for (let step = 23; step >= 0; step -= 1) {
+      time = stepHour(time, -1)
+      expect(to24Hour(time).hours).toBe(step)
+    }
+  })
+
+  it("leaves the minute untouched", () => {
+    expect(stepHour({ hour: 11, minute: 47, meridiem: "AM" }, 1).minute).toBe(47)
   })
 })

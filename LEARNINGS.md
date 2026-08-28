@@ -772,3 +772,34 @@ catch by the time the next eval reads it.
 two *settled* states, and that's it. Don't claim to have watched a transition
 play. If the interpolation itself is genuinely in doubt, that needs a real pair
 of eyes or a screen recording, not another eval.
+
+## A debounce is not a save queue, and a per-segment wrap is not a clock
+
+Two from the same review, both cases of local correctness that isn't correct in
+the whole.
+
+**The stepper.** `time-field.tsx` wrapped the hour inside 1-12 with modular
+arithmetic. Read alone that function is right: it wraps, it never goes out of
+range. But the hour is half of a value whose other half — the meridiem — lives
+in a sibling control, so 11 AM + 1 came out as 12 AM: midnight, eleven hours
+backwards. The conversion function beside it (`to24Hour`) handles exactly this
+pair and says so in its own comment, and is exhaustively tested. The stepper
+had no tests, because it looked too simple to need any.
+
+**Rule.** When a value is split across two controls, stepping *one* of them is
+arithmetic on the whole value, not on the field. Convert to the canonical form
+(here 24-hour), do the arithmetic there, convert back — and put it in the
+module that owns the type, where the existing round-trip tests can reach it.
+A range that "can't go out of range" is not the same as a range that is right.
+
+**The debounce.** The same branch debounced its time writes at 300ms and
+described that as removing the ordering hazard `useSaveQueue` exists for. It
+doesn't. A debounce collapses a *burst* into one call; it says nothing about
+two calls separated by more than its own window. Nudge the hour, pause 400ms,
+tap AM/PM, and two writes race on one row — and the loser is whichever response
+arrives second, not whichever was sent second.
+
+**Rule.** Debounce answers "how many requests", a queue answers "in what
+order". They are not substitutes, and a fix for one is not evidence about the
+other. If out-of-order responses would persist stale data, only the queue
+helps.
