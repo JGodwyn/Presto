@@ -13,8 +13,14 @@ const NOW = new Date(2026, 6, 30, 12, 0, 0).getTime() // 30 July 2026, local
 // Built from local date parts on purpose: grouping reads local dates (a
 // scheduled day is picked in the user's own timezone), so a test written
 // against fixed UTC strings would drift with the runner's timezone.
-function localIso(year: number, month: number, day: number, hour = 12): string {
-  return new Date(year, month - 1, day, hour).toISOString()
+function localIso(
+  year: number,
+  month: number,
+  day: number,
+  hour = 12,
+  minute = 0
+): string {
+  return new Date(year, month - 1, day, hour, minute).toISOString()
 }
 
 function makePost(overrides: Partial<Post> = {}): Post {
@@ -179,5 +185,55 @@ describe("groupPostsByMonth", () => {
 
   it("returns no months for a tab with nothing in it", () => {
     expect(groupPostsByMonth([makePost()], "queued", NOW)).toEqual([])
+  })
+})
+
+describe("ordering within a day", () => {
+  // The whole point of adding a time: two posts on the same day are no longer
+  // interchangeable, and the tab's own direction decides which reads first.
+  it("sorts Queued by scheduled time, earliest first", () => {
+    const evening = makePost({ scheduledFor: localIso(2026, 8, 3, 18, 30) })
+    const morning = makePost({ scheduledFor: localIso(2026, 8, 3, 9, 0) })
+    const noon = makePost({ scheduledFor: localIso(2026, 8, 3, 12, 0) })
+
+    const [month] = groupPostsByMonth([evening, morning, noon], "queued", NOW)
+    expect(month.days[0].posts.map((p) => p.id)).toEqual([
+      morning.id,
+      noon.id,
+      evening.id,
+    ])
+  })
+
+  it("sorts Published by scheduled time, latest first", () => {
+    const morning = makePost({ scheduledFor: localIso(2026, 7, 1, 9, 0) })
+    const evening = makePost({ scheduledFor: localIso(2026, 7, 1, 18, 30) })
+
+    const [month] = groupPostsByMonth([morning, evening], "published", NOW)
+    expect(month.days[0].posts.map((p) => p.id)).toEqual([evening.id, morning.id])
+  })
+
+  // A generated batch shares one time, which is why creation order is kept as
+  // the tiebreak rather than leaving those posts in an arbitrary order.
+  it("falls back to newest-written first when the times match", () => {
+    const older = makePost({
+      scheduledFor: localIso(2026, 8, 3, 9, 0),
+      createdAt: localIso(2026, 7, 20),
+    })
+    const newer = makePost({
+      scheduledFor: localIso(2026, 8, 3, 9, 0),
+      createdAt: localIso(2026, 7, 25),
+    })
+
+    const [month] = groupPostsByMonth([older, newer], "queued", NOW)
+    expect(month.days[0].posts.map((p) => p.id)).toEqual([newer.id, older.id])
+  })
+
+  // Drafts have no scheduled time by definition, so they keep the old rule.
+  it("keeps Draft on newest-written first", () => {
+    const older = makePost({ scheduledFor: null, createdAt: localIso(2026, 7, 30, 9) })
+    const newer = makePost({ scheduledFor: null, createdAt: localIso(2026, 7, 30, 17) })
+
+    const [month] = groupPostsByMonth([older, newer], "draft", NOW)
+    expect(month.days[0].posts.map((p) => p.id)).toEqual([newer.id, older.id])
   })
 })

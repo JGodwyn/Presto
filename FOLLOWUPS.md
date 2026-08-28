@@ -201,3 +201,32 @@ the first paint.
 **Why it waited:** `content-view.tsx` and `day-deck.tsx` were both dirty in the
 live `post-accounts` worktree while the dashboard was being built. Safe to do
 once that has landed.
+
+---
+
+## 12. `lib/ai/generate.test.ts` spends live Gemini quota on every test run
+
+**From:** `feat/post-time`, 2026-08-28.
+
+`npm test` makes a real `generatePost` call against the Gemini free tier. It is
+guarded by `it.skipIf(!process.env.GOOGLE_GENERATIVE_AI_API_KEY)`, and the key
+*is* in `.env.local`, so it runs every time — including on every `/handoff`
+gate run. Once the free tier's 20 requests are used up it fails the whole
+suite:
+
+> Quota exceeded for metric:
+> `generativelanguage.googleapis.com/generate_content_free_tier_requests`,
+> limit: 20, model: gemini-3.6-flash
+
+It first showed up as a bare 30-second timeout (the SDK retrying with backoff
+until vitest gave up), which reads as flakiness and cost a couple of rounds of
+"is this mine?" before the underlying error surfaced.
+
+**Do:** decide what this test is for. If it's a smoke test of the real API, it
+belongs behind an explicit opt-in flag of its own rather than the mere presence
+of a key — something like `RUN_LIVE_AI_TESTS=1` — so the default suite is
+hermetic and a handoff gate can't fail on someone else's quota. If it's meant
+to test the wrapper, mock the model.
+
+**Why it waited:** it is not this branch's file and not this branch's failure;
+changing the default test suite's behaviour is a decision, not a fix.

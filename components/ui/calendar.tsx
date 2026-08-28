@@ -1,7 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { CaretDown, CaretLeft, CaretRight } from "@phosphor-icons/react"
+import {
+  ArrowBendUpLeft,
+  ArrowBendUpRight,
+  CaretDown,
+  CaretLeft,
+  CaretRight,
+} from "@phosphor-icons/react"
 
 import { cn } from "@/lib/utils"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
@@ -9,8 +15,10 @@ import {
   HIDE_NATIVE_SCROLLBAR_CLASSNAME,
   useScrollThumb,
 } from "@/hooks/use-scroll-thumb"
+import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { Button } from "@/components/ui/button"
 import { ScrollbarThumb } from "@/components/ui/scrollbar-thumb"
+import { DottedDivider } from "@/components/instructions/dotted-divider"
 
 // design-sync/calendar-action-bar's own "Size=lg" variant uses Buttton
 // Kind=basic/Size=md (h-40), which matches Button's "xl" size (h-[--pad-3xl]
@@ -40,6 +48,14 @@ const SHADOW_CLASSNAMES = {
   default: "drop-shadow-[0px_2px_16px_rgba(0,0,0,0.2)]",
   sm: "drop-shadow-[0px_1px_6px_rgba(0,0,0,0.16)]",
 } as const satisfies Record<string, string>
+
+// How far the month and year lists dissolve at their bottom edge — 32px,
+// matching the app's other dropdown-style list (content-filter.tsx). Bottom
+// only, per direct request: it's the edge that has to say "there's more below"
+// now that the month list draws no thumb. useScrollFade sizes it against the
+// scroll actually remaining, so a list with nothing left to reveal has no fade
+// at all.
+const LIST_FADE_BOTTOM_PX = 32
 
 const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"] as const
 const MONTH_LABELS = [
@@ -108,7 +124,12 @@ function isSameMonth(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()
 }
 
-function formatFullDate(date: Date) {
+// A day cell's accessible name — "Saturday, August 28, 2026". Deliberately
+// *not* the app's `formatDate` ("Aug 28"): this is read aloud rather than
+// read, and a picker's cell needs its weekday and year said out loud even
+// when the visible UI can take them as read. Renamed off `formatFullDate`
+// when that shared name was retired, so the two can't be confused.
+function dayCellLabel(date: Date) {
   return date.toLocaleDateString(undefined, {
     weekday: "long",
     year: "numeric",
@@ -196,6 +217,12 @@ type CalendarProps = (
   // whatever "discard and close" means to the caller.
   showActionBar?: boolean
   onCancel?: () => void
+  // Rendered inside the card, under the day grid — the time-of-day row in
+  // design-sync/calendar-with-time-daily. Day view only: the month and year
+  // pickers replace the grid wholesale, and a time sitting under a list of
+  // years reads as belonging to the list. Left out entirely where a caller
+  // passes nothing, so the plain export's card is unchanged.
+  footer?: React.ReactNode
 }
 
 // Bigger hit target than the 16px glyph alone (per direct feedback) — the
@@ -205,10 +232,17 @@ type CalendarProps = (
 function CalendarNavButton({
   label,
   onClick,
+  // The day view's month chevrons rest quiet and darken on hover; the
+  // month/year list arrows rest at full strength, which is how
+  // design-sync/calendarwithnavigation draws them (#181210 = icon-bold).
+  tone = "subtle",
+  disabled = false,
   children,
 }: {
   label: string
   onClick: () => void
+  tone?: "subtle" | "bold"
+  disabled?: boolean
   children: React.ReactNode
 }) {
   const { ref, style } = useSquircleClipPath<HTMLButtonElement>({
@@ -221,7 +255,20 @@ function CalendarNavButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="-my-2 flex size-8 cursor-pointer items-center justify-center rounded-rad-md text-icon-subtle outline-none transition-colors duration-150 ease-out hover:bg-date-calendar-item-surface-hover hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50"
+      disabled={disabled}
+      className={cn(
+        "-my-2 flex size-8 items-center justify-center rounded-rad-md outline-none transition-colors duration-150 ease-out focus-visible:ring-3 focus-visible:ring-ring/50",
+        disabled
+          ? // The export's own disabled fill. No hover and no pointer: there
+            // is nowhere further to go, and a control that lights up under
+            // the cursor and then does nothing is worse than one that says
+            // so plainly.
+            "cursor-default text-icon-minimal"
+          : cn(
+              "cursor-pointer hover:bg-date-calendar-item-surface-hover hover:text-icon-bold",
+              tone === "bold" ? "text-icon-bold" : "text-icon-subtle"
+            )
+      )}
     >
       {children}
     </button>
@@ -243,6 +290,8 @@ function CalendarTitleBar({
   onOpenMonthPicker,
   onPrev,
   onNext,
+  onStepBack,
+  onStepForward,
   disableNavigation,
 }: {
   view: "day" | "month" | "year"
@@ -251,14 +300,39 @@ function CalendarTitleBar({
   onOpenMonthPicker: () => void
   onPrev: () => void
   onNext: () => void
+  // Move one step up or down the Day → Month → Year drill-down, which until
+  // now could only be walked forwards by picking something.
+  onStepBack: () => void
+  onStepForward: () => void
   disableNavigation: boolean
 }) {
   if (view !== "day") {
+    // design-sync/calendarwithnavigation: a back arrow, the title, a forward
+    // arrow — forward greyed on the year list, since Year is the last step
+    // and the way out of it is picking a year (which is the existing flow,
+    // unchanged). justify-between centres the title on its own, both arrows
+    // being the same 32px box.
+    const isMonth = view === "month"
     return (
-      <div className="flex h-10 w-full shrink-0 items-center justify-center border-b-[length:var(--stroke-md)] border-border-subtle bg-surface-4 px-pad-md py-pad-sm">
+      <div className="flex h-10 w-full shrink-0 items-center justify-between border-b-[length:var(--stroke-md)] border-border-subtle bg-surface-4 px-pad-md py-pad-sm">
+        <CalendarNavButton
+          label={isMonth ? "Back to days" : "Back to months"}
+          onClick={onStepBack}
+          tone="bold"
+        >
+          <ArrowBendUpLeft className="size-5" weight="bold" />
+        </CalendarNavButton>
         <span className="text-body-lg text-text-bold">
-          {view === "month" ? "Select Month" : "Select Year"}
+          {isMonth ? "Select Month" : "Select Year"}
         </span>
+        <CalendarNavButton
+          label="Forward to years"
+          onClick={onStepForward}
+          tone="bold"
+          disabled={!isMonth}
+        >
+          <ArrowBendUpRight className="size-5" weight="bold" />
+        </CalendarNavButton>
       </div>
     )
   }
@@ -331,7 +405,7 @@ function CalendarDayCell({
       disabled={isDisabled}
       aria-pressed={selected}
       aria-current={today ? "date" : undefined}
-      aria-label={formatFullDate(date)}
+      aria-label={dayCellLabel(date)}
       onClick={() => onSelect(date)}
       onMouseEnter={() => onHoverStart(date)}
       className={cn(
@@ -425,6 +499,7 @@ function Calendar(props: CalendarProps) {
     shadow = "default",
     showActionBar = false,
     onCancel,
+    footer,
   } = props
   const today = React.useMemo(() => startOfDay(new Date()), [])
   const initialMonth =
@@ -453,18 +528,39 @@ function Calendar(props: CalendarProps) {
   )
   const { ref: borderRef, style: borderStyle } =
     useSquircleClipPath<HTMLDivElement>({ cornerRadius: CARD_CORNER_RADIUS })
+  // Month list: no thumb, just the bottom fade. (The active month is scrolled
+  // into view on open through activeMonthRef, a child ref, so this container
+  // needs nothing for that.)
+  const { ref: monthScrollRef, onScroll: onMonthScroll } = useScrollFade({
+    axis: "y",
+    start: 0,
+    end: LIST_FADE_BOTTOM_PX,
+  })
   const {
-    ref: monthScrollRef,
-    thumb: monthThumb,
-    visible: monthThumbVisible,
-    onScroll: onMonthScroll,
-  } = useScrollThumb<HTMLDivElement>()
-  const {
-    ref: yearScrollRef,
+    ref: yearThumbRef,
     thumb: yearThumb,
     visible: yearThumbVisible,
-    onScroll: onYearScroll,
+    onScroll: onYearThumbScroll,
   } = useScrollThumb<HTMLDivElement>()
+  const { ref: yearFadeRef, onScroll: onYearFadeScroll } = useScrollFade({
+    axis: "y",
+    start: 0,
+    end: LIST_FADE_BOTTOM_PX,
+  })
+  // The year list keeps its thumb *and* takes the fade — both want the same
+  // node and the same scroll events. The thumb is a sibling of the scrolling
+  // div rather than inside it, so the mask never dims it.
+  const yearScrollRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      yearThumbRef(node)
+      yearFadeRef(node)
+    },
+    [yearThumbRef, yearFadeRef]
+  )
+  const onYearScroll = () => {
+    onYearThumbScroll()
+    onYearFadeScroll()
+  }
   const activeMonthRef = React.useRef<HTMLButtonElement>(null)
   const activeYearRef = React.useRef<HTMLButtonElement>(null)
 
@@ -563,6 +659,12 @@ function Calendar(props: CalendarProps) {
         onOpenMonthPicker={() => setView("month")}
         onPrev={() => setDisplayMonth((d) => addMonths(d, -1))}
         onNext={() => setDisplayMonth((d) => addMonths(d, 1))}
+        // Pure view moves — neither touches displayMonth, so stepping back
+        // out of a list leaves the calendar showing exactly what it showed
+        // before you opened it. Only *picking* an entry changes the date,
+        // which is the existing flow and stays as it is.
+        onStepBack={() => setView(view === "month" ? "day" : "month")}
+        onStepForward={() => setView("year")}
         disableNavigation={disableNavigation}
       />
 
@@ -603,8 +705,27 @@ function Calendar(props: CalendarProps) {
         </div>
       ) : null}
 
+      {/* The time-of-day row (design-sync/calendar-with-time-daily), inside
+          the card under the grid, behind a dotted divider. The card's own
+          children are gap-0, so the dist-lg either side of the divider is
+          carried here rather than by the card — the re-export groups the
+          title bar and grid in a gap-0 wrapper precisely so this spacing
+          applies to the divider alone. */}
+      {view === "day" && footer ? (
+        <div className="mt-dist-lg flex flex-col gap-dist-lg">
+          <DottedDivider />
+          {footer}
+        </div>
+      ) : null}
+
+      {/* No scrollbar here, unlike the year list below it — per direct
+          request, and the two lists genuinely differ: a year list runs to a
+          hundred entries with no natural bounds, so a thumb is the only thing
+          saying where in it you are, while everyone already knows a year
+          starts at January and ends at December. It still scrolls; there is
+          just nothing drawn to say so. */}
       {view === "month" ? (
-        <div className="relative">
+        <div>
           <div
             ref={monthScrollRef}
             onScroll={onMonthScroll}
@@ -627,11 +748,6 @@ function Calendar(props: CalendarProps) {
               />
             ))}
           </div>
-          <ScrollbarThumb
-            thumb={monthThumb}
-            visible={monthThumbVisible}
-            className="right-1"
-          />
         </div>
       ) : null}
 

@@ -4,7 +4,7 @@ import { KanbanColumn } from "@/components/content/kanban-column"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 import { useDragScroll } from "@/hooks/use-drag-scroll"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
-import type { MonthGroup } from "@/lib/content-grouping"
+import { formatDayLabel, type MonthGroup } from "@/lib/content-grouping"
 import type { Post } from "@/types/post"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
@@ -49,10 +49,6 @@ export function MonthBoard({
     start: EDGE_FADE_PX,
     end: EDGE_FADE_PX,
   })
-  // "July 2026" → "July": the columns' own headers read "8th July", so they
-  // need the month on its own.
-  const monthLabel = month.label.split(" ")[0]
-
   // The busiest day decides for the whole month: columns in a row all share
   // the tallest one's height (flex stretch), so this can't be a per-column
   // call. Left unset, the row is auto-height and the columns hug — which is
@@ -96,7 +92,9 @@ export function MonthBoard({
               <KanbanColumn
                 key={day.key}
                 day={day}
-                monthLabel={monthLabel}
+                // "Aug 29" — the same helper the day deck's accessible name
+                // uses, so a column header and a deck title can't drift.
+                dayLabel={formatDayLabel(month, day)}
                 accounts={accounts}
                 activeTopics={activeTopics}
                 postHref={postHref}

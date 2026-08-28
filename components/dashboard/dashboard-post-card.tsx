@@ -5,6 +5,8 @@ import { CalendarDots, Eyes } from "@phosphor-icons/react"
 
 import type { Post } from "@/types/post"
 import { formatRelativeDay } from "@/lib/dashboard-summary"
+import { formatDate } from "@/lib/format-date"
+import { formatClockTime } from "@/lib/time-of-day"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { SocialIcon } from "@/components/shared/social-icon"
 
@@ -44,17 +46,25 @@ export function DashboardPostCard({
           <span className="flex min-w-0 items-center gap-dist-sm">
             <CalendarDots weight="bold" className="size-5 shrink-0 text-icon-subtle" />
             <span className="truncate text-body-lg-bold text-text-bold">
-              {date
-                ? date.toLocaleDateString("en-US", {
-                    month: "long",
-                    day: "numeric",
-                    year: "numeric",
-                  })
-                : "No date"}
+              {/* The app's shared long-date format rather than a
+                  toLocaleDateString of its own, which is what this was and
+                  why it kept printing the year after the shared formatter stopped.
+                  `now` is already a prop here, so this is one of the call
+                  sites that can hand the formatter a real clock instead of
+                  leaning on its default. */}
+              {date ? formatDate(date, now) : "No date"}
             </span>
           </span>
+          {/* Date • time • relative day. All three fit: this card runs the
+              width of the Next-up column, which is the widest thing on the
+              dashboard. The time sits next to the date it qualifies, with the
+              relative day — a gloss on both — last. */}
           {date ? (
             <>
+              <span className="text-body-lg-bold text-text-subtle">•</span>
+              <span className="shrink-0 text-body-lg-bold text-text-subtle">
+                {formatClockTime(date)}
+              </span>
               <span className="text-body-lg-bold text-text-subtle">•</span>
               <span className="shrink-0 text-body-lg-bold text-text-subtle">
                 {formatRelativeDay(date, now)}

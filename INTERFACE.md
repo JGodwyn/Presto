@@ -910,3 +910,119 @@ From `design-sync/emptydashboardpostsection`:
 - Copy fixes on the export, the same call made on Content's "view it's
   content": "Your have no posts scheduled for later." → "You have no posts
   scheduled for later."
+
+## 13. Time of day (Generate → dates)
+
+- **The time field is one component in both cadences** (`components/ui/
+  time-field.tsx`, from `design-sync/calendar-with-time-daily` and
+  `-monthly`, which draw it identically): a `surface-2` `rad-lg` tray holding
+  three 48×40 `surface-4` `rad-xmd` boxes — hour, minute, AM/PM — separated by
+  `body-lg-bold`/`text-subtle` colons, with a 16px `surface-2` disc either
+  side of the tray. The discs are a **mark, not a control**: nothing in the
+  export makes them one, and a control flanking a three-part field wouldn't
+  say which part it acted on. They're the one shape here that skips the
+  squircle, being fully round (the `toast.tsx` exception).
+- **Hour and minute are text inputs, not `type="number"`.** The number type
+  brings spinners, accepts `e`/`-`, and takes unbounded length — none of which
+  belong on a two-digit clock segment. Digits are filtered on input and capped
+  at the widest legal entry, arrows step **and wrap** (a clock has no ends),
+  and the typed draft is held separately from the committed value so padding
+  and clamping don't fight the typist mid-word. Minutes display padded
+  ("00"), hours don't ("9") — the export shows both.
+- **AM/PM toggles on click.** Two options don't earn a dropdown. Its
+  `aria-label` carries the action, since the visible text is the state.
+- **Where it sits differs by cadence, and that's the export's call.** Daily:
+  inside the `Calendar` card, under the day grid, no divider. Monthly: inside
+  the month card, under a `DottedDivider`. `Calendar` grew a `footer` slot for
+  the first, **day view only** — the month and year pickers replace the grid
+  wholesale, and a time under a list of years reads as belonging to the list.
+- **The month card is centred now** — year nav and month pills both, where
+  they used to be left-aligned — and carries its own **info marker** at
+  `top-pad-sm right-pad-sm`, absolutely positioned over the card, with a
+  tooltip reading "Tap to choose a month. Then set a time to post." That
+  marker **replaces the "Select months to generate for" line above the card**:
+  the instruction has two halves once there's a time to set, and two lines
+  above the card would push it out of line with the settings column beside it.
+  Unlike `GlowPanel`'s static corner marker this is a real `<button>` — it
+  does something on hover and has to be reachable from the keyboard.
+- **One time per batch, not per post.** It lives on `GenerateCard` beside the
+  dates, persists with them, resets with them, and is stamped onto every date
+  the batch produces. Number-based generation schedules nothing, so it has no
+  time to set and doesn't show the field.
+
+- **The post pickers are one component**, `components/shared/date-time-picker-
+  dialog.tsx` — the generated-post card and the post-details page render the
+  same overlay, and it owns both commit paths: a date click commits and
+  closes (carrying the showing time), while the time writes through on its
+  own, debounced. A draft's time is held until a date exists to attach it to.
+  Cancel closes without picking a date; it has never been a discard, and a
+  pending time write is flushed on the way out.
+- **The daily calendar's time row sits behind a dotted divider** with
+  `dist-lg` either side (`design-sync/calendar-with-time-daily`, re-exported)
+  — the same treatment the monthly card already had. `Calendar` draws the
+  divider itself as part of its `footer` slot, so every caller that passes one
+  gets it.
+
+- **A date *range* keeps whatever year it needs** (`formatDateRange`): none
+  when both ends are in the current year, one at the end when both share
+  another year, and **both years whenever the range spans two** — including
+  when one of them is current. "December 24 – January 15" would otherwise read
+  as ending before it starts, which is the case that makes the rule
+  conditional on the range rather than on `now` alone.
+- **The Calendar's month and year lists have back/forward arrows**
+  (`ArrowBendUpLeft`/`ArrowBendUpRight`, `size-5`, resting at `icon-bold`),
+  from design-sync/calendarwithnavigation. Back steps up the Day → Month →
+  Year drill-down; forward steps down it, and is **disabled on the year
+  list**, which is the last step. Both are pure view moves — only picking an
+  entry changes the displayed date, so backing out leaves the calendar exactly
+  where it was. Tapping to drill forward still works as it always did.
+- **The Calendar's month list has no scrollbar; its year list does.** A year
+  list has no natural bounds, so a thumb is the only thing placing you in it;
+  a year's months are common knowledge. **Both fade at the bottom** instead
+  (`useScrollFade`, `end: 32`, `start: 0`) — bottom only, since that is the
+  edge that has to say there is more below, and the month list has nothing
+  else saying it. The year list carries both at once: the mask is on the
+  scrolling div, the thumb is its sibling, so neither touches the other.
+- **The app has exactly one date format: `formatDate` → "Aug 29"**, with the
+  year only when it isn't the current one ("Aug 29, 2027"). No ordinal. There
+  used to be a long-month twin for roomier surfaces; two shapes was the
+  problem, so there is one function and every caller takes it. A date with no
+  year means this year, the way a diary entry does, and dropping it is what
+  lets a date share a card header with a time. It takes `now` as a parameter
+  (defaulted) rather than reading the clock itself, so a server render and its
+  hydration can't disagree about which year is current.
+  - **Two exceptions.** The Content page's Calendar-view **day chips keep
+    ordinals** ("28th", "1st") — a bare day genuinely is read as "the 28th",
+    and that is `formatOrdinal`'s only remaining caller. And a Calendar
+    day-cell's `aria-label` stays the verbose "Saturday, August 28, 2026"
+    (`dayCellLabel`): it is spoken, not read, so it keeps the weekday and year
+    the visible UI can take as read. `formatOrdinal` survives for **bare day
+  numbers only** (a Content day chip, a Kanban column header): "the 28th" is
+  how a lone day is read, but a date that already names its month and year is
+  not.
+- **`formatClockTime` (lib/time-of-day.ts) is the app's one time format** —
+  "10:45 PM", and "9 AM" on the hour. Dropping `:00` is how the time is said
+  out loud and also what makes it fit the tightest surface (a Kanban card's
+  196px metadata row). Reads the local clock, matching how the Content page
+  groups.
+- **Where the time shows, and why each is different.** A post card
+  (Generating page, day deck) reads `date • time` on one line: the date keeps
+  the header's `body-lg-bold`, the bullet and time are plain `body-lg` in
+  `text-subtle`, `dist-sm` apart, and the row is `gap-dist-md` so the time
+  never sits flush against the actions button. The date truncates if the pair
+  overruns, which a current-year date no longer does at the deck's 272px. A
+  Kanban card leads its account/topics row with the time — that card shows no
+  date (the column header does), and a fourth row would cost the board its
+  third card. Post details puts it **on the heading line**,
+  `AUGUST 28 • 10 AM` — the same `date • time` shape, at `heading-sm` in
+  Phudu, with the bullet and time `text-subtle` against the date's
+  `text-bold`. It only fits there because the current year is dropped; that is
+  what let it come up off a line of its own. The three parts are separate
+  elements rather than one `TextMorph` string, since a morphed string can't
+  carry two colours. The dashboard card runs
+  `date • time • relative day` on one row, which its width allows. **Day chips
+  and Kanban column headers show no time** — they cover a whole day.
+- **Within a day, posts sort by scheduled time**, in the same direction the
+  days read: Queued forwards, Published backwards. A generated batch shares
+  one time, so creation order (newest written first) is the tiebreak — and
+  the whole rule for Draft, which has no scheduled time at all.
