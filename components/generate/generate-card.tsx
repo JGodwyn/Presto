@@ -14,6 +14,13 @@ import { type DateRange } from "@/components/ui/calendar"
 import { SegmentedControl } from "@/components/ui/segmented-control"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import {
+  DEFAULT_TIME,
+  atTimeOfDay,
+  formatTime24,
+  parseTime24,
+  type TimeOfDay,
+} from "@/lib/time-of-day"
+import {
   buildAccountOptions,
   TRY_OUT_ACCOUNT_ID,
 } from "@/components/generate/account-options"
@@ -98,6 +105,10 @@ interface StoredGenerateSettings {
   monthYear: number
   selectedMonths: MonthSelection[]
   skippedDates: string[]
+  // "HH:MM", 24-hour — round-trippable and timezone-free, unlike the
+  // "YYYY-MM-DD" dates above it, which have to dodge UTC day-shift. The
+  // local Date is only ever built at the moment a specific day is scheduled.
+  postTime?: string
 }
 
 function serializeDate(date: Date): string {
@@ -294,6 +305,10 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     )
     const [skipDatesEnabled, setSkipDatesEnabled] = React.useState(false)
     const [skippedDates, setSkippedDates] = React.useState<Date[]>([])
+    // One time of day for the whole batch. Calendar-scoped like the dates
+    // themselves — number-based generation schedules nothing, so it has no
+    // time to set.
+    const [postTime, setPostTime] = React.useState<TimeOfDay>(DEFAULT_TIME)
     const [showError, setShowError] = React.useState(false)
 
     const storageKey = generateSettingsStorageKey(projectId)
@@ -329,6 +344,10 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
           if (Array.isArray(saved.selectedMonths))
             setSelectedMonths(saved.selectedMonths)
           if (saved.skippedDates) setSkippedDates(deserializeDates(saved.skippedDates))
+          if (saved.postTime) {
+            const parsed = parseTime24(saved.postTime)
+            if (parsed) setPostTime(parsed)
+          }
         } catch {
           // Corrupted or old-shape value — ignore it, defaults stand.
         }
@@ -352,6 +371,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
         monthYear,
         selectedMonths,
         skippedDates: skippedDates.map(serializeDate),
+        postTime: formatTime24(postTime),
       }
       window.localStorage.setItem(storageKey, JSON.stringify(toStore))
     }, [
@@ -369,6 +389,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       monthYear,
       selectedMonths,
       skippedDates,
+      postTime,
     ])
 
     const { ref: boxRef, style: boxStyle } = useSquircleClipPath<HTMLDivElement>(
@@ -447,6 +468,15 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     // scheduled (design-sync/ChangesToGenerateCard) instead of every post
     // defaulting to a draft. null for number-based, which has no dates to
     // assign at all.
+    // The batch's time of day, stamped onto every date below. The dates
+    // themselves are all local midnight (Calendar hands those back, and the
+    // month/range walks build them that way), so this is the only thing that
+    // decides what hour a generated post is scheduled for.
+    const applyPostTime = React.useCallback(
+      (date: Date) => atTimeOfDay(date, postTime),
+      [postTime]
+    )
+
     const scheduledDates = React.useMemo(() => {
       if (mode !== "calendar") return null
       if (cadence === "daily") {
@@ -458,14 +488,23 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
             dailyRange.from.getMonth(),
             dailyRange.from.getDate()
           )
-          const end = dailyRange.to
+          // Compared on the calendar day alone: `dailyRange.to` is local
+          // midnight, so a cursor already carrying an evening post time
+          // would overshoot past it and drop the final day.
+          const end = new Date(
+            dailyRange.to.getFullYear(),
+            dailyRange.to.getMonth(),
+            dailyRange.to.getDate()
+          )
           while (cursor <= end) {
-            dates.push(new Date(cursor))
+            dates.push(applyPostTime(cursor))
             cursor.setDate(cursor.getDate() + 1)
           }
           return dates
         }
-        return [...dailyDates].sort((a, b) => a.getTime() - b.getTime())
+        return [...dailyDates]
+          .sort((a, b) => a.getTime() - b.getTime())
+          .map(applyPostTime)
       }
       // Monthly — selectedMonths is already kept chronological (see
       // handleToggleMonth below), so every day this appends stays ordered.
@@ -480,7 +519,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
           ) {
             continue
           }
-          dates.push(date)
+          dates.push(applyPostTime(date))
         }
       }
       return dates
@@ -493,6 +532,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       selectedMonths,
       skipDatesEnabled,
       skippedDates,
+      applyPostTime,
     ])
 
     const handleToggleMonth = (selection: MonthSelection) => {
@@ -534,6 +574,9 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
         setSelectedMonths([])
         setSkipDatesEnabled(false)
         setSkippedDates([])
+        // The time is part of the dates section it resets, so it goes back
+        // to the export's own 9:00 AM along with everything else there.
+        setPostTime(DEFAULT_TIME)
         setShowError(false)
       },
     }))
@@ -774,6 +817,8 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
               onSkipDatesEnabledChange={setSkipDatesEnabled}
               skippedDates={skippedDates}
               onToggleSkipDate={handleToggleSkipDate}
+              postTime={postTime}
+              onPostTimeChange={setPostTime}
               showError={showError && !hasCalendarSelection}
             />
           </div>

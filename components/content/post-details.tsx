@@ -19,13 +19,12 @@ import { TextMorph } from "torph/react"
 import { deletePost, updatePost } from "@/app/projects/[projectId]/generate/post-actions"
 import { RegenerateModal } from "@/components/content/regenerate-modal"
 import { StreamedLine } from "@/components/content/streamed-line"
+import { DateTimePickerDialog } from "@/components/shared/date-time-picker-dialog"
 import { PostAccountPill } from "@/components/shared/post-account-pill"
 import { AnimateText } from "@/components/ui/animated-text"
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
 import { Chip } from "@/components/ui/chip"
 import { ConfirmationModal } from "@/components/ui/confirmation-modal"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Toast } from "@/components/ui/toast"
 import {
   Tooltip,
@@ -35,7 +34,8 @@ import {
 import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { STREAM_DONE_MARKER, STREAM_ERROR_MARKER } from "@/lib/ai/generate"
 import { getCaretOffsetFromPoint } from "@/lib/caret"
-import { formatFullDate } from "@/lib/format-date"
+import { formatDate } from "@/lib/format-date"
+import { formatClockTime } from "@/lib/time-of-day"
 import {
   nextPostAccount,
   resolvePostAccount,
@@ -299,10 +299,9 @@ export function PostDetails({
     }
   }
 
-  // Add to calendar / Change date: the same picker as GeneratedPostCard's own
-  // (design-sync/calendarwithactionbar) — commits on every date click and
-  // closes right away, no separate Apply step, so there's no staged
-  // selection to track here either.
+  // Add to calendar / Change date. Also the time: the shared picker hands
+  // back a full moment either way, so a time-only edit arrives here as a
+  // date whose day happens to be unchanged, and needs no separate path.
   const handleDateChange = (date: Date) => {
     const previous = {
       scheduledFor: currentPost.scheduledFor,
@@ -785,166 +784,193 @@ export function PostDetails({
           inside it is what left-aligns the contents. */}
       <div className="flex min-h-0 flex-1 flex-col items-center">
         <div className="flex w-100 min-h-0 flex-1 flex-col items-start gap-dist-lg">
-        <div className="flex shrink-0 items-center gap-dist-md">
-          {isRegenerating ? (
-            // Same AnimateText "elastic" treatment the Generate page loops on
-            // its own "generating N posts . . ." heading (generating-view.tsx)
-            // while a batch is in flight — this is the one-post version of it.
-            <AnimateText
-              text="generating post . . ."
-              type="elastic"
-              className="text-heading-sm font-display text-text-bold"
-              offset={REGENERATING_HEADING.offset}
-              stagger={REGENERATING_HEADING.stagger}
-              duration={REGENERATING_HEADING.duration}
-              bounce={REGENERATING_HEADING.bounce}
-              loop
-              loopDelay={REGENERATING_HEADING.loopDelay}
-            />
-          ) : (
-            <>
-              {/* font-display (Phudu) renders caps on its own — no `uppercase`. */}
-              <h1 className="text-heading-sm font-display text-text-bold">
-                <TextMorph duration={HEADING_MORPH_DURATION} ease={STRONG_EASE_OUT}>
-                  {scheduled ? formatFullDate(scheduled) : "Draft"}
-                </TextMorph>
-              </h1>
-              {/* Not a content edit — this pencil is the date action:
+          {/* Date • time on the heading line itself, the same shape the post
+            cards read in — the time no longer sits on a line of its own
+            below, and the icon that led it is gone with it (the bullet is the
+            separator now, and the date has no icon either). It fits at
+            heading-sm in this 400px column because the current year is
+            dropped (lib/format-date.ts): "AUGUST 28 • 10 AM", where
+            "AUGUST 28TH, 2026 · 10:00 AM" would have wrapped. */}
+          <div className="flex shrink-0 items-center gap-dist-md">
+              {isRegenerating ? (
+                // Same AnimateText "elastic" treatment the Generate page loops on
+                // its own "generating N posts . . ." heading (generating-view.tsx)
+                // while a batch is in flight — this is the one-post version of it.
+                <AnimateText
+                  text="generating post . . ."
+                  type="elastic"
+                  className="text-heading-sm font-display text-text-bold"
+                  offset={REGENERATING_HEADING.offset}
+                  stagger={REGENERATING_HEADING.stagger}
+                  duration={REGENERATING_HEADING.duration}
+                  bounce={REGENERATING_HEADING.bounce}
+                  loop
+                  loopDelay={REGENERATING_HEADING.loopDelay}
+                />
+              ) : (
+                <>
+                  {/* font-display (Phudu) renders caps on its own — no `uppercase`.
+                      The three parts are separate elements rather than one
+                      morphed string: only the date carries text-bold, and
+                      TextMorph takes a plain string, so a subtle bullet and
+                      time can't ride inside the same one. Each half still
+                      morphs on its own when the schedule changes. */}
+                  <h1 className="flex items-baseline gap-dist-md text-heading-sm font-display text-text-bold">
+                    <TextMorph duration={HEADING_MORPH_DURATION} ease={STRONG_EASE_OUT}>
+                      {scheduled ? formatDate(scheduled) : "Draft"}
+                    </TextMorph>
+                    {scheduled ? (
+                      <>
+                        <span aria-hidden className="text-text-subtle">
+                          •
+                        </span>
+                        <span className="whitespace-nowrap text-text-subtle">
+                          <TextMorph
+                            duration={HEADING_MORPH_DURATION}
+                            ease={STRONG_EASE_OUT}
+                          >
+                            {formatClockTime(scheduled)}
+                          </TextMorph>
+                        </span>
+                      </>
+                    ) : null}
+                  </h1>
+                  {/* Not a content edit — this pencil is the date action:
                   reschedule a dated post, or give a draft its first date.
                   Same picker as the button above; this is just the quicker
                   way to reach it. */}
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={scheduled ? "Change date" : "Add to calendar"}
-                      onClick={() => setPickerOpen(true)}
-                      className="flex cursor-pointer items-center text-icon-subtle transition-[color,scale] duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
-                    >
-                      <PencilSimple weight="bold" className="size-6" />
-                    </button>
-                  }
-                />
-                <TooltipContent>
-                  {scheduled ? "Change date" : "Add to calendar"}
-                </TooltipContent>
-              </Tooltip>
-            </>
-          )}
-        </div>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label={scheduled ? "Change date" : "Add to calendar"}
+                          onClick={() => setPickerOpen(true)}
+                          className="flex cursor-pointer items-center text-icon-subtle transition-[color,scale] duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
+                        >
+                          <PencilSimple weight="bold" className="size-6" />
+                        </button>
+                      }
+                    />
+                    <TooltipContent>
+                      {scheduled ? "Change date" : "Add to calendar"}
+                    </TooltipContent>
+                  </Tooltip>
+                </>
+              )}
+            </div>
 
-        {/* The account pill and this post's topics, per the export's own
+          {/* The account pill and this post's topics, per the export's own
             row under the heading. The pill cycles through every account this
             project can post as — "Try out" included, which is what keeps it
             tappable when only one real account is connected. Topics are
             display-only here (they're assigned at generation), and one whose
             topic has since been deleted from Instructions renders retired. */}
-        <div className="flex shrink-0 flex-wrap items-center gap-dist-md">
-          <PostAccountPill
-            account={resolvePostAccount(currentPost, accounts)}
-            nextAccount={nextPostAccount(currentPost, accounts)}
-            onSelect={handleSocialChange}
-            className="max-w-60"
-          />
-          {currentPost.topics.map((topic) => (
-            <Chip
-              key={topic}
-              size="md"
-              selected={false}
-              retired={!activeTopicSet.has(topic)}
-              // text-bold rather than Chip's own text-subtle, per direct
-              // request and matching the export's own label fill
-              // (Text/text-bold). Scoped to this screen rather than changed on
-              // the component: everywhere else an unselected chip is secondary
-              // to what it sits beside, but here the topic is one of only two
-              // things describing the post. A retired chip keeps its own
-              // text-minimal — the point of that state is that it has faded
-              // out of the project, which a bold label would undo.
-              className={activeTopicSet.has(topic) ? "text-text-bold" : undefined}
-            >
-              {topic}
-            </Chip>
-          ))}
-        </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-dist-md">
+            <PostAccountPill
+              account={resolvePostAccount(currentPost, accounts)}
+              nextAccount={nextPostAccount(currentPost, accounts)}
+              onSelect={handleSocialChange}
+              className="max-w-60"
+            />
+            {currentPost.topics.map((topic) => (
+              <Chip
+                key={topic}
+                size="md"
+                selected={false}
+                retired={!activeTopicSet.has(topic)}
+                // text-bold rather than Chip's own text-subtle, per direct
+                // request and matching the export's own label fill
+                // (Text/text-bold). Scoped to this screen rather than changed on
+                // the component: everywhere else an unselected chip is secondary
+                // to what it sits beside, but here the topic is one of only two
+                // things describing the post. A retired chip keeps its own
+                // text-minimal — the point of that state is that it has faded
+                // out of the project, which a bold label would undo.
+                className={activeTopicSet.has(topic) ? "text-text-bold" : undefined}
+              >
+                {topic}
+              </Chip>
+            ))}
+          </div>
 
-        {/* Click-to-edit, no textarea chrome of any kind (per direct
+          {/* Click-to-edit, no textarea chrome of any kind (per direct
             request) — bg-transparent/outline-none/resize-none, same box,
             same type styles, same fade mask as the plain view below, so
             swapping between them reads as the text itself becoming
             editable rather than a field appearing around it. */}
-        {isEditing ? (
-          <textarea
-            ref={(node) => {
-              textareaRef.current = node
-              contentFadeRef(node)
-            }}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={handleContentKeyDown}
-            onBlur={commitContentEdit}
-            onScroll={onContentScroll}
-            className={cn(
-              "w-full min-h-0 flex-1 resize-none bg-transparent text-body-lg whitespace-pre-wrap text-text-bold outline-none",
-              HIDE_NATIVE_SCROLLBAR_CLASSNAME
-            )}
-          />
-        ) : (
-          // relative: the old text's exit (and, on a failed regenerate, its
-          // re-entrance) is absolutely positioned over this box rather than
-          // in normal flow, so it can fade away over a genuinely blank area
-          // instead of pushing the streaming view below it down for the
-          // ~300ms the exit takes.
-          <div className="relative w-full min-h-0 flex-1">
-            <AnimatePresence>
-              {!isRegenerating && (
-                <motion.div
-                  key="content"
-                  ref={contentFadeRef}
-                  onScroll={onContentScroll}
-                  onClick={handleContentClick}
-                  initial={{ opacity: 0, filter: "blur(8px)" }}
-                  animate={{ opacity: 1, filter: "blur(0px)" }}
-                  exit={{ opacity: 0, filter: "blur(8px)" }}
-                  transition={{ duration: 0.3, ease: STRONG_EASE_OUT_TUPLE }}
+          {isEditing ? (
+            <textarea
+              ref={(node) => {
+                textareaRef.current = node
+                contentFadeRef(node)
+              }}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleContentKeyDown}
+              onBlur={commitContentEdit}
+              onScroll={onContentScroll}
+              className={cn(
+                "w-full min-h-0 flex-1 resize-none bg-transparent text-body-lg whitespace-pre-wrap text-text-bold outline-none",
+                HIDE_NATIVE_SCROLLBAR_CLASSNAME
+              )}
+            />
+          ) : (
+            // relative: the old text's exit (and, on a failed regenerate, its
+            // re-entrance) is absolutely positioned over this box rather than
+            // in normal flow, so it can fade away over a genuinely blank area
+            // instead of pushing the streaming view below it down for the
+            // ~300ms the exit takes.
+            <div className="relative w-full min-h-0 flex-1">
+              <AnimatePresence>
+                {!isRegenerating && (
+                  <motion.div
+                    key="content"
+                    ref={contentFadeRef}
+                    onScroll={onContentScroll}
+                    onClick={handleContentClick}
+                    initial={{ opacity: 0, filter: "blur(8px)" }}
+                    animate={{ opacity: 1, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, filter: "blur(8px)" }}
+                    transition={{ duration: 0.3, ease: STRONG_EASE_OUT_TUPLE }}
+                    className={cn(
+                      "absolute inset-0 cursor-text overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
+                      HIDE_NATIVE_SCROLLBAR_CLASSNAME
+                    )}
+                  >
+                    {currentPost.content}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              {isRegenerating && (
+                // No placeholder/dimming while empty — per direct request this
+                // reads as new text streaming onto a genuinely blank page, not
+                // a loading state layered over the old one. The heading's own
+                // "generating post . . ." loop is the only affordance until the
+                // first chunk lands.
+                <div
+                  ref={streamFadeRef}
+                  onScroll={onStreamScroll}
                   className={cn(
-                    "absolute inset-0 cursor-text overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
+                    "h-full overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
                     HIDE_NATIVE_SCROLLBAR_CLASSNAME
                   )}
                 >
-                  {currentPost.content}
-                </motion.div>
+                  {chunks.map((chunk, index) => (
+                    <StreamedLine
+                      key={index}
+                      text={chunk}
+                      offset={REGENERATING_LINE_ENTRANCE.offset}
+                      stagger={REGENERATING_LINE_ENTRANCE.stagger}
+                      duration={REGENERATING_LINE_ENTRANCE.duration}
+                      bounce={REGENERATING_LINE_ENTRANCE.bounce}
+                      blur={REGENERATING_LINE_ENTRANCE.blur}
+                    />
+                  ))}
+                </div>
               )}
-            </AnimatePresence>
-            {isRegenerating && (
-              // No placeholder/dimming while empty — per direct request this
-              // reads as new text streaming onto a genuinely blank page, not
-              // a loading state layered over the old one. The heading's own
-              // "generating post . . ." loop is the only affordance until the
-              // first chunk lands.
-              <div
-                ref={streamFadeRef}
-                onScroll={onStreamScroll}
-                className={cn(
-                  "h-full overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
-                  HIDE_NATIVE_SCROLLBAR_CLASSNAME
-                )}
-              >
-                {chunks.map((chunk, index) => (
-                  <StreamedLine
-                    key={index}
-                    text={chunk}
-                    offset={REGENERATING_LINE_ENTRANCE.offset}
-                    stagger={REGENERATING_LINE_ENTRANCE.stagger}
-                    duration={REGENERATING_LINE_ENTRANCE.duration}
-                    bounce={REGENERATING_LINE_ENTRANCE.bounce}
-                    blur={REGENERATING_LINE_ENTRANCE.blur}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -965,36 +991,15 @@ export function PostDetails({
         }
       />
 
-      {/* Just the calendar (design-sync/calendarwithactionbar) — same dialog
-          shape as GeneratedPostCard's own "Add to calendar"/"Change date"
-          picker: no title/padding/card wrapper of this dialog's own, so
-          Calendar's own card (border, shadow, p-pad-md) reads as the only
-          chrome. showCloseButton off (Cancel already closes it);
-          popupClassName clears the default w-80/padding/background so the
-          Popup just hugs Calendar's own size="lg" footprint. clipContent off
-          too — this wrapper's own clip-path would otherwise hard-cut
-          Calendar's drop shadow at almost the same boundary it's supposed to
-          soften. */}
-      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
-        <DialogContent
-          showCloseButton={false}
-          clipContent={false}
-          popupClassName="w-fit"
-          className="gap-0 rounded-none bg-transparent p-0"
-        >
-          <Calendar
-            mode="single"
-            selected={scheduled}
-            onSelect={(newDate) => {
-              if (newDate) handleDateChange(newDate)
-              setPickerOpen(false)
-            }}
-            size="lg"
-            showActionBar
-            onCancel={() => setPickerOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* The same shared picker the generated-post card uses
+          (components/shared/date-time-picker-dialog.tsx) — a date click
+          commits and closes, the time inside it commits on its own. */}
+      <DateTimePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        date={scheduled}
+        onDateChange={handleDateChange}
+      />
 
       {/* The app's default confirmation-modal layout (components/ui/
           confirmation-modal.tsx, design-sync/defaultconfirmationmodal) — a

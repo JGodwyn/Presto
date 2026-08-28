@@ -695,3 +695,26 @@ here it sent me instrumenting the store, then hunting a stale-bundle theory,
 before a plain screenshot showed the feature working the whole time. A visible
 one-off probe string rendered by the component under test is the cheap way to
 tell a stale bundle from a stalled commit.
+
+## Stamping a time onto a date walk breaks the walk's own end comparison
+
+**Symptom.** (Caught in review, not in the wild — but it would have shipped as
+"the last day of my range never gets a post", intermittently: only for
+afternoon and evening times, never for midnight or morning.)
+
+**Cause.** The Generate page's date-range walk pushed `cursor` while `cursor
+<= dailyRange.to`. Both sides used to be local midnight, so the comparison was
+really "same calendar day or earlier". Once the cursor carries a picked time
+of day, `Aug 20 19:03` is genuinely greater than `Aug 20 00:00`, so the loop
+exits one day early. Nothing about the code changed — only the *precision* of
+one side of a comparison that had silently been a date comparison all along.
+
+**Rule.** A `Date` in this codebase is either a calendar day (local midnight)
+or an instant, and the two must never be compared with `<`/`<=`/`===`. When
+adding a time to something that used to be date-only, grep for every
+comparison and every `getTime()` on it. Build a fresh local-midnight `Date`
+for the boundary (`new Date(d.getFullYear(), d.getMonth(), d.getDate())`) and
+compare against that, or compare the day parts directly. The same trap sits
+under `lib/content-grouping.ts`, which is safe only because it reads local
+date *parts* rather than comparing timestamps — which is now load-bearing
+rather than incidental.

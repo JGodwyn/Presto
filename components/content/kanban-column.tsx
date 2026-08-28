@@ -6,7 +6,6 @@ import { KanbanPostCard } from "@/components/content/kanban-post-card"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import type { DayGroup } from "@/lib/content-grouping"
-import { formatOrdinal } from "@/lib/format-date"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import type { Post } from "@/types/post"
 import type { ConnectedSocialAccount } from "@/types/social-account"
@@ -31,15 +30,17 @@ const STACK_FADE_BOTTOM_PX = 40
 // posts unreachable isn't an option in the real thing.
 export function KanbanColumn({
   day,
-  monthLabel,
+  dayLabel,
   accounts,
   activeTopics,
   postHref,
 }: {
   day: DayGroup
-  // "July" — the day header reads "8th July", so the column needs its month
-  // even though the section heading above already names it.
-  monthLabel: string
+  // "Aug 29" — the app's one date format, built by the caller (which is the
+  // side that knows this day's month and year). The section heading above
+  // already names the month, but a column read on its own shouldn't have to
+  // look up.
+  dayLabel: string
   // Passed straight through to the cards — see PostAccount in
   // lib/post-account.ts and the retired-topic note on ContentView.
   accounts: ConnectedSocialAccount[]
@@ -65,7 +66,7 @@ export function KanbanColumn({
       <div className="flex shrink-0 items-center justify-between">
         <span className="flex items-center gap-dist-sm text-body-lg-bold text-text-bold">
           <CalendarDots weight="bold" className="size-5 text-icon-minimal" />
-          {formatOrdinal(day.day)} {monthLabel}
+          {dayLabel}
         </span>
         <span className="text-body-lg-bold text-text-subtle">
           {day.posts.length}

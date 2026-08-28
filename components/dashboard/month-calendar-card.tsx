@@ -4,7 +4,7 @@ import Link from "next/link"
 
 import { cn } from "@/lib/utils"
 import { setContentTab } from "@/lib/content-view"
-import { formatFullDate } from "@/lib/format-date"
+import { formatDate } from "@/lib/format-date"
 import type { MonthSummary } from "@/lib/dashboard-summary"
 import {
   DashboardCard,
@@ -141,7 +141,7 @@ export function MonthCalendarCard({
   const monthCells = Array.from({ length: summary.daysInMonth }, (_, index) => {
     const day = index + 1
     const count = summary.countsByDay[day - 1]
-    const label = `${formatFullDate(new Date(summary.year, summary.month, day))} — ${count} ${count === 1 ? "post" : "posts"}`
+    const label = `${formatDate(new Date(summary.year, summary.month, day))} — ${count} ${count === 1 ? "post" : "posts"}`
     const hasContent = count > 0
     const ids = postIdsByDay.get(day) ?? []
     // One post on the day: go straight to it, exactly as a Next-up card does.

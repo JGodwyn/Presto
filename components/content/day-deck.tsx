@@ -227,7 +227,7 @@ export function DayDeck({
   // tell a live topic chip from a deleted one. See ContentView's own notes.
   accounts: ConnectedSocialAccount[]
   activeTopics: Set<string>
-  // Read out to screen readers as the dialog's name, e.g. "July 5th, 2026".
+  // Read out to screen readers as the dialog's name, e.g. "July 5, 2026".
   dateLabel: string
   // Just this day's posts, already filtered and ordered by the caller. The
   // deck closes itself if this ever empties (every post deleted or moved to

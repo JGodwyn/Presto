@@ -15,15 +15,6 @@ export function formatOrdinal(day: number): string {
   }
 }
 
-// "July 5th, 2026" — the app's one long-date format, shared by the post cards
-// and the Content page so a day never reads as "5th" in one place and "5" in
-// another. Built by hand rather than through toLocaleDateString because
-// Intl has no ordinal-day format; the month and year still come from it.
-export function formatFullDate(date: Date): string {
-  const month = date.toLocaleDateString("en-US", { month: "long" })
-  return `${month} ${formatOrdinal(date.getDate())}, ${date.getFullYear()}`
-}
-
 // Spelled out rather than taken from `toLocaleDateString({ month: "short" })`:
 // that gives "Sep", and the short form this app wants is "Sept".
 const SHORT_MONTHS = [
@@ -41,11 +32,68 @@ const SHORT_MONTHS = [
   "Dec",
 ]
 
-// "Sept 5th, 2026" — the same date on a card that has one line to spare for
-// it. Only the month shortens; the ordinal and year are what make it a date
-// rather than a label.
-export function formatShortDate(date: Date): string {
-  return `${SHORT_MONTHS[date.getMonth()]} ${formatOrdinal(date.getDate())}, ${date.getFullYear()}`
+// **The year is dropped when it is the current one** — "Aug 29" this year,
+// "Aug 29, 2027" in any other. Per direct request, and it is what keeps a date
+// short enough to sit beside a time on a 272px card. Nothing is lost: a date
+// with no year *means* this year, the same way a diary entry does.
+//
+// `now` is a parameter rather than a `new Date()` read inside, following
+// formatExpiry above and the Content page's own `now` prop: a server and the
+// browser hydrating it must agree on which year is current, and they only do
+// if one clock decides. It defaults for the call sites that have no `now` to
+// hand — the window where that could disagree is the last minutes of a year,
+// and the cost is one re-render showing a year that then vanishes.
+function yearSuffix(date: Date, now: Date): string {
+  return date.getFullYear() === now.getFullYear() ? "" : `, ${date.getFullYear()}`
+}
+
+
+
+
+// "Aug 29" / "Aug 29, 2027" — **the app's one date format**, per direct
+// request that these read the same everywhere. There used to be a long-month
+// twin of this (`formatFullDate`) for the roomier surfaces; having two shapes
+// was the whole problem, so there is now one function and every caller takes
+// it.
+//
+// **No ordinal**, and deliberately unlike the bare day numbers `formatOrdinal`
+// still serves: "the 29th" is how a day on its own is read — which is what the
+// Content page's day chips show — but a date that also names its month does
+// not need one.
+export function formatDate(date: Date, now: Date = new Date()): string {
+  return `${SHORT_MONTHS[date.getMonth()]} ${date.getDate()}${yearSuffix(date, now)}`
+}
+
+// A date range, dropping the year only where it can't be misread — which is
+// the whole answer to "what about December 24 to January 15?".
+//
+//   both ends this year   → "Dec 24 – Dec 31"
+//   both ends 2027        → "Dec 24 – Dec 31, 2027"   (year once)
+//   ends in *different*   → "Dec 24, 2026 – Jan 15, 2027"
+//     years                 (both years, always, whatever `now` is)
+//
+// A range that crosses a year boundary is precisely the case where hiding the
+// year makes it read backwards — "Dec 24 – Jan 15" looks like it ends
+// three weeks before it starts. So the rule isn't "drop the current year", it
+// is "drop the year when both ends agree on it and it's the current one";
+// spanning two years overrides that even when one of them is current.
+export function formatDateRange(
+  from: Date,
+  to: Date | undefined,
+  now: Date = new Date()
+): string {
+  const monthDay = (date: Date) =>
+    `${SHORT_MONTHS[date.getMonth()]} ${date.getDate()}`
+
+  if (!to) return formatDate(from, now)
+
+  if (from.getFullYear() !== to.getFullYear()) {
+    return `${monthDay(from)}, ${from.getFullYear()} – ${monthDay(to)}, ${to.getFullYear()}`
+  }
+
+  // Same year on both ends, so it only ever needs saying once — at the end,
+  // where it covers the whole range. formatDate drops it if it's this year.
+  return `${monthDay(from)} – ${formatDate(to, now)}`
 }
 
 const MS_PER_DAY = 86_400_000

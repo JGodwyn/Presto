@@ -8,6 +8,7 @@ import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { resolvePostAccount } from "@/lib/post-account"
+import { formatClockTime } from "@/lib/time-of-day"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
 import type { ConnectedSocialAccount } from "@/types/social-account"
@@ -54,6 +55,7 @@ export function KanbanPostCard({
   })
 
   const account = resolvePostAccount(post, accounts)
+  const scheduled = post.scheduledFor ? new Date(post.scheduledFor) : null
 
   return (
     <Link
@@ -91,6 +93,16 @@ export function KanbanPostCard({
           HIDE_NATIVE_SCROLLBAR_CLASSNAME
         )}
       >
+        {/* The time leads this row rather than sitting in a header of its
+            own: the column above already names the day, so the time is the
+            only thing telling one card in a column from another — and first
+            in the row means it lines up down the column, scannable, without
+            costing the card a line of height. A draft has none. */}
+        {scheduled ? (
+          <span className="shrink-0 text-body-md-bold text-text-subtle">
+            {formatClockTime(scheduled)}
+          </span>
+        ) : null}
         <PostAccountPill
           account={account}
           // Display-only here: the whole card is a single link to the post's

@@ -1,4 +1,5 @@
 import { FolderLoadingIndicator } from "@/components/projects/folder-loading-indicator"
+import { formatDate } from "@/lib/format-date"
 
 // Folder-shaped project card from the Figma "Your projects" frame. The
 // silhouette (tab + rounded body) is the exported vector path, so it stays an
@@ -28,11 +29,11 @@ export function ProjectFolder({
   name: string
   createdAt: string
 }) {
-  const formattedDate = new Date(createdAt).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  })
+  // The app's one date format (lib/format-date.ts) rather than a
+  // toLocaleDateString of its own — this was the last place still spelling a
+  // date its own way, and a project created this year now reads "Aug 29" like
+  // everything else.
+  const formattedDate = formatDate(new Date(createdAt))
 
   return (
     <div

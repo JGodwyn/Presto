@@ -2068,3 +2068,471 @@ clean, 126/126 tests.
 HMR hiccup, not the change — and its "Try again" button recovered the page in
 one click, which is the first time that recovery path has been exercised for
 real rather than by forcing a throw.)
+
+## 2026-08-27 — feat/post-time: the Generate page's dates section gets a time
+
+Two new Figma exports (`design-sync/calendar-with-time-daily`,
+`calendar-with-time-monthly`) put a time-of-day row on the calendar-based
+Generate page, and re-cut the Monthly card while they were at it. Built both,
+plus the plumbing that makes the picked time reach the database.
+
+**Read first.** The map that preceded this: `posts.scheduled_for` is already
+`timestamptz`, so no migration — the column has always been able to hold a
+time, and every writer just pinned it to local midnight. Three places do that
+pinning: `components/ui/calendar.tsx:86`'s `setHours(0,0,0,0)` (shared by all
+three date pickers) and GenerateCard's two date walks. This branch changes the
+second of those; the pickers on a post card still pin midnight, which is the
+remaining wave.
+
+**`lib/time-of-day.ts` + test.** The value (`TimeOfDay` = hour 1-12, minute,
+AM/PM) and its math, kept out of the declared-hot `lib/format-date.ts`. The
+12 AM/12 PM pair is the whole reason `to24Hour` isn't a one-liner, and the
+test walks every hour of the day through the round trip. `atTimeOfDay` stamps
+a time onto a calendar day through the local `Date` constructor rather than by
+adding milliseconds — across a DST boundary the offset between two days isn't
+a constant number of hours, and the day the user picked is what has to
+survive.
+
+**`components/ui/time-field.tsx`.** The row itself, identical in both exports
+(surface-2 tray, three 48×40 surface-4 segments, flanking 16px marks).
+Measured against the export in-browser: row 48, tray 177×48 (the 1px is the
+":" glyph), segments 48×40, tray/mark fills `#e7dfdc`, padding 4, gap 4 —
+matching. Hour and minute are `type="text"` + `inputMode="numeric"` rather
+than `type="number"` (no spinners, no "e", no unbounded length), digits
+filtered on the way in; arrows step and wrap; AM/PM is a one-tap toggle, per
+direct request, since two options don't earn a dropdown.
+
+**`Calendar` gained a `footer` slot**, rendered in day view only — the month
+and year pickers replace the grid wholesale, and a time sitting under a list
+of years reads as belonging to the list. Verified: opening the month picker
+hides the row.
+
+**`MonthGrid` re-cut** to the new export: year nav and month pills both
+centred (they were left-aligned), a `DottedDivider` and the time row inside
+the card, and an info marker absolutely positioned 8px in from the card's top
+and right with the export's tooltip copy — which replaces the "Select months
+to generate for" line that used to sit above the card. Tooltip measured
+against the export: 264×56, `#050302` on `#fffffe`, 14/20, 8px/12px padding,
+12px radius, centred — exact.
+
+**Plumbing.** `postTime` lives on GenerateCard beside the dates, persists to
+`localStorage` as a 24-hour `"HH:MM"` (round-trippable and timezone-free,
+unlike the `"YYYY-MM-DD"` dates beside it which have to dodge UTC day-shift),
+resets with the calendar, and is stamped onto every date `scheduledDates`
+produces.
+
+**One bug caught in the writing, not in testing:** the date-range walk
+compared its cursor against `dailyRange.to` directly. `to` is local midnight,
+so a cursor carrying an evening time would overshoot it and silently drop the
+last day of the range. The comparison is now against `to`'s calendar day. See
+LEARNINGS.
+
+**Verified end-to-end without generating anything.** Patched
+`Storage.prototype.setItem` to capture the `presto:generate:scheduled-dates`
+handoff and throw before `router.push`, so no run ever started: three picked
+dates came out as `2026-08-10T18:03:00.000Z` etc. — 19:03 local, the time in
+the field — where they would previously have been local midnight. Page stayed
+on `/generate`, no posts created. Also verified the value survives a reload,
+and that the panel's reset button returns it to 9:00 AM.
+
+Gates: tsc clean, eslint clean on every file touched (generate-calendar-
+column.tsx's 10 `react-hooks/refs` errors are pre-existing — confirmed
+identical count against `HEAD` via `--stdin`), 139/139 tests.
+
+### Same day — the re-export, and the time inside both post pickers
+
+**The re-exported daily calendar** (`design-sync/calendar-with-time-daily`,
+18:02) groups the title bar and day grid in a gap-0 wrapper and gives the card
+itself `dist-lg`, so the time row now sits behind the same dotted divider the
+monthly card has, with 16px either side of it. Carried in `Calendar` rather
+than by the card's own gap (its children are gap-0 and every other one — the
+month list, the year list, the action bar — has to stay that way). Verified in
+the live DOM: 16 above, 16 below, row 48, card 320 wide.
+
+`DottedDivider` stays in `components/instructions/` rather than moving to
+`components/ui/`: `feat/settings-profile` is live and imports it, so a move
+would hand that branch a conflict on its import line for no benefit. Four
+files outside `instructions/` already import it from there.
+
+**Both post pickers now carry the time**, via a new shared
+`components/shared/date-time-picker-dialog.tsx`. The generated-post card and
+the post-details page were rendering byte-identical dialogs; now that there's
+behaviour inside one, keeping two copies in step was not an option. Both call
+sites lost their `Calendar`/`Dialog` imports and their long duplicated comment
+blocks along with it.
+
+**The commit story is the interesting part**, because the two halves of the
+picker aren't the same kind of control:
+
+- A **date click** commits and closes, exactly as before — it just carries
+  whatever time is showing.
+- The **time writes through on its own**, for a post that already has a day to
+  attach it to. A draft has none, so its time is held and rides along with
+  whichever date gets picked.
+- **Debounced 300ms**, because typing "1" then "2" for 12 (or holding an arrow
+  key) is several changes in a few hundred ms, each of which would otherwise
+  be its own fire-and-forget update of the same row — the out-of-order hazard
+  AGENTS.md ships `useSaveQueue` for. One trailing write per burst removes it
+  without a queue, since only one request is ever in flight. Flushed on
+  unmount so a fast close doesn't drop the last edit, and cancelled by a date
+  click, which supersedes it (letting the older write land afterwards would
+  put the post back on its previous day).
+- Cancel is therefore not a discard. It never was — it closes without picking
+  a date, and Escape and outside-click do the same.
+
+The body is a separate component mounted inside `DialogContent`, so Base UI's
+lazy portal re-seeds the time from the post on every open instead of keeping
+the last session's value.
+
+**Verified against the live DB**, on a real post
+(`f87960e2…`, `2026-08-28 09:00+00` = 10:00 local):
+opened the post-details picker → seeded 10:00 AM; switched to PM and typed 45
+→ row read `2026-08-28 21:45+00`, day unchanged; clicked the 20th → `2026-08-20
+21:45+00`, **time preserved across a date change** where it would previously
+have reset to midnight. Restored the row to its original value afterwards.
+The day-deck card's picker opened on a pre-feature post and correctly showed
+12:00 AM — the 12 AM/12 PM pair reading back right on a real midnight row.
+
+Gates: tsc clean, eslint clean on all eight files touched, 139/139 tests.
+
+**Still not done, and worth saying plainly:** nothing *displays* the time yet.
+A user can set it in either picker and see it there on reopening, but the
+post-details heading, the card headers and the dashboard's Next-up line are
+all still date-only, so a time change has no on-page confirmation. That's the
+display wave from the original map, unchanged.
+
+### Same day — the time on screen, and the Content page sorted by it
+
+**One formatter, `formatClockTime` (lib/time-of-day.ts).** "10:45 PM", and
+**"9 AM" on the hour** — the minutes are dropped when they're zero. That isn't
+only how the time is said out loud; it's what made it fit. Measured live: a
+Kanban card's metadata row has 196px, and "12:00 AM" (65px) beside the account
+pill (128px) overran it before the topics were even reached. The compact form
+is 40px and leaves the pill whole with a chip edge showing under the row's
+existing fade — which is that row's designed "there's more" state. Most posts
+land on the hour anyway, since a batch picks one time for every date.
+
+**Four surfaces, each fitted to its own layout rather than one treatment
+forced onto all of them:**
+
+- **`generated-post-card.tsx`** (Generating page *and* the day deck) — date
+  over time in the header, a stacked pair. One line was tried on paper and
+  fails at the deck's 272px: "Sept 15th, 2026 · 10 AM" only fits by
+  truncating, and half a date is worse than a second line. The stack also
+  leaves the actions button exactly where it was.
+- **`kanban-post-card.tsx`** — the time *leads* the account/topics row. This
+  is the one card that shows no date at all (its column header names the day),
+  so a bare time is unambiguous, and putting it first lines it up down the
+  column, which is now what the column is sorted by. Deliberately not its own
+  line: the board is 400px and was raised there specifically to fit three
+  cards, which a fourth row per card would undo (2.3 cards instead of ~3).
+- **`post-details.tsx`** — a Clock + time line under the heading, bound to it
+  at `dist-sm` against the column's own `dist-lg`. Not part of the `<h1>`:
+  "AUGUST 28TH, 2026 · 10 AM" in Phudu at heading-sm wraps in this 400px
+  column anyway, and two lines of display caps is far heavier than one line
+  plus a quiet second. Hidden mid-regenerate along with the date it belongs to.
+- **`dashboard-post-card.tsx`** — `August 28, 2026 • 12 AM • Tomorrow`, all
+  three on one row. A first pass moved the relative day to its own line on the
+  assumption three segments wouldn't fit; measuring showed this card runs the
+  width of the Next-up column, the widest thing on the dashboard, so the extra
+  line was reverted.
+
+Day chips and Kanban column headers deliberately get nothing: both cover a
+whole day.
+
+**Sorting (`lib/content-grouping.ts`).** `byNewestFirst` became `comparePosts`:
+within a day, posts now sort by the scheduled moment in the same direction the
+days around them read — Queued forwards (the next one out on top, as across
+days), Published backwards. The old comment had already named the reason this
+couldn't be done before ("posts generated into the same day usually share a
+time"); that is still true of a batch, which is why creation order is kept as
+the **tiebreak** rather than dropped. Draft has no scheduled time by
+definition, so it falls straight through to that tiebreak and reads
+newest-written first exactly as it did. Four cases pinned in
+lib/content-grouping.test.ts.
+
+Verified in-browser on real data: 28 August's two posts (12 AM, 10 AM) read in
+that order on Kanban, in the day deck, and in the dashboard's Next-up list —
+they were the other way round before, ordered by when they were written.
+
+Gates: tsc clean, eslint clean, 145/145 tests (6 new).
+
+### Same day — three corrections on the time's presentation
+
+**The ordinal is gone from the full-date formats**, per direct request:
+`formatFullDate` is "July 5, 2026" and `formatShortDate` "Sept 5, 2026".
+`formatOrdinal` itself stays, and so do its two remaining callers — the
+Content day chips ("28th") and a Kanban column header ("28th August"). That
+split is deliberate rather than an oversight: a bare day is read as "the
+28th", while a date that already names its month and year reads as "August 28,
+2026". Say the word if the chips should follow.
+
+**The post card's time moved back beside the date** rather than under it, in
+the same `body-lg-bold`, separated only by `text-subtle` and a `dist-sm` gap —
+no middot needed when the colour already does the work.
+
+It does not always fit, and the numbers are worth recording. The day deck's
+card is 272px, which leaves its header 232px: icon 20 + gap 4 + date 104 +
+gap 4 + time + button 40. An on-the-hour time ("10 AM", 48px) fits with room
+to spare; a to-the-minute one ("4:32 PM", 64px) is **4px over**. So the date
+truncates, per the same request — it's the half that can lose its tail and
+still say what it is, where a clipped "4:32 P…" says nothing. The Generating
+page's card is wider and shows both in full. Four pixels is close enough that
+shrinking the header's CalendarDots from `size-5` to `size-4` would close it;
+not done, since that size came off the export and buying 4px isn't reason
+enough to change it unasked.
+
+**Post details' time line**: Clock → `Timer` at `weight="fill"`, `size-4`
+(from a bold `size-5`), and the label itself from `body-lg` to
+`body-lg-bold` — smaller, bolder, both as asked. Checked at render: the fill
+weight keeps the needle knocked out white at 16px, so it still reads as a
+timer rather than a dot.
+
+Gates: tsc clean, 145/145 tests, and eslint clean on every file this branch
+touched — the 24 remaining errors across `components/`/`lib/` are all
+pre-existing, confirmed file-by-file against `HEAD` via `--stdin` (identical
+counts: switch.tsx 5, generate-calendar-column.tsx 10, and five others).
+
+### Same day — five presentation corrections, all per direct request
+
+1. **`•` between date and time** on the post card, and 2. **the time is plain
+   `body-lg`**, not bold — the date keeps the header's weight and the time is
+   `text-subtle` beside it, so the pair reads as one line the date leads.
+3. **The year is dropped when it is the current one** — `formatFullDate` is
+   "August 28" this year and "August 28, 2027" in any other; `formatShortDate`
+   the same. This is what finally makes the card header fit: the 4px overrun
+   recorded above (the deck's 232px header, "Aug 28, 2026" 104px + "4:32 PM"
+   64px) disappears when the date is "Aug 28" at ~56px. Verified live —
+   `Aug 28 • 10 AM` and `Aug 28 • 4:32 PM` both sit clear of the button.
+   - `now` is a **parameter** (defaulting to `new Date()`) rather than a read
+     inside the formatter, following `formatExpiry` and the Content page's own
+     `now` prop: a server and the browser hydrating it have to agree on which
+     year is current, and they only do if one clock decides. The default is
+     for the call sites with no `now` to hand; the window where it could
+     disagree is the last minutes of a year.
+   - **The dashboard card was formatting its own date** (`toLocaleDateString`
+     with `year: "numeric"`), which is why it kept printing the year after the
+     shared formatter stopped. Repointed at `formatFullDate` — and it already
+     takes `now` as a prop, so it hands over a real clock rather than the
+     default.
+4. **`gap-dist-md` on the card's header row** so the time never sits flush
+   against the DotsThree button — `justify-between` alone left them touching
+   the moment the date grew enough to fill the row.
+5. **Post details' Timer is outlined again**, `weight="bold"` not `fill`, at
+   `size-4` beside the `body-lg-bold` label.
+
+`formatOrdinal` and its two callers (Content day chips, Kanban column headers)
+are untouched — a bare day is still "the 28th".
+
+**One place still prints the year and was left alone**: the Generate page's
+date-range readout (generate-calendar-column.tsx's own `formatDate`), e.g.
+"August 28, 2026 – September 4, 2026". It's a different formatter on a screen
+this round didn't cover, and a range reads differently from a single date —
+flagged rather than changed.
+
+Gates: tsc clean, eslint clean on every file touched, 149/149 tests (4 new
+covering the year rule, in lib/format-date.test.ts).
+
+### 2026-08-28 — the time joins the post-details heading
+
+`AUGUST 28 • 10 AM`, on the heading line itself, in the same `date • time`
+shape the post cards read in. The standalone line below the heading is gone,
+and so is the icon that led it — the bullet is the separator now, and the date
+never had an icon either. The bullet and time are `text-subtle` against the
+date's `text-bold`.
+
+It fits at `heading-sm` in this 400px column only because the current year is
+dropped (the previous round): "AUGUST 28 • 10 AM" where "AUGUST 28TH, 2026 ·
+10:00 AM" wrapped, which is why the time was on its own line to begin with.
+
+**The three parts are separate elements, not one morphed string.** `TextMorph`
+takes a plain string, so a bullet and time that need their own colour can't
+ride inside the date's. Each half now morphs on its own when the schedule
+changes. The `<h1>` became a flex row to hold them.
+
+**Note on the file's state.** post-details.tsx had been edited outside this
+session between rounds: the whole file was re-indented (the `git diff` reads
+182/177 lines, but `-w` reduces that to 42/37 — the rest is whitespace), the
+time line's icon was back to `Clock`/`size-5` rather than the bold `Timer`/
+`size-4` from last round, and `ClockAfternoonIcon`, `Timer` and `WatchIcon`
+sat imported-but-unused alongside a stray `import { Watch } from
+"react-hook-form"` — an auto-import from the wrong package. Built on top of
+what was actually there rather than reverting it. All five of those imports
+are removed, since the element every one of them was for no longer exists.
+
+**Gates: tsc clean, eslint clean, 148/149 tests.** The one failure is
+`lib/ai/generate.test.ts` — a live call to the Gemini API timing out at 30s.
+It is unchanged from `HEAD`, imports only `lib/ai/generate` (untouched by this
+branch), and passed in every earlier run today, so it is the network or the
+API, not this work. Re-running it alone reproduces the same 30s timeout.
+
+### Same day — the month list loses its scrollbar, and ranges keep their years
+
+**1. No scrollbar on the Calendar's month view**, per direct request — the
+year list below it keeps one. The two genuinely differ: a year list runs to a
+hundred entries with no natural bounds, so a thumb is the only thing saying
+where in it you are, while everyone already knows a year starts at January and
+ends at December. The list still scrolls (the native bar was always hidden);
+there is just nothing drawn to say so. `useScrollThumb`'s `ref`/`onScroll` stay
+on the month list — it still scrolls, and the active month is still scrolled
+into view on open — only `ScrollbarThumb` and the two thumb values are gone,
+along with the `relative` wrapper that existed to position it. Verified live:
+scrolling the month list draws no thumb, the year list still does.
+
+**2. "What about December 24 to January 15?" — a real hole in the plan, now
+closed.** Dropping the current year is only safe when the range can't be
+misread, and a range spanning a year boundary is precisely where it can:
+"December 24 – January 15" reads as ending three weeks before it starts.
+
+New `formatDateRange` (lib/format-date.ts) makes the rule conditional on the
+range rather than on `now` alone:
+
+| range | reads |
+| --- | --- |
+| both ends this year | `December 24 – December 31` |
+| both ends 2027 | `December 24 – December 31, 2027` (year once, at the end) |
+| **ends in different years** | `December 24, 2026 – January 15, 2027` |
+
+The third case carries both years **even when one of them is the current one**,
+which is exactly where a plain "drop the current year" rule would have got it
+wrong. Five cases pinned in lib/format-date.test.ts.
+
+`generate-calendar-column.tsx` lost its own local `formatDate` (a
+`toLocaleDateString` with `year: "numeric"` — the last place still printing
+the year unconditionally, flagged two rounds ago) and now calls the shared
+one. Verified live on a range that already spanned the boundary:
+"August 1, 2026 – February 11, 2027".
+
+The same-year branch wasn't exercised in the browser on purpose — doing so
+would have destroyed a 195-post range the user had set up on that screen. It
+delegates to `formatFullDate`, which every post card and the post-details
+heading already demonstrate, and the unit test covers it directly.
+
+Gates: tsc clean, 154/154 tests (5 new), eslint unchanged (the only file with
+errors is still generate-calendar-column.tsx's 10 pre-existing `react-hooks/
+refs`, identical at HEAD).
+
+### Same day — a bottom fade on the calendar's month and year lists
+
+Both lists now dissolve at their bottom edge instead of ending on a hard line.
+`useScrollFade` (the app's scroll-aware mask) at `end: 32`, matching
+content-filter.tsx's bottom value — the closest analogue, a dropdown-style
+list. **Bottom only, `start: 0`**, per direct request: it's the edge that has
+to say "there's more below", which matters more on the month list now that it
+draws no thumb. The top is one number away if it's ever wanted; because the
+hook sizes each fade against the scroll actually remaining, a top fade would
+be zero at rest and only appear once scrolled.
+
+Two details:
+
+- **The month list dropped `useScrollThumb` entirely.** With no thumb to draw,
+  it was doing nothing for that list — the active month is scrolled into view
+  through `activeMonthRef`, a child ref, which needs nothing from the
+  container. `useScrollFade` replaces it outright.
+- **The year list keeps its thumb *and* takes the fade**, so its two hooks are
+  composed onto one node (callback ref calling both, one handler calling both
+  `onScroll`s — the same shape content-view.tsx uses for its fade/memory
+  pair). The thumb is a sibling of the scrolling div rather than a child, so
+  the mask never dims it. Verified mid-scroll: thumb visible, "2036"
+  dissolving at the bottom.
+
+Also confirmed live in passing, on a range the user had set up meanwhile: the
+**same-year non-current-year** branch of `formatDateRange` reads
+"January 1 – January 29, 2027" — year once, at the end. That was the one case
+left unexercised in the browser last round.
+
+Gates: tsc clean, eslint clean (calendar.tsx 0 errors, same as HEAD),
+154/154 tests. One run in between reported 153/154 — the same flaky
+`lib/ai/generate.test.ts` live Gemini call timing out at 30s; it passed again
+immediately after, as it did yesterday.
+
+### Same day — back/forward navigation in the calendar's list views
+
+From design-sync/calendarwithnavigation. The Day → Month → Year drill-down
+could only ever be walked *forwards*, by picking something; there was no way
+back. Both list views now carry `ArrowBendUpLeft` / `ArrowBendUpRight` either
+side of their title (Phosphor, exactly the names the export uses, `size-5`,
+`weight="bold"` — measured off the asset's 1.875px stem at a 20px viewBox,
+which is Phosphor bold).
+
+The existing flow is untouched, per direct request: tapping the day title
+still opens the month list, picking a month still goes to years, picking a
+year still returns to days.
+
+| view | back | forward |
+| --- | --- | --- |
+| Select Month | → day | → year |
+| Select Year | → month | **disabled** |
+
+Forward is disabled on the year list because Year is the last step and the way
+out of it is picking a year — which is the export's own greyed variant
+(`#cac2bf` = `icon-minimal` against the enabled `#181210` = `icon-bold`).
+
+**Stepping back is a pure view move** — neither handler touches
+`displayMonth`, so backing out of a list leaves the calendar showing exactly
+the month it showed before the list was opened. Only *picking* an entry moves
+the date. Verified in-browser: opened the picker on August 2026, went forward
+to years, back to months, back to days — still August 2026.
+
+`CalendarNavButton` gained `tone` and `disabled`. The day view's month
+chevrons rest at `icon-subtle` and darken on hover (unchanged); these rest at
+`icon-bold`, as the export draws them. Disabled drops the pointer and the
+hover entirely — a control that lights up and then does nothing is worse than
+one that plainly says it can't.
+
+Gates: tsc clean, eslint clean.
+
+**Tests: 153/154, and the cause is now known rather than "flaky".** The
+failure is `lib/ai/generate.test.ts`, and the real error underneath the 30s
+timeouts seen earlier is:
+
+> Quota exceeded for metric:
+> `generativelanguage.googleapis.com/generate_content_free_tier_requests`,
+> limit: 20, model: gemini-3.6-flash
+
+It is a live call to the Gemini API on the free tier, unchanged from `HEAD`,
+importing only `lib/ai/generate` — untouched by this branch. See FOLLOWUPS.
+
+### Same day — one date format, app-wide
+
+Per direct request that dates read the same everywhere: **`Aug 29`**, with the
+year appearing only when it isn't the current one.
+
+`formatFullDate` and `formatShortDate` are gone, replaced by a single
+**`formatDate`**. Having two shapes was the whole problem, so there is now one
+function and every caller takes it — collapsing them structurally is what
+stops them drifting again. Every date display in the app was walked and
+repointed:
+
+- post-details heading (`AUG 28 • 10 AM`), the post cards, the dashboard's
+  Next-up rows, the day deck's accessible name, the dashboard month-calendar's
+  cell labels.
+- **The Kanban column header**, which read `28th August`, now reads `Aug 28`.
+  It took `monthLabel` — a string MonthBoard built by splitting `"July 2026"`
+  on a space — and now takes a `dayLabel` built with `formatDayLabel`, the
+  same helper behind the day deck's title, so a column header and a deck title
+  can't disagree. The split-on-space hack is gone with it.
+- **`formatDateRange`** now uses short months too: `Dec 24 – Dec 31`,
+  `Dec 24 – Dec 31, 2027`, `Dec 24, 2026 – Jan 15, 2027`.
+- **`project-folder.tsx`'s "Created" caption** was the last place spelling a
+  date its own way (`toLocaleDateString`), and now reads `Created Jul 29`.
+
+**Two deliberate exceptions**, both verified on screen:
+
+- **The Content page's day chips keep their ordinals** — `28th`, `31st` —
+  exactly as asked. A bare day *is* read as "the 28th"; that is what
+  `formatOrdinal` is still for, and it is now its only caller.
+- **`components/ui/calendar.tsx`'s day-cell `aria-label`** stays the verbose
+  `"Saturday, August 28, 2026"`. It is read aloud rather than read, and a
+  picker's cell needs its weekday and year said out loud even where the
+  visible UI can take them as read. Renamed `formatFullDate` → `dayCellLabel`
+  so it can't be confused with the retired shared name.
+
+Verified in-browser across Kanban headers, Calendar day chips, the day deck's
+cards, post details, the dashboard's Next-up list and /projects' folder
+captions — all `Aug 29`-shaped, chips still ordinal.
+
+Gates: tsc clean; eslint clean on every file this branch touched (the only
+errors anywhere are generate-calendar-column.tsx's 10 pre-existing
+`react-hooks/refs`, identical at HEAD); tests 153/154, still FOLLOWUPS #12's
+Gemini free-tier quota and nothing else.

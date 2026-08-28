@@ -4,7 +4,10 @@ import * as React from "react"
 import { Info, Warning } from "@phosphor-icons/react"
 
 import { Calendar, type DateRange } from "@/components/ui/calendar"
+import { formatDateRange } from "@/lib/format-date"
 import { Switch } from "@/components/ui/switch"
+import { TimeField } from "@/components/ui/time-field"
+import { type TimeOfDay } from "@/lib/time-of-day"
 import { MonthGrid, type MonthSelection } from "@/components/generate/month-grid"
 import { useDragScroll } from "@/hooks/use-drag-scroll"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
@@ -32,16 +35,6 @@ function isSameDay(a: Date, b: Date) {
 function getDaysInMonth(year: number, month: number): Date[] {
   const count = new Date(year, month + 1, 0).getDate()
   return Array.from({ length: count }, (_, i) => new Date(year, month, i + 1))
-}
-
-// "July 13, 2026" — same format as the number-based demo used, restored
-// here as the range readout (see the note at its call site below).
-function formatDate(date: Date) {
-  return date.toLocaleDateString(undefined, {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  })
 }
 
 // Leaves a little breathing room before the true viewport edge — the row
@@ -317,6 +310,8 @@ function GenerateCalendarColumn({
   onSkipDatesEnabledChange,
   skippedDates,
   onToggleSkipDate,
+  postTime,
+  onPostTimeChange,
   showError,
 }: {
   cadence: "daily" | "monthly"
@@ -333,6 +328,11 @@ function GenerateCalendarColumn({
   onSkipDatesEnabledChange: (enabled: boolean) => void
   skippedDates: Date[]
   onToggleSkipDate: (date: Date, skip: boolean) => void
+  // One time of day for the whole batch — every date picked here is
+  // scheduled at it. Lives on GenerateCard alongside the dates themselves
+  // so the two are persisted and reset together.
+  postTime: TimeOfDay
+  onPostTimeChange: (value: TimeOfDay) => void
   showError: boolean
 }) {
   // Shared with generating-view.tsx's generation-failure message —
@@ -349,6 +349,11 @@ function GenerateCalendarColumn({
     skipDatesEnabled ? selectedMonths : NO_MONTHS
   )
   const flipReorder = useFlipReorder(carouselPresence.items.map((item) => item.key))
+
+  // The same row in both cadences (both exports draw it identically) — the
+  // daily one sits inside the Calendar card under the grid, the monthly one
+  // under the month chips. Only ever one of them is mounted at a time.
+  const timeField = <TimeField value={postTime} onChange={onPostTimeChange} />
 
   return (
     <div
@@ -369,14 +374,22 @@ function GenerateCalendarColumn({
           </p>
           {dateSelectMethod === "range" ? (
             <>
-              <Calendar mode="range" selected={dailyRange} onSelect={onDailyRangeChange} />
+              <Calendar
+                mode="range"
+                selected={dailyRange}
+                onSelect={onDailyRangeChange}
+                footer={timeField}
+              />
               {/* Restored per direct feedback — this used to render in the
                   provisional demo and got dropped when the real layout was
-                  built. */}
+                  built. Now through the shared formatDateRange rather than a
+                  toLocaleDateString of its own, so it follows the app's
+                  current-year rule — and, crucially, stops following it the
+                  moment a range spans two years, where "December 24 –
+                  January 15" would read as ending before it starts. */}
               <p className="text-body-md text-text-subtle">
                 {dailyRange.from
-                  ? `${formatDate(dailyRange.from)}${dailyRange.to ? ` – ${formatDate(dailyRange.to)}` : ""
-                  }`
+                  ? formatDateRange(dailyRange.from, dailyRange.to)
                   : "No range selected"}
               </p>
             </>
@@ -385,20 +398,23 @@ function GenerateCalendarColumn({
               mode="multiple"
               selected={dailyDates}
               onSelect={onDailyDatesChange}
+              footer={timeField}
             />
           )}
         </>
       ) : (
         <>
-          <p className="flex items-center gap-dist-md text-body-lg text-text-subtle">
-            <Info className="size-5 text-icon-subtle" />
-            Select months to generate for
-          </p>
+          {/* The "Select months to generate for" line that used to sit here
+              is gone per design-sync/calendar-with-time-monthly — the card
+              now carries its own corner marker instead, since the
+              instruction has two halves once there's a time to set. */}
           <MonthGrid
             year={monthYear}
             onYearChange={onMonthYearChange}
             selected={selectedMonths}
             onToggleMonth={onToggleMonth}
+            info="Tap to choose a month. Then set a time to post."
+            footer={timeField}
           />
           <SkipDatesToggle
             enabled={skipDatesEnabled}

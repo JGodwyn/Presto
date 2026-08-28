@@ -1,4 +1,4 @@
-import { formatFullDate } from "@/lib/format-date"
+import { formatDate } from "@/lib/format-date"
 import type { Post } from "@/types/post"
 
 // The Content page's three tabs (design-sync/content-base-calendar-view).
@@ -32,10 +32,10 @@ export interface MonthGroup {
   days: DayGroup[]
 }
 
-// "July 5th, 2026" — the same format the post cards themselves print, used as
-// the day deck's accessible name.
+// "Aug 29" — the app's one date format (lib/format-date.ts), used as the day
+// deck's accessible name and as each Kanban column's header.
 export function formatDayLabel(month: MonthGroup, day: DayGroup): string {
-  return formatFullDate(new Date(month.year, month.month, day.day))
+  return formatDate(new Date(month.year, month.month, day.day))
 }
 
 export function belongsToTab(post: Post, tab: ContentTab, now: number): boolean {
@@ -104,16 +104,28 @@ function isAscending(tab: ContentTab): boolean {
   return tab === "queued"
 }
 
-// Within a day, the most recently added post sits first — on every tab,
-// including Queued, whose *days* still read forwards. The day ordering answers
-// "what goes out next"; the order inside one day answers "what did I just
-// add", and a post appended to the bottom of a busy day can sit below the fold
-// of its Kanban column or off the end of its deck.
+// Within a day, posts sort by **the scheduled time itself**, in the same
+// direction the days around them read: Queued forwards (the next one out sits
+// at the top of its day, as it does across days), Published backwards.
 //
-// Sorted by creation, not by the scheduled time the day itself is keyed on:
-// posts generated into the same day usually share a time (or have none at
-// all, on Draft), so that would leave the order arbitrary.
-function byNewestFirst(a: Post, b: Post): number {
+// This used to sort by creation instead, and the comment said why — "posts
+// generated into the same day usually share a time, so that would leave the
+// order arbitrary". A batch does still share a time, which is exactly why the
+// creation order is kept as the tiebreak; what changed is that a time can now
+// differ, and when it does it is the only ordering anyone means by "sort by
+// date and time".
+//
+// Draft has no scheduled time at all (it is the tab's definition), so it
+// falls through to the tiebreak and reads newest-first as it always has.
+function comparePosts(a: Post, b: Post, tab: ContentTab, ascending: boolean): number {
+  if (tab !== "draft") {
+    const at = a.scheduledFor ? Date.parse(a.scheduledFor) : null
+    const bt = b.scheduledFor ? Date.parse(b.scheduledFor) : null
+    if (at !== null && bt !== null && at !== bt) {
+      return ascending ? at - bt : bt - at
+    }
+  }
+  // Same moment (a batch), or no moment at all: most recently written first.
   return Date.parse(b.createdAt) - Date.parse(a.createdAt)
 }
 
@@ -166,7 +178,7 @@ export function groupPostsByMonth(posts: Post[], tab: ContentTab, now: number): 
   for (const monthGroup of sorted) {
     monthGroup.days.sort((a, b) => (a.day - b.day) * direction)
     for (const dayGroup of monthGroup.days) {
-      dayGroup.posts.sort(byNewestFirst)
+      dayGroup.posts.sort((a, b) => comparePosts(a, b, tab, ascending))
     }
   }
 

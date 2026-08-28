@@ -4,15 +4,15 @@ import * as React from "react"
 import { ArrowClockwise, CalendarDots, Scribble, Trash } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
 import { Chip } from "@/components/ui/chip"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
 import { PostActionsMenu } from "@/components/generate/post-actions-menu"
+import { DateTimePickerDialog } from "@/components/shared/date-time-picker-dialog"
 import { PostAccountPill } from "@/components/shared/post-account-pill"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { getCaretOffsetFromPoint } from "@/lib/caret"
-import { formatShortDate } from "@/lib/format-date"
+import { formatDate } from "@/lib/format-date"
+import { formatClockTime } from "@/lib/time-of-day"
 import type { PostAccount, PostAccountTarget } from "@/lib/post-account"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
@@ -64,10 +64,7 @@ function buildContentFadeMask(topFadePx: number, bottomFadePx: number): string |
   return `linear-gradient(to bottom, ${topStop}, ${bottomStop})`
 }
 
-// The short form (lib/format-date.ts): this header has one line to spend, and
-// "September 15th, 2026" is the one date that doesn't fit a 272px card beside
-// its actions button. Only the month shortens — "Sept 15th, 2026".
-const formatDate = formatShortDate
+
 
 interface GeneratedPostCardProps {
   content: string
@@ -189,12 +186,11 @@ export function GeneratedPostCard({
     }
   }
 
-  // Add to calendar / Change date: commits immediately on every date click
-  // (per direct feedback — better for clicking through several dates in a
-  // row than a separate Apply step) and closes right after, so there's no
-  // pending/staged selection to track here at all — Calendar's own
-  // `selected` is just the real `date` prop, and onSelect writes straight
-  // through to onDateChange.
+  // Add to calendar / Change date — the shared picker
+  // (components/shared/date-time-picker-dialog.tsx, also used by the
+  // post-details page), which owns the whole commit story: a date click
+  // writes through and closes, and the time inside it writes through on its
+  // own. Nothing is staged here; `date` is the real prop either way.
   const [pickerOpen, setPickerOpen] = React.useState(false)
 
   // Quick-edit: double-clicking anywhere on the card that isn't a button
@@ -365,7 +361,10 @@ export function GeneratedPostCard({
       )}
       onDoubleClick={handleCardDoubleClick}
     >
-      <div className="flex shrink-0 items-center justify-between">
+      {/* gap-dist-md so the time never sits flush against the actions
+          button — justify-between alone leaves them touching the moment the
+          date grows enough to fill the row. */}
+      <div className="flex shrink-0 items-center justify-between gap-dist-md">
         {/* min-w-0 so the date below can actually shrink: a flex item's
             automatic minimum is its content, which would otherwise push the
             actions button out of the card instead of truncating. */}
@@ -375,8 +374,32 @@ export function GeneratedPostCard({
           ) : (
             <Scribble className="size-5 shrink-0 text-icon-subtle" weight="bold" />
           )}
-          <span className="truncate text-body-lg-bold text-text-bold">
-            {date ? formatDate(date) : "Draft"}
+          {/* Date • time. The date keeps the header's weight; the time is
+              plain body-lg in text-subtle beside it, so the pair reads as one
+              line with the date leading it.
+
+              It fits now that the current year is dropped
+              (lib/format-date.ts): at this card's narrowest — the day deck's
+              272px, whose header has 232px — "Aug 28 • 4:32 PM" leaves room
+              beside the actions button where "Aug 28, 2026 • 4:32 PM" would
+              have run 4px over. A date in another year still can, and
+              truncates, per direct request: it's the half that can lose its
+              tail and still say what it is, where a clipped "4:32 P…" says
+              nothing. */}
+          <span className="flex min-w-0 items-baseline gap-dist-sm">
+            <span className="truncate text-body-lg-bold text-text-bold">
+              {date ? formatDate(date) : "Draft"}
+            </span>
+            {date ? (
+              <>
+                <span aria-hidden className="shrink-0 text-body-lg text-text-subtle">
+                  •
+                </span>
+                <span className="shrink-0 text-body-lg text-text-subtle">
+                  {formatClockTime(date)}
+                </span>
+              </>
+            ) : null}
           </span>
         </div>
         {/* A draft has no scheduling to undo, so its menu is Open up + Delete
@@ -521,45 +544,12 @@ export function GeneratedPostCard({
         </Button>
       </div>
 
-      {/* Just the calendar (design-sync/calendarwithactionbar) — no extra
-        title/padding/card wrapper of this dialog's own, so Calendar's own
-        card (border, shadow, p-pad-md) reads as the only chrome instead of
-        nesting inside a second one. showCloseButton is off since the design
-        has no X (Cancel already closes it); popupClassName clears the
-        default w-80/padding/background so the Popup just hugs Calendar's own
-        size="lg" footprint (320px, matching the export exactly — no longer
-        needing the smaller "md" workaround from when this dialog had its
-        own 32px of padding eating into the available width). clipContent is
-        off too — DialogContent's own clip-path (still applied even with the
-        className overrides above, since it's a style prop, not a class) was
-        clipping Calendar's own drop shadow at almost the same boundary it
-        was supposed to soften, reading as an abrupt cutoff rather than a
-        shadow. Calendar already draws its own card/shadow, so this wrapper
-        doesn't need to shape anything.
-        onSelect commits straight to onDateChange and closes the dialog in
-        the same click — no Apply step (per direct feedback: better UX when
-        clicking through several dates is the common case), so `selected`
-        is just the real `date` prop rather than a staged local copy. */}
-      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
-        <DialogContent
-          showCloseButton={false}
-          clipContent={false}
-          popupClassName="w-fit"
-          className="gap-0 rounded-none bg-transparent p-0"
-        >
-          <Calendar
-            mode="single"
-            selected={date}
-            onSelect={(newDate) => {
-              if (newDate) onDateChange(newDate)
-              setPickerOpen(false)
-            }}
-            size="lg"
-            showActionBar
-            onCancel={() => setPickerOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
+      <DateTimePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        date={date}
+        onDateChange={onDateChange}
+      />
     </div>
   )
 }
