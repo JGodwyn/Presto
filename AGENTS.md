@@ -74,11 +74,21 @@ EXECUTIONS.md has been updated. Threshold override: `PRESTO_LARGE_TASK_FILES`.
 Several workstreams can be in flight at once, each on its own branch in its own
 worktree. Sometimes there are three; often none. The rules:
 
-- **Never write to `main` directly.** Start work with `/branch <slug>` — it
-  creates the branch, a worktree at `../presto-worktrees/<slug>`, symlinks the
-  gitignored-but-required files (`.env.local`, `design-sync/`,
-  `.claude/settings.local.json`), clones `node_modules` copy-on-write, and
-  assigns a free dev-server port from 3001 up.
+- **Never write to `main` directly — for real work.** Start it with
+  `/branch <slug>` — it creates the branch, a worktree at
+  `../presto-worktrees/<slug>`, symlinks the gitignored-but-required files
+  (`.env.local`, `design-sync/`, `.claude/settings.local.json`), clones
+  `node_modules` copy-on-write, and assigns a free dev-server port from 3001 up.
+- **Housekeeping is the exception, and goes straight on `main`.** Small
+  post-merge cleanup — a review nit, a stale comment, a one-line fix, a
+  FOLLOWUPS entry — when **nothing is in flight** (`./scripts/worktree.sh list`
+  reports no worktrees). Edit `main`, run the gates yourself (tsc, eslint
+  against `main`'s own baseline rather than zero, vitest, build), commit, push.
+  No `/branch`, and **no `/integrate`** — spawning the senior-engineer agent to
+  review a two-line fix costs a worktree, an agent cold start and a full review
+  pass, and buys nothing when there is no parallel work to collide with.
+  The moment anything else *is* in flight, or the change is more than
+  housekeeping, it is a branch again — that is what the rule above protects.
 - **One branch per task you could describe in one sentence.** If the brief needs
   an "and", it is two branches.
 - **`/handoff`** in the worktree when the work is done: gates, logs, commit,
