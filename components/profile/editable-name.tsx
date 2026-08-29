@@ -22,7 +22,7 @@ export function EditableName({
   projectId,
   name,
 }: {
-  projectId: string
+  projectId?: string
   name: string
 }) {
   const [editing, setEditing] = React.useState(false)

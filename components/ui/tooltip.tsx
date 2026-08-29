@@ -48,8 +48,14 @@ function TooltipPointer({
   )
 }
 
+// The app-wide open delay. One Provider in app/layout.tsx applies it to every
+// tooltip; Base UI resolves a provider-less trigger against its own 600ms
+// default, which is why the global Provider exists rather than this default
+// alone. A nested Provider can still override it for one group.
+const TOOLTIP_OPEN_DELAY_MS = 200
+
 function TooltipProvider({
-  delay = 600,
+  delay = TOOLTIP_OPEN_DELAY_MS,
   ...props
 }: TooltipPrimitive.Provider.Props) {
   return (

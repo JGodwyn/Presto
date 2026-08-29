@@ -218,8 +218,18 @@ export async function listGatewayModels(
   return { ok: true, models }
 }
 
+// Where the Profile screen lives for this caller — inside a project, or on
+// its own route.
+function revalidateProfile(projectId: string | undefined) {
+  revalidatePath(projectId ? `/projects/${projectId}/profile` : "/profile")
+}
+
+// projectId is optional on both of these for the same reason it is on
+// updateDisplayName: a model belongs to the user, not a project, and the id
+// only picks which copy of the Profile screen to rebuild — the in-project one
+// or the standalone /profile route.
 const addModelSchema = z.object({
-  projectId: z.string().uuid(),
+  projectId: z.string().uuid().optional(),
   providerSlug: z.string().trim().min(1).max(60),
   gatewayModelId: z.string().trim().min(1).max(200),
   label: z.string().trim().min(1).max(60),
@@ -279,13 +289,13 @@ export async function addUserAiModel(
     return { error: "Couldn't save that model. Please try again." }
   }
 
-  revalidatePath(`/projects/${parsed.data.projectId}/profile`)
+  revalidateProfile(parsed.data.projectId)
 
   return { ok: true, model: mapRow(data) }
 }
 
 const deleteModelSchema = z.object({
-  projectId: z.string().uuid(),
+  projectId: z.string().uuid().optional(),
   id: z.string().uuid(),
 })
 
@@ -309,7 +319,7 @@ export async function deleteUserAiModel(
     return { error: "Couldn't remove that model. Please try again." }
   }
 
-  revalidatePath(`/projects/${parsed.data.projectId}/profile`)
+  revalidateProfile(parsed.data.projectId)
 
   return { ok: true }
 }

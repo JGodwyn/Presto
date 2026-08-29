@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { STREAM_DONE_MARKER, STREAM_ERROR_MARKER } from "@/lib/ai/generate"
+import { generationFailureCopy } from "@/lib/ai/failure-copy"
 import { getCaretOffsetFromPoint } from "@/lib/caret"
 import { formatDate } from "@/lib/format-date"
 import { formatClockTime } from "@/lib/time-of-day"
@@ -609,10 +610,29 @@ export function PostDetails({
         // only this page's own view of it would have drifted from what's
         // actually saved).
         if (receivedRef.current.includes(STREAM_ERROR_MARKER)) {
+          // The failure reason is written directly behind the marker, but one
+          // server-side write is not guaranteed to arrive as one chunk — so
+          // read out whatever is left (the server closes immediately after
+          // that write, so this can't wait on a live generation) before
+          // deciding what to say. Worst case the tail never lands and this
+          // falls back to the generic line, which is what it said before.
+          try {
+            while (true) {
+              const tail = await reader.read()
+              if (tail.done) break
+              receivedRef.current += decoder.decode(tail.value, { stream: true })
+            }
+          } catch {
+            // Nothing more to read; the marker alone is enough to report on.
+          }
           releaseRegenerate()
           if (run.cancelled) return
           setIsRegenerating(false)
-          showError("Couldn't regenerate that post", "Please try again")
+          const { message, extraInfo } = generationFailureCopy(
+            receivedRef.current.split(STREAM_ERROR_MARKER)[1]?.trim() || undefined,
+            { message: "Couldn't regenerate that post", extraInfo: "Please try again" }
+          )
+          showError(message, extraInfo)
           return
         }
         // Stripped the moment it lands, so the reveal loop can never render

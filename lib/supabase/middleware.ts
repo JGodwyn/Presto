@@ -71,7 +71,17 @@ export async function updateSession(request: NextRequest) {
     if (hasSessionCookie(request)) return response
   }
 
-  if (!user && isProtectedRoute) {
+  // Only a navigation can be sent to /login. A Server Action arrives as a
+  // POST to the page's own URL, and redirecting one is worse than useless:
+  // the browser's action fetch follows the 307 with its `Next-Action` header
+  // still attached, which Next answers with a plain 404 that React can't read
+  // as an action result — so the promise never settles and whatever triggered
+  // it spins forever. That is exactly what broke logging out with an expired
+  // session: the sign-out was bounced here and never ran, while a refresh of
+  // the page redirected as normal, which is why it *looked* like it had.
+  // Letting the POST through costs nothing: RLS gates every row, and each
+  // action does its own user check.
+  if (!user && isProtectedRoute && request.method === "GET") {
     const url = request.nextUrl.clone()
     url.pathname = "/login"
     return NextResponse.redirect(url)

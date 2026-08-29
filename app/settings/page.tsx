@@ -1,21 +1,9 @@
 import { redirect } from "next/navigation"
 
-import { createClient } from "@/lib/supabase/server"
-import { fetchProjects } from "@/lib/supabase/queries"
-
-// Settings merged into Profile, so this old stub forwards to the same place
-// app/profile/page.tsx does — the first project's profile — rather than to a
-// settings route that is itself now just a redirect. Placeholder until that
-// screen gets a dedicated user-level route (its content is per-user).
-export default async function SettingsRedirectPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) redirect("/login")
-
-  const projects = await fetchProjects(supabase)
-  if (projects.length === 0) redirect("/create-project")
-
-  redirect(`/projects/${projects[0].id}/profile`)
+// Settings merged into Profile, and Profile now has a real user-level route —
+// so this old stub is a plain forward, with no project lookup left to do. The
+// in-project /projects/<id>/settings keeps its own redirect to that project's
+// profile.
+export default function SettingsRedirectPage() {
+  redirect("/profile")
 }

@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useDragScroll } from "@/hooks/use-drag-scroll"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
+import { generationFailureCopy } from "@/lib/ai/failure-copy"
 import { BUILTIN_MODEL_ID } from "@/lib/ai/generate"
 import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
@@ -255,6 +256,11 @@ export function DayDeck({
   const [closing, setClosing] = React.useState(false)
   const [toastOpen, setToastOpen] = React.useState(false)
   const [toastMessage, setToastMessage] = React.useState("")
+  // Split from the message so it can't blank out mid-exit-animation, same as
+  // the message itself.
+  const [toastExtraInfo, setToastExtraInfo] = React.useState<string | undefined>(
+    undefined
+  )
 
   // How long the whole put-away takes, last card included — what the scrim
   // waits for before it starts fading (see its own note below), and what the
@@ -265,8 +271,9 @@ export function DayDeck({
 
   const dragScroll = useDragScroll()
 
-  const showError = (message: string) => {
+  const showError = (message: string, extraInfo?: string) => {
     setToastMessage(message)
+    setToastExtraInfo(extraInfo)
     setToastOpen(true)
   }
 
@@ -681,7 +688,14 @@ export function DayDeck({
     if (result === null) return
     if ("error" in result) {
       if (result.reason === "network") reportNetworkIssue()
-      else showError(result.error)
+      else {
+        // A quota hit is the model refusing, not us failing — say so rather
+        // than hiding it behind the action's own generic line.
+        const { message, extraInfo } = generationFailureCopy(result.reason, {
+          message: result.error,
+        })
+        showError(message, extraInfo)
+      }
       return
     }
     patchPost(post.id, { content: result.post.content })
@@ -860,6 +874,7 @@ export function DayDeck({
           onOpenChange={setToastOpen}
           variant="danger"
           direction="top"
+          extraInfo={toastExtraInfo}
         >
           {toastMessage}
         </Toast>

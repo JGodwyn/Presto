@@ -3403,3 +3403,213 @@ tightening, every previously-legitimate update still passes.
 
 Also filed FOLLOWUPS 14 for the save-queue gap on the time writes — see
 LEARNINGS for why the debounce that's there isn't the same thing.
+
+## 2026-08-28 16:40 — Log out spun forever on an expired session
+
+**Symptom.** In `npm run preview`, confirming Log out left the button
+spinning indefinitely; refreshing the page showed the login screen, so it
+*looked* like the sign-out had worked. The server printed
+`AuthApiError: Invalid Refresh Token: Refresh Token Not Found` twice.
+
+**What the trace actually said.** Resolved the minified frames against
+`.next/server/chunks/[root-of-the-server]__08mrxgj._.js`: the top three are
+auth-js's `_request`/`_handleRequest`/`handleError`, the bottom two are the
+retry promise inside `_refreshAccessToken`. Every one of those paths *returns*
+the error rather than throwing it, and the print itself is auth-js's own
+`console.error(err)` in `_recoverAndRefresh`'s catch — i.e. the logged error
+was a symptom (a dead refresh token), not the failure.
+
+**Cause.** The refresh token being dead is what makes `getUser()` yield no
+user, and `lib/supabase/middleware.ts` redirected *any* request to a protected
+route in that state — including the Server Action POST the Log out button
+sends to the page's own URL. Confirmed against the running preview server:
+
+    curl -X POST /projects/<id>/profile -H 'Next-Action: …' -H 'Cookie: sb-…'
+    → 307 /login → (followed, header still attached) → 404 text/plain
+
+React can't read a 404 as an action result, so the action promise never
+settled, the `loggingOut` flag never cleared, and `logout()` never ran at all.
+The refresh "logging them out" was just the same middleware redirecting a
+normal GET.
+
+**Fixes.**
+1. `lib/supabase/middleware.ts` — the /login redirect is now `GET`-only. RLS
+   and each action's own user check are what gate a POST; a 307 on one can
+   only ever strand the caller.
+2. `app/(auth)/logout/actions.ts` — `signOut()` can report an error *without*
+   having cleared anything (on a broken session `_useSession` returns before
+   `_removeSession`), so the `sb-…auth-token` cookies are now deleted by hand
+   in that case. Logging out has to be final.
+3. `components/profile/profile-screen.tsx` — the confirm handler is now a real
+   `handleLogout` through `withNetworkStatus`: a redirecting action resolves
+   (it doesn't reject — login-screen.tsx relies on the same), so anything in
+   the catch is a genuine failure and hands the button back with a danger
+   toast instead of spinning.
+
+**Verification.** New `lib/supabase/middleware.test.ts` pins all three
+branches (signed-out GET redirects, unprotected route passes, server-action
+POST passes); the POST case fails on the old condition and passes on the new
+one. tsc and eslint clean; `npm test` 171/172 with the one failure
+(`lib/ai/generate.test.ts`, a live generation call) confirmed pre-existing on
+a stashed tree. Not re-verified in a browser: rebuilding `.next` would have
+disturbed the preview server already running on :3000.
+
+## 2026-08-28 17:10 — Log out, part two: the redirect target was itself a redirect
+
+The middleware fix above got the action running (the sign-out now happens),
+but the button still never navigated: it stopped spinning, raised the new
+"Couldn't log you out" toast, and only a manual refresh landed on the login
+screen. So the action promise was now *rejecting* rather than hanging.
+
+**Reproduced on the wire, no browser needed.** With the middleware fix in,
+`logout` no longer needs a session to run, so it can be invoked over curl —
+its action id came out of `.next/server/server-reference-manifest.json` (the
+one id shared by `app/create-project/page` and
+`app/projects/[projectId]/profile/page`):
+
+    POST /create-project  Next-Action: 005be0…  →
+      HTTP/1.1 303 See Other
+      x-action-redirect: /login;push
+      location: /signup?view=login        ← the bug
+      content-type: text/x-component
+
+**Cause.** `/login` is a redirect stub into the persisted signup flow.
+`createRedirectRenderResult` (next/dist/server/app-render/action-handler.js)
+renders the redirect target into the action's own response and copies that
+render's headers onto it — and `location` is not in `actionsForbiddenHeaders`
+(next/dist/server/lib/server-ipc/utils.js: only `content-length` and
+`set-cookie`, on top of the IPC list). So the action answered 303 *with* a
+Location, and the client's action `fetch` — plain `redirect: "follow"` —
+followed it to the HTML page. `server-action-reducer.js` then saw neither an
+RSC content-type nor an `x-action-redirect` on what came back and threw
+"An unexpected response was received from the server" (E394), which landed in
+the new `.catch` as the toast.
+
+**Fix.** A Server Action must redirect to a *real* page, never at a stub.
+New `lib/auth-routes.ts` holds `LOGIN_URL` / `FORGOT_PASSWORD_URL` so the stub
+pages and the action can't drift apart; `logout()` redirects to `LOGIN_URL`
+(`/signup?view=login`) directly.
+
+**Verification.** Rebuilt and re-ran the same curl against a throwaway
+`next start -p 3111` (left the preview server on :3000 alone, then stopped
+3111):
+
+    HTTP/1.1 303 See Other
+    x-action-redirect: /signup?view=login;push
+    content-type: text/x-component        ← no `location`, 11.8KB of real
+                                             signup Flight data (was 9.1KB of
+                                             redirect stub)
+
+No Location means the browser can't follow it, so the reducer gets the shape
+it expects and the router performs the navigation. tsc, eslint, build and the
+middleware tests all clean.
+
+## 2026-08-29 — Tooltip open delay: 200ms app-wide
+
+Was 600ms (`TooltipProvider`'s default *and* Base UI's own `OPEN_DELAY`, which
+provider-less triggers — most of them — fell back to), with two local
+overrides: Generate's model/account pills at 300ms and the dashboard's
+total-posts bar at 0.
+
+`TOOLTIP_OPEN_DELAY_MS = 200` in components/ui/tooltip.tsx, plus a single
+`TooltipProvider` around `{children}` in app/layout.tsx — without that the new
+default would only have reached tooltips already inside a Provider. Generate's pills dropped their
+`delay` and inherit it; the dashboard bar keeps `delay={0}` by request — those
+percentages should show on contact. Both Providers stay either way, since
+they're also what groups their tooltips (Base UI shows the next one in a group
+instantly). Side effect worth knowing: that grouping is now app-wide.
+
+Provider renders context only (`TooltipProviderContext` + `FloatingDelayGroup`,
+no DOM), so wrapping the layout's children doesn't touch the body's flex
+column. tsc + eslint clean. Not seen live — the :3000 preview server is serving
+the previous build.
+
+## 2026-08-29 — A quota hit says so, instead of "couldn't regenerate that post"
+
+**The gap.** `classifyGenerationError` (lib/ai/generate.ts) has mapped a 429 to
+`rate_limit` all along, and the batch's total-failure screen reads it — but
+every *regenerate* path threw the reason away and showed one generic line, so a
+provider saying "You exceeded your current quota, please check your plan and
+billing details" reached the user as "Couldn't regenerate that post".
+
+**New `lib/ai/failure-copy.ts`.** One `NAMED_FAILURES` map — currently just
+`rate_limit` → "You exceeded your model quota" / "Try again later" — and
+`generationFailureCopy(reason, fallback)`, which hands back the call site's own
+line for every reason it doesn't name. Deliberately small: it's the exception
+list, not a second copy deck competing with `TOTAL_FAILURE_MESSAGES`
+(generating-view.tsx), which says the same things at the length that screen
+has. `reason` is typed `string | undefined` rather than the union, because one
+caller reads it off a stream where it's just text — an unknown value falls back
+rather than producing an empty toast.
+
+**The streaming path needed the reason plumbed through.** post-details'
+regenerate goes through app/api/regenerate-post/route.ts, whose framing tee saw
+`part.type === "error"` and recorded only *that* it failed. It now classifies
+`part.error` (and anything thrown while draining) and writes the reason
+directly behind `STREAM_ERROR_MARKER`, in the same enqueue. The client drains
+whatever is left before deciding — one server write is not guaranteed to arrive
+as one chunk, and the server closes immediately after that write so the drain
+can't wait on a live generation — then splits on the marker. Falls back to the
+old line if the tail never lands.
+
+**Call sites.** post-details.tsx (stream), day-deck.tsx and generating-view.tsx
+(both already had `result.reason` from the `regeneratePost` action and were
+ignoring it). Both of the latter had a message-only `showError`; they now carry
+`extraInfo` through to the Toast, held in its own state so it can't blank out
+mid-exit-animation.
+
+**Verification.** `lib/ai/failure-copy.test.ts` builds the real thing — an
+`APICallError` with `statusCode: 429` carrying the provider's own quota
+sentence, wrapped in the `RetryError` the SDK surfaces after its retries — and
+pins classify → copy, the non-429 fallbacks, and the marker round trip. Full
+suite 178/178 (lib/ai/generate.test.ts, which was failing on the previous two
+runs, passes again — it makes a real model call, so it was plausibly failing on
+the very quota this task is about). tsc clean; eslint clean apart from the
+pre-existing `set-state-in-effect` in generating-view.tsx (confirmed on a
+stashed tree). The quota path itself isn't exercised live — that needs a
+genuinely exhausted key.
+
+## 2026-08-29 — /profile is a real screen, not a doorway into a project
+
+`/profile` (and `/settings`) forwarded into the user's *first* project, so
+opening the account screen from the picker silently decided which project you
+were in. Per direct request it's now a standalone page — same screen, picker
+chrome, no sidebar. A modal was considered and rejected by the user: the screen
+is expected to grow, and a dialog holding more would be unusable on a phone.
+
+- `components/profile/profile-content.tsx` — new async Server Component with
+  the user fetch and the name/email/member-since derivations that
+  `app/projects/[projectId]/profile/page.tsx` used to own. Both routes render
+  it; that page is now four lines.
+- `app/profile/page.tsx` — auth guard, then the same shell as the in-project
+  layout (`h-screen`, same padding scale) with `ProjectsNavbar
+  backHref="/projects"` over a `SectionScrollArea`. Reusing that scroll area is
+  not just convenience: this screen renders a `position: fixed` Toast inside it
+  (the logout failure toast), which is exactly why its fade is an overlay strip
+  rather than a CSS mask.
+- **`projectId` is optional the whole way down** — ProfileScreen →
+  EditableName / ChangePasswordPanel / AiModelsPanel / AddModelModal →
+  `updateDisplayName`, `addUserAiModel`, `deleteUserAiModel`. It was only ever
+  a `revalidatePath` argument (and one React `key`): every field on this screen
+  is user-scoped. Off a project, `updateDisplayName` revalidates `/profile`
+  (whose own page renders the navbar chip) and `/projects` (where the old name
+  would otherwise be waiting on the way back); the model actions revalidate
+  whichever copy of the screen the caller is on, via a new `revalidateProfile`
+  helper.
+- **"Replay onboarding" renders only in a project.** The context's default
+  value makes `restart()` a no-op with no provider, so out here the row would
+  have sat there doing nothing visible — and the tour narrates the sidebar,
+  which this route doesn't have.
+- `app/settings/page.tsx` forwards to `/profile` and no longer looks up
+  projects. `/projects/<id>/settings` still forwards to that project's profile.
+
+**Verified in-browser** against a throwaway `next start -p 3111` (the preview
+server on :3000 left alone, 3111 stopped afterwards): the picker's name chip
+lands on `/profile` and *stays* there (`location.pathname === "/profile"`,
+where it used to bounce to `/projects/<first>/profile`); the page renders
+navbar + centred account column with no sidebar and no Replay row; Back returns
+to `/projects`; and the in-project profile is unchanged, sidebar and Replay row
+included. tsc and eslint clean. `npm test` 177/178 — `lib/ai/generate.test.ts`
+fails on a real 429 from Gemini ("Quota exceeded for metric …
+generate_content_free_tier_requests, limit: 20"), i.e. the live free-tier quota,
+not this change.

@@ -88,9 +88,10 @@ export function TotalPostsCard({ totals }: { totals: PostTotals }) {
         </div>
 
         <div className="flex flex-col gap-dist-md">
-          {/* delay={0}: the percentages are the point of the bar, not a hint
-              about it, so waiting to reveal them just makes the bar feel
-              unresponsive. */}
+          {/* delay={0}, against the app's 200ms: the percentages are the
+              point of the bar, not a hint about it, so waiting to reveal them
+              just makes the bar feel unresponsive. Its own Provider also
+              groups the bands, so sliding across them never re-waits. */}
           <TooltipProvider delay={0}>
             {/* Fixed-height rail, so the bar growing on hover can't nudge the
                 legend below it. It's also the hover target: 16px is a

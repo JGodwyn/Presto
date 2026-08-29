@@ -33,7 +33,7 @@ export function AiModelsPanel({
   projectId,
   initial,
 }: {
-  projectId: string
+  projectId?: string
   initial: UserAiModel[]
 }) {
   const [models, setModels] = React.useState(initial)

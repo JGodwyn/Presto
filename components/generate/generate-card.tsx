@@ -50,11 +50,6 @@ import type { PostPlatform } from "@/types/post"
 const STEPPER_BOX_CORNER_RADIUS = 16
 const PLUGGED_TAG_CORNER_RADIUS = 8
 
-// Half the app's usual 600ms tooltip delay, per direct request — these two
-// name what a control is for rather than adding detail to something already
-// legible, so they should arrive while the pointer is still on the pill.
-const PILL_TOOLTIP_DELAY_MS = 300
-
 // 1–31: up to a full month of dailies (raised from the UX doc §8.2's 20 per
 // direct feedback).
 const MIN_POSTS = 1
@@ -611,7 +606,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       // One Provider around both pills rather than one each: Base UI groups
       // tooltips that share a provider, so moving from one pill to the other
       // shows the second immediately instead of waiting the delay out again.
-      <TooltipProvider delay={PILL_TOOLTIP_DELAY_MS}>
+      <TooltipProvider>
         <div className="flex items-center gap-dist-md">
           <SelectPill
             options={modelOptions}

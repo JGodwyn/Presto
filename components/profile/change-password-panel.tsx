@@ -44,7 +44,7 @@ export function ChangePasswordPanel({
   projectId,
   onSuccess,
 }: {
-  projectId: string
+  projectId?: string
   // Lets the disclosure collapse itself once the password is changed — the
   // panel has nothing left to say, and leaving a form of cleared fields open
   // reads as though something is still pending.

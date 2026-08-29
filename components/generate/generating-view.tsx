@@ -39,6 +39,7 @@ import type { ConnectedSocialAccount } from "@/types/social-account"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { useShake } from "@/hooks/use-shake"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { generationFailureCopy } from "@/lib/ai/failure-copy"
 import type { GenerationFailureReason } from "@/lib/ai/generate"
 import { readScheduledDates } from "@/lib/generate-schedule"
 import { setGenerationLock } from "@/lib/generation-lock"
@@ -237,8 +238,13 @@ export function GeneratingView({
   const [failedCount, setFailedCount] = React.useState(0)
   const [toastOpen, setToastOpen] = React.useState(false)
   const [toastMessage, setToastMessage] = React.useState("")
-  const showError = (message: string) => {
+  // Split from the message so it can't blank out mid-exit-animation.
+  const [toastExtraInfo, setToastExtraInfo] = React.useState<string | undefined>(
+    undefined
+  )
+  const showError = (message: string, extraInfo?: string) => {
     setToastMessage(message)
+    setToastExtraInfo(extraInfo)
     setToastOpen(true)
   }
   // The "N of {count} posts couldn't be generated" message replaces the
@@ -504,7 +510,16 @@ export function GeneratingView({
 
     if ("error" in result) {
       if (result.reason === "network") reportNetworkIssue()
-      else showError(result.error)
+      else {
+        // A quota hit is the model refusing, not us failing — say so rather
+        // than hiding it behind the action's own generic line. The batch's
+        // own total-failure screen says the same thing at its own length
+        // (TOTAL_FAILURE_MESSAGES above).
+        const { message, extraInfo } = generationFailureCopy(result.reason, {
+          message: result.error,
+        })
+        showError(message, extraInfo)
+      }
       return
     }
 
@@ -785,6 +800,7 @@ export function GeneratingView({
           onOpenChange={setToastOpen}
           variant="danger"
           direction="top"
+          extraInfo={toastExtraInfo}
         >
           {toastMessage}
         </Toast>

@@ -40,7 +40,7 @@ function AddModelModal({
   compact = false,
   block = false,
 }: {
-  projectId: string
+  projectId?: string
   onAdded: (model: UserAiModel) => void
   compact?: boolean
   // Profile's expanded "AI models" panel draws the trigger full-width at the

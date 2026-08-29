@@ -5,6 +5,7 @@ import { Agentation } from "agentation";
 import { DialRoot } from "dialkit";
 import "dialkit/styles.css";
 import { NetworkStatus } from "@/components/shared/network-status";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 const openRunde = localFont({
@@ -55,7 +56,11 @@ export default function RootLayout({
       className={`${openRunde.variable} ${geistMono.variable} ${phudu.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {children}
+        {/* Every tooltip in the app hangs off this one Provider: without it
+            Base UI resolves a trigger against its own 600ms default, and the
+            app's delay lives in components/ui/tooltip.tsx. A nested Provider
+            still overrides it for one group. */}
+        <TooltipProvider>{children}</TooltipProvider>
         {/* Global: watches connectivity and shows the disconnected toast on
             any screen, signed in or out. */}
         <NetworkStatus />

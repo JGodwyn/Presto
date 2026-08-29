@@ -9,7 +9,9 @@ import {
 import { resolveAttachmentInputs } from "@/lib/ai/attachments"
 import { buildPostPrompt } from "@/lib/ai/build-prompt"
 import {
+  classifyGenerationError,
   didFallBackOffByok,
+  type GenerationFailureReason,
   STREAM_DONE_MARKER,
   STREAM_ERROR_MARKER,
   streamPost,
@@ -230,6 +232,12 @@ export async function POST(request: Request) {
   // from a normal finish.
   const encoder = new TextEncoder()
   let sawError = false
+  // Why it failed, when the stream said so. Written after the error marker
+  // below so the page can name a quota hit instead of reporting it as our own
+  // failure — the status code that carries that is inside the error part, and
+  // is otherwise thrown away here (the response's own 200 went out with the
+  // headers, long before the model got as far as refusing).
+  let failureReason: GenerationFailureReason | undefined
   // Whether anything was actually produced. A stream that ends cleanly having
   // emitted nothing is a failure from the reader's point of view — there is no
   // new post — and it must not be reported as a success, or the client would
@@ -249,10 +257,12 @@ export async function POST(request: Request) {
             controller.enqueue(encoder.encode(part.text))
           } else if (part.type === "error") {
             sawError = true
+            failureReason = classifyGenerationError(part.error)
           }
         }
-      } catch {
+      } catch (error) {
         sawError = true
+        failureReason = classifyGenerationError(error)
       } finally {
         // Exactly one of the two always goes out, so the client can tell a
         // finished stream from a severed one: a response that ends carrying
@@ -274,7 +284,16 @@ export async function POST(request: Request) {
                   setTimeout(() => resolve(false), PERSIST_WAIT_TIMEOUT_MS)
                 ),
               ])
-        controller.enqueue(encoder.encode(saved ? STREAM_DONE_MARKER : STREAM_ERROR_MARKER))
+        // The reason rides directly behind the marker, in the same write, so
+        // a client that has seen the marker has seen the reason too (it still
+        // drains whatever is left before deciding, since nothing guarantees
+        // one write arrives as one chunk). Empty when the failure wasn't the
+        // model's — an empty completion, or a row that wouldn't save.
+        controller.enqueue(
+          encoder.encode(
+            saved ? STREAM_DONE_MARKER : STREAM_ERROR_MARKER + (failureReason ?? "")
+          )
+        )
         controller.close()
       }
     },

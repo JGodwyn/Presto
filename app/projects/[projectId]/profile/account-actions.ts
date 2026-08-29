@@ -36,7 +36,10 @@ export type ChangePasswordError = ActionError & {
 // the cap matches what those can show rather than any DB constraint — it lives
 // in auth.users' user_metadata, not a table of ours.
 const updateDisplayNameSchema = z.object({
-  projectId: z.string().uuid(),
+  // Absent when Profile is open on its own route (/profile) rather than
+  // inside a project — the name is the user's either way, this only says
+  // which tree has to be rebuilt to show the new one.
+  projectId: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(80),
 })
 
@@ -65,8 +68,15 @@ export async function updateDisplayName(
 
   // The navbar chip renders from the layout's own getUser(), so a new name
   // only reaches it once this route's tree is rebuilt — revalidate the layout
-  // segment, not just this page.
-  revalidatePath(`/projects/${parsed.data.projectId}`, "layout")
+  // segment, not just this page. Off a project, the chip is rendered by the
+  // /profile page itself, and /projects is where the old name would otherwise
+  // still be waiting on the way back.
+  if (parsed.data.projectId) {
+    revalidatePath(`/projects/${parsed.data.projectId}`, "layout")
+  } else {
+    revalidatePath("/profile")
+    revalidatePath("/projects")
+  }
 
   return { success: true }
 }

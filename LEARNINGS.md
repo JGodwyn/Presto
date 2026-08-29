@@ -803,3 +803,61 @@ arrives second, not whichever was sent second.
 order". They are not substitutes, and a fix for one is not evidence about the
 other. If out-of-order responses would persist stale data, only the queue
 helps.
+
+## Never redirect a Server Action to the login page
+
+**Symptom.** Log out spun forever and never signed anyone out, while a page
+refresh redirected to login as though it had. The only thing in the server log
+was `AuthApiError: Invalid Refresh Token: Refresh Token Not Found`.
+
+**Cause.** A Server Action is a `POST` to the page's own URL, so route-level
+auth middleware sees it exactly like a navigation. Redirecting it produces a
+307 that the browser's action `fetch` follows **with the `Next-Action` header
+still attached**, which Next answers with a plain `404 text/plain`. React
+can't read that as an action result, so the action promise never settles — the
+pending flag stays set and the action itself never ran.
+
+**Rule.** Middleware may only redirect *navigations* — gate the redirect on
+`request.method === "GET"`. A signed-out POST is let through and answered by
+the thing that actually enforces access (RLS, and each action's own user
+check). This matters most for the actions that exist to *fix* a broken session:
+bouncing sign-out to the login screen makes the one thing that would have
+cleared the bad token unreachable.
+
+**Corollary, on reading a stack trace.** The logged `AuthApiError` was a
+symptom, not the failure: every auth-js path in that trace returns the error,
+and the print was auth-js's own `console.error` in a catch that then continues.
+Resolve minified frames against the built chunk and check whether the throw is
+even on the path you're debugging before treating a logged error as the cause.
+
+**Corollary, on pending flags.** `void action()` on a redirecting action leaves
+no way to clear its pending state when the action fails. A redirecting Server
+Action *resolves* on the client (the router takes the navigation off the
+response), so a `.catch` there is unambiguously a real failure — clear the flag
+and say so.
+
+## A Server Action must never redirect at a redirect
+
+**Symptom.** `logout()` signed the user out and then rejected with
+"An unexpected response was received from the server" — no navigation, and
+only a manual refresh showed the login screen.
+
+**Cause.** `redirect()` in a Server Action doesn't just set a header: Next
+renders the redirect target into the action's own response (to save the client
+a round-trip) and copies *that render's* headers onto it. `location` is not on
+its forbidden list — only `content-length` and `set-cookie` are — so when the
+target is itself a redirect (`/login` → `/signup?view=login`), the action
+answers `303` **with** a `Location`. The client's action `fetch` uses the
+default `redirect: "follow"`, so the browser follows it before React ever sees
+the response, and the reducer throws on the HTML page that comes back.
+
+**Rule.** Server Actions redirect to real pages only. Redirect stubs
+(`/login`, `/forgot-password` here) are for navigations — a `<Link>`, an
+address bar, middleware. Keep the real URL in one place both can import
+(`lib/auth-routes.ts`) so the stub and the action can't drift.
+
+**How to see it without a browser.** A server action can be invoked with curl:
+its id is in `.next/server/server-reference-manifest.json`, keyed by the routes
+that contain it. `POST` it with `Next-Action: <id>` and a JSON `[]` body, and
+read the response headers — a healthy action redirect is a `303` carrying
+`x-action-redirect` and `content-type: text/x-component` and **no** `location`.

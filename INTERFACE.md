@@ -172,6 +172,7 @@ All motion is reviewed against `.agents/skills/review-animations/STANDARDS.md`
 | Toast in | spring `bounce 0.6, visualDuration 0.25` | — |
 | Toast out | 200ms | strong ease-out |
 | Tooltip in | scale 200ms, opacity 130ms | `--ease-over-extend` / ease-out |
+| Tooltip open delay | 200ms, app-wide | — |
 
 Rules that fall out of those:
 - **Exits ease out, never in, and never overshoot** — a bounce on something
@@ -619,10 +620,8 @@ doesn't show them:
   so the click lands on the menu card instead of nowhere — see LEARNINGS for
   why a plain `disabled` button closed it.
 - **Both pills carry a hover tooltip** — "Model to use" / "Socials to generate
-  for" — at **300ms**, half the app's usual 600ms. They name what a control is
-  for rather than adding detail to something already legible, so they should
-  land while the pointer is still on the pill. One `TooltipProvider` wraps the
-  pair so Base UI groups them and the second shows instantly after the first.
+  for" — on the app's 200ms delay. One `TooltipProvider` wraps the pair so Base
+  UI groups them and the second shows instantly after the first.
   The trigger is the capsule itself (`SelectPill`'s `tooltip` prop), not a
   wrapper around it, and the tooltip is `disabled` while the menu is open — a
   bubble explaining a control you've already opened just covers the options.
@@ -1071,3 +1070,19 @@ Instructions page's column rhythm — until the Figma export replaces it.
 `/projects/<id>/settings` and the top-level `/settings` stub both redirect into
 it rather than being deleted, so old links still land somewhere real, and the
 dashboard's "AI Model" setup row points at Profile directly.
+
+## Tooltip open delay
+
+**200ms, everywhere.** `TOOLTIP_OPEN_DELAY_MS` in components/ui/tooltip.tsx,
+applied through a single `TooltipProvider` wrapping `{children}` in
+app/layout.tsx. The global Provider is what makes it app-wide: Base UI resolves
+a provider-less trigger against its *own* 600ms `OPEN_DELAY`, so changing the
+wrapper's default alone would only have moved the handful of tooltips that sat
+inside a local Provider. Generate's model/account pills gave up their own
+300ms and inherit it. **The dashboard's total-posts bar keeps `delay={0}`** —
+the percentages are the point of the bar rather than a hint about it, so it
+opens on contact; both keep their local Provider, which still earns its place as a *delay
+group* — Base UI shows the next tooltip in a group instantly, so sliding across
+the bar's bands or from one pill to the other doesn't re-wait. That grouping
+now also spans the app as a whole, so moving between any two triggers while one
+tooltip is open is instant.
