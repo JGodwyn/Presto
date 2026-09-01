@@ -15,7 +15,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
-import { expiryStatus, formatExpiry } from "@/lib/format-date"
+import {
+  connectionStatus,
+  formatExpiry,
+  isConnectionDead,
+} from "@/lib/format-date"
 import { cn } from "@/lib/utils"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 
@@ -25,8 +29,8 @@ const GRADIENT_AVATAR = "/images/create-project/avatar.svg"
 const RENEW_CHIP_CORNER_RADIUS = 8
 
 // The Figma "Connection-ConnectedState{Connected,ExpiringSoon,Expired}"
-// exports — one row with three treatments, driven entirely by how much of the
-// 60-day token is left:
+// exports — one row with three treatments, driven by how much of the 60-day
+// token is left, plus a fourth the exports don't draw (see `revoked` below):
 //
 //   active    green block, "Connected as …", Disconnect, grey countdown
 //   expiring  same block, but the countdown turns text-warning and grows a
@@ -34,6 +38,11 @@ const RENEW_CHIP_CORNER_RADIUS = 8
 //   expired   block turns surface-danger and reads "Connection expired" over a
 //             WarningDiamond; the action becomes a success-green "Reconnect",
 //             and the countdown goes away entirely (the strip has said it)
+//   revoked   the expired treatment exactly, reading "Connection revoked" —
+//             no Figma frame draws this, because it isn't a date at all: the
+//             member removed Presto's access at LinkedIn's end, so a token
+//             with weeks left on it simply stopped working. Reusing the dead
+//             treatment is deliberate: the cause differs, the remedy doesn't
 //
 // The white PlatformRow is flush to the block's top and shares its rad-lg in
 // every state, so their top corners coincide and the colour reads as something
@@ -63,8 +72,14 @@ function ConnectedAccountRow({
   })
   const [avatarFailed, setAvatarFailed] = React.useState(false)
 
-  const status = expiryStatus(new Date(account.expiresAt), now)
-  const isExpired = status === "expired"
+  // Two ways to be dead, one treatment. The date alone can't see a revocation
+  // — that's what account.status carries (see verifyLinkedInToken).
+  const status = connectionStatus(
+    new Date(account.expiresAt),
+    account.status === "revoked",
+    now
+  )
+  const isDead = isConnectionDead(status)
 
   return (
     <div className="flex flex-col gap-dist-md">
@@ -73,14 +88,14 @@ function ConnectedAccountRow({
         style={style}
         className={cn(
           "flex flex-col gap-dist-sm rounded-rad-lg pb-pad-xs",
-          isExpired ? "bg-surface-danger" : "bg-surface-success"
+          isDead ? "bg-surface-danger" : "bg-surface-success"
         )}
       >
         <PlatformRow
           platform={account.platform}
           label={label}
           action={
-            isExpired ? (
+            isDead ? (
               <Button
                 variant="success"
                 size="sm"
@@ -106,7 +121,7 @@ function ConnectedAccountRow({
         />
 
         <div className="flex items-center gap-dist-sm px-pad-md">
-          {isExpired ? (
+          {isDead ? (
             <WarningDiamond
               weight="bold"
               className="size-4 shrink-0 text-icon-inverse"
@@ -139,17 +154,20 @@ function ConnectedAccountRow({
             />
           )}
           <span className="truncate text-body-md-bold text-text-inverse">
-            {isExpired
-              ? "Connection expired"
-              : `Connected as ${account.accountName}`}
+            {status === "revoked"
+              ? "Connection revoked"
+              : status === "expired"
+                ? "Connection expired"
+                : `Connected as ${account.accountName}`}
           </span>
         </div>
       </div>
 
-      {/* Dropped once expired: the red strip above already says so, and a
-          countdown underneath it would be reporting a deadline that has
-          already passed. */}
-      {!isExpired && (
+      {/* Dropped once dead: the red strip above already says so, and a
+          countdown underneath it would be reporting either a deadline that has
+          already passed or — for a revoked connection — days remaining on a
+          token that stopped working regardless. */}
+      {!isDead && (
         <div className="flex items-center justify-center gap-dist-md px-pad-sm">
           <div className="flex items-center gap-dist-sm">
             <Timer

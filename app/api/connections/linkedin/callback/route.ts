@@ -120,6 +120,13 @@ export async function GET(request: NextRequest) {
       scope: token.value.scope,
       expires_at: token.value.expiresAt.toISOString(),
       connected_at: new Date().toISOString(),
+      // Reset explicitly, and this matters: an upsert only writes the columns
+      // it names, so reconnecting an account that had been marked `revoked`
+      // would otherwise keep that status against a brand-new working token —
+      // the row would read dead forever. The token was just minted and the
+      // profile call above it succeeded, so it is alive by construction.
+      status: "active",
+      last_checked_at: new Date().toISOString(),
     },
     { onConflict: "project_id,platform" }
   )

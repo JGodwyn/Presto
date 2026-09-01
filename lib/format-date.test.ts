@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  connectionStatus,
   EXPIRY_WARNING_DAYS,
   expiryStatus,
   formatDate,
   formatDateRange,
   formatExpiry,
   formatOrdinal,
+  isConnectionDead,
 } from "@/lib/format-date"
 
 const NOW = new Date("2026-08-21T12:00:00Z")
@@ -118,5 +120,40 @@ describe("formatDateRange", () => {
 
   it("falls back to a single date while only the start is picked", () => {
     expect(formatDateRange(new Date(2026, 7, 28), undefined, NOW)).toBe("Aug 28")
+  })
+})
+
+describe("connectionStatus", () => {
+  const NOW = new Date("2026-08-31T12:00:00Z")
+  const inDays = (days: number) =>
+    new Date(NOW.getTime() + days * 24 * 60 * 60 * 1000)
+
+  it("passes expiry's own three states through when nothing is revoked", () => {
+    expect(connectionStatus(inDays(30), false, NOW)).toBe("active")
+    expect(connectionStatus(inDays(3), false, NOW)).toBe("expiring")
+    expect(connectionStatus(inDays(-1), false, NOW)).toBe("expired")
+  })
+
+  // The case the whole status column exists for: plenty of days left on paper,
+  // and the token stopped working anyway.
+  it("reports revoked on a token that has not lapsed", () => {
+    expect(connectionStatus(inDays(30), true, NOW)).toBe("revoked")
+  })
+
+  it("reports revoked even inside the expiring window", () => {
+    expect(connectionStatus(inDays(3), true, NOW)).toBe("revoked")
+  })
+
+  // Expiry wins: it's the reason a reader expects, it's true whether or not a
+  // check has ever run, and both lead to the same Reconnect.
+  it("prefers expired when a connection is both lapsed and revoked", () => {
+    expect(connectionStatus(inDays(-1), true, NOW)).toBe("expired")
+  })
+
+  it("calls exactly the two dead states dead", () => {
+    expect(isConnectionDead("expired")).toBe(true)
+    expect(isConnectionDead("revoked")).toBe(true)
+    expect(isConnectionDead("active")).toBe(false)
+    expect(isConnectionDead("expiring")).toBe(false)
   })
 })
