@@ -26,7 +26,7 @@ import {
 import { useDragScroll } from "@/hooks/use-drag-scroll"
 import { useFlipReorder } from "@/hooks/use-flip-reorder"
 import { generationFailureCopy } from "@/lib/ai/failure-copy"
-import { BUILTIN_MODEL_ID } from "@/lib/ai/generate"
+import { BUILTIN_MODEL_ID } from "@/lib/ai/model-constants"
 import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"

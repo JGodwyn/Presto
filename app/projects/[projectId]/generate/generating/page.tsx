@@ -7,7 +7,7 @@ import { useParams, useSearchParams } from "next/navigation"
 import { TRY_OUT_ACCOUNT_ID } from "@/components/generate/account-options"
 import { GeneratingView } from "@/components/generate/generating-view"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
-import { BUILTIN_MODEL_ID } from "@/lib/ai/generate"
+import { BUILTIN_MODEL_ID } from "@/lib/ai/model-constants"
 
 // Suspense boundary: useSearchParams opts the tree below it out of static
 // prerendering (see next/docs use-search-params.md) — scoping that to just

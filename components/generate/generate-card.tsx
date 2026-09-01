@@ -34,7 +34,7 @@ import {
   type SelectPillOption,
 } from "@/components/generate/select-pill"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
-import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/generate"
+import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/model-constants"
 import { generateSettingsStorageKey } from "@/lib/generate-settings"
 import { fetchSocialAccounts, fetchUserAiModels } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/client"
@@ -62,10 +62,21 @@ const MAX_POSTS = 31
 // hand with lib/ai/generate.ts's BUILTIN_MODELS. Anything the user has added
 // on the Connections page is appended to these at runtime (see the fetch
 // below) — a user model's `value` is its user_ai_models row id.
+// TasteTest sits first by request — it's the one entry that costs nothing and
+// calls no model, so it's what you reach for while testing the flow.
 const BUILTIN_MODEL_OPTIONS: SelectPillOption[] = [
-  { value: BUILTIN_MODEL_ID, label: "Gemini 3.6 Flash" },
   { value: TASTE_TEST_MODEL_ID, label: "TasteTest" },
+  { value: BUILTIN_MODEL_ID, label: "Gemini 3.6 Flash" },
 ]
+
+// Kept separate from the list's *order* on purpose: this used to be
+// `BUILTIN_MODEL_OPTIONS[0]`, so putting TasteTest first would silently have
+// made canned content the default model for every new visit and every repair
+// of a stale selection. Display order and the default are different decisions.
+// Annotated `string`, not left to infer `BuiltinModel`: the selected model is
+// either a built-in id or a user_ai_models row uuid, so narrowing the state to
+// the built-in union would reject every user model.
+const DEFAULT_MODEL_ID: string = BUILTIN_MODEL_ID
 
 const CADENCE_OPTIONS = [
   { value: "daily", label: "Daily" },
@@ -196,7 +207,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
 
     const [mode, setMode] = React.useState("number")
     const [count, setCount] = React.useState(MIN_POSTS)
-    const [model, setModel] = React.useState(BUILTIN_MODEL_OPTIONS[0].value)
+    const [model, setModel] = React.useState(DEFAULT_MODEL_ID)
     // Models the user added on the Connections page. Fetched here with the
     // browser client rather than passed down as a prop because this card's
     // page is a client component (it holds the reset-calendar ref) and so
@@ -400,14 +411,14 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     // built-in keeps the pill rendering; the effect below repairs the state
     // itself so the stale id can't also be sent to the generate flow.
     const selectedModel =
-      modelOptions.find((o) => o.value === model) ?? BUILTIN_MODEL_OPTIONS[0]
+      modelOptions.find((o) => o.value === model) ?? modelOptions.find((o) => o.value === DEFAULT_MODEL_ID)!
 
     React.useEffect(() => {
       // Gated on the fetch having resolved — before that, every user model id
       // legitimately "matches nothing" and would be reset for no reason.
       if (!userModelsLoaded) return
       if (!modelOptions.some((o) => o.value === model)) {
-        setModel(BUILTIN_MODEL_OPTIONS[0].value)
+        setModel(DEFAULT_MODEL_ID)
       }
     }, [model, modelOptions, userModelsLoaded])
     const accountOptions = React.useMemo(

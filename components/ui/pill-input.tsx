@@ -27,6 +27,11 @@ interface PillInputProps extends React.ComponentProps<typeof Input> {
   suffix?: string
   label?: string
   helperText?: string
+  // Overrides the helper line's own type styles. Opt-in because the default
+  // is bold: nearly every helperText in the app is a validation error (the
+  // signup screens, change-password), and those should stay bold. Purely
+  // descriptive helper text is the exception that wants regular weight.
+  helperTextClassName?: string
   fieldSize?: PillInputSize
   containerClassName?: string
 }
@@ -37,6 +42,7 @@ function PillInput({
   suffix,
   label,
   helperText,
+  helperTextClassName,
   fieldSize = "md",
   className,
   containerClassName,
@@ -144,7 +150,8 @@ function PillInput({
         <p
           className={cn(
             "text-[length:var(--text-body-md-bold)] leading-[var(--text-body-md-bold--line-height)] tracking-[var(--text-body-md-bold--letter-spacing)] font-bold transition-[color,opacity,translate] duration-150 ease-out starting:-translate-y-0.5 starting:opacity-0",
-            isInvalid ? "text-text-danger" : "text-text-subtle"
+            isInvalid ? "text-text-danger" : "text-text-subtle",
+            helperTextClassName
           )}
         >
           {helperText}

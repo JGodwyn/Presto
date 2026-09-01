@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
-import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID, type ModelSelection } from "@/lib/ai/generate"
+import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/model-constants"
+import { type ModelSelection } from "@/lib/ai/generate"
 import { decryptApiKey } from "@/lib/ai/key-crypto"
+import { providerFor } from "@/lib/ai/providers"
 
 // Turns the opaque string the Generate page's model pill puts in the URL into
 // something generatePost can actually call. Three cases:
@@ -45,6 +47,13 @@ export async function resolveModelSelection(
     .maybeSingle()
 
   if (error || !data) return null
+
+  // A row can outlive its provider — added while Groq was in the registry,
+  // read back after it was removed. modelFor() throws on an unknown slug, which
+  // surfaced as a 500 from the regenerate route; returning null here routes it
+  // to the same "model_unavailable" copy as a deleted model, which is what the
+  // user can actually act on.
+  if (!providerFor(data.provider_slug)) return null
 
   let apiKey: string
   try {

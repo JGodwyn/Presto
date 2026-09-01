@@ -19,7 +19,10 @@ const BUCKET = "content-reference-files"
 // components/instructions/upload-dropzone.tsx, which is what actually
 // surfaces a real message to the user before the request is ever sent).
 const MAX_FILE_BYTES = 1024 * 1024
-const ALLOWED_FILE_EXTENSIONS = ["pdf", "doc", "docx", "txt"]
+// Legacy binary .doc is deliberately absent: it's the pre-XML OLE format,
+// which lib/ai/extract-file-text.ts can't read, so accepting one would store a
+// file that silently contributes nothing to a generation.
+const ALLOWED_FILE_EXTENSIONS = ["pdf", "docx", "txt"]
 
 type ContentReferenceRow = {
   id: string

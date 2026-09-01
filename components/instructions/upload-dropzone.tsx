@@ -68,7 +68,7 @@ function UploadDropzone({
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.doc,.docx,.txt"
+        accept=".pdf,.docx,.txt"
         className="hidden"
         onChange={handleChange}
       />
@@ -107,7 +107,7 @@ function UploadDropzone({
           {file?.name ?? "Tap to upload a file"}
         </span>
         <span className="text-body-md text-text-subtle">
-          Supports PDF, Word, TXT files
+          Supports PDF, DOCX, TXT files
         </span>
       </button>
       {oversized ? <FieldError message="Keep your files less than 1MB" /> : null}
