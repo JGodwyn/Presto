@@ -90,7 +90,7 @@ export function DashboardView({
 }) {
   const nowDate = new Date(now)
   const summary = summariseMonth(posts, now)
-  const totals = totalsByState(posts, now)
+  const totals = totalsByState(posts)
   const upcoming = nextUp(posts, now, POST_LIST_LIMIT)
   const recent = posts
     .filter((post) => post.scheduledFor !== null && Date.parse(post.scheduledFor) < now)

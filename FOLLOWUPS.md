@@ -326,3 +326,39 @@ password field; a hidden decoy input is the uglier fallback.
 
 **Why it waited:** it can only be verified in a browser this session has no
 access to.
+
+---
+
+## 15. `posts.status` is vestigial
+
+**From:** `publish-state` on `main`, 2026-09-01.
+
+`published_at` is now the single truth for published-ness. `status` is read by
+nothing that matters, is still accepted by `updatePost`, and its `'published'`
+value is written only alongside `published_at` in `publishPost`.
+
+**Do:** once nothing writes it, drop the column and `PostStatus` with it.
+
+**Why it waited:** dropping a column is not additive, and per AGENTS.md a drop
+takes down every other running dev server at once. It needs the schema slot and
+an otherwise-quiet moment.
+
+---
+
+## 16. Overdue and failed posts have no treatment on the card
+
+**From:** `publish-state` on `main`, 2026-09-01.
+
+`isOverdue` and `hasFailed` (lib/content-grouping.ts) are built and tested, and
+nothing renders them. A post whose scheduled moment passed without it going out
+now sits in Queued looking exactly like one still waiting its turn — currently
+76 of them, all pre-publishing test data.
+
+**Do:** a state on the Kanban card, the deck card and the post-details header.
+`hasFailed` should surface `publishError`; `isOverdue` alone is quieter.
+
+**Why it waited:** it belongs with the branch that makes publishing — and
+therefore failure — actually possible, so the treatment can be designed against
+real states rather than invented ones. Threading it also touches
+MonthBoard → KanbanColumn → KanbanPostCard and the shared `GeneratedPostCard`,
+which the Generate page also renders.

@@ -30,15 +30,11 @@ export default async function ContentPage({
     fetchInstructions(supabase, projectId),
   ])
 
-  // The queued/published split needs a "now", and it has to be the same one on
-  // the server and during hydration or a post scheduled seconds away could
-  // change tabs mid-hydration — so it's stamped once, here, for the request.
-  // react-hooks/purity flags any Date.now() in render; the instability it
-  // guards against needs a re-render to bite, and this component renders once
-  // per request on the server. It does mean the split only moves on a refresh,
-  // which is the right granularity for a page about days.
-  // eslint-disable-next-line react-hooks/purity
-  const now = Date.now()
+  // No `now` is stamped here any more, and that is the point: which tab a post
+  // is on is a property of the post (published or not, dated or not), so it no
+  // longer moves with the clock and cannot differ between the server render and
+  // hydration. This used to need a once-per-request timestamp threaded down,
+  // plus a react-hooks/purity exception to produce it.
 
   return (
     // This page is the viewport's height and scrolls its own content, rather
@@ -63,7 +59,6 @@ export default async function ContentPage({
             posts={posts}
             accounts={accounts}
             activeTopics={instructions?.topics ?? []}
-            now={now}
           />
         </GlowPanel>
       </div>

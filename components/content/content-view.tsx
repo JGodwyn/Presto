@@ -74,7 +74,7 @@ const ECHOED_QUERY_MAX_CHARS = 32
 // since the Published/Draft empty states haven't been exported.
 const EMPTY_STATE_TITLES: Record<ContentTab, string> = {
   queued: "your posts for a later date show up here.",
-  published: "your posts from a past date show up here.",
+  published: "your posts that have gone out show up here.",
   draft: "your posts without a date show up here.",
 }
 
@@ -103,17 +103,11 @@ export function ContentView({
   // behind them, so a topic deleted from Instructions since then still sits
   // on the post — this is the only way to tell that chip apart and retire it.
   activeTopics,
-  // Stamped by the server component that renders this, so the future/past
-  // split is decided once rather than drifting between the server render and
-  // hydration (a post scheduled seconds from now would otherwise be able to
-  // change tabs mid-hydration).
-  now,
 }: {
   projectId: string
   posts: Post[]
   accounts: ConnectedSocialAccount[]
   activeTopics: string[]
-  now: number
 }) {
   // Remembered per project alongside the layout, so leaving for a post's own
   // page and coming back doesn't drop you on Queued.
@@ -183,12 +177,8 @@ export function ContentView({
 
   const months = React.useMemo(
     () =>
-      groupPostsByMonth(
-        filterPosts(filterPostsByQuery(posts, query), filter),
-        tab,
-        now
-      ),
-    [posts, query, filter, tab, now]
+      groupPostsByMonth(filterPosts(filterPostsByQuery(posts, query), filter), tab),
+    [posts, query, filter, tab]
   )
 
   // Re-derived from `months` rather than captured at click time, so a deck
@@ -434,7 +424,7 @@ export function ContentView({
           posts={openEntry.day.posts}
           origin={openDay.origin}
           dayKey={openDay.key}
-          keyForPost={(post) => dayKeyForPost(post, tab, now)}
+          keyForPost={(post) => dayKeyForPost(post, tab)}
           onClose={closeDeck}
           onPostsChange={setPosts}
         />

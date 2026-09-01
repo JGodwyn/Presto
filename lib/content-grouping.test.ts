@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  belongsToTab,
+  CONTENT_TABS,
   dayKeyForPost,
   filterPostsByQuery,
+  hasFailed,
+  isOverdue,
   groupPostsByMonth,
   postsForTab,
 } from "@/lib/content-grouping"
@@ -34,28 +38,63 @@ function makePost(overrides: Partial<Post> = {}): Post {
     scheduledFor: null,
     createdAt: localIso(2026, 7, 30),
     isTryout: false,
+    publishedAt: null,
+    providerPostId: null,
+    publishError: null,
     ...overrides,
   }
 }
 
 describe("postsForTab", () => {
-  it("splits by date, not by the post's own status column", () => {
-    // Every post here is status: "draft" — only the dates differ.
-    const future = makePost({ scheduledFor: localIso(2026, 8, 3) })
-    const past = makePost({ scheduledFor: localIso(2026, 7, 1) })
+  it("puts a post on Published only once it has actually gone out", () => {
+    // Every post here is status: "draft" — the status column is not consulted.
+    const queued = makePost({ scheduledFor: localIso(2026, 8, 3) })
+    const published = makePost({
+      scheduledFor: localIso(2026, 7, 1),
+      publishedAt: localIso(2026, 7, 1),
+      providerPostId: "urn:li:share:1",
+    })
     const undated = makePost({ scheduledFor: null })
-    const posts = [future, past, undated]
+    const posts = [queued, published, undated]
 
-    expect(postsForTab(posts, "queued", NOW)).toEqual([future])
-    expect(postsForTab(posts, "published", NOW)).toEqual([past])
-    expect(postsForTab(posts, "draft", NOW)).toEqual([undated])
+    expect(postsForTab(posts, "queued")).toEqual([queued])
+    expect(postsForTab(posts, "published")).toEqual([published])
+    expect(postsForTab(posts, "draft")).toEqual([undated])
   })
 
-  it("counts a post scheduled for exactly now as still queued", () => {
-    const post = makePost({ scheduledFor: new Date(NOW).toISOString() })
+  // The bug this whole rule replaced: the date passing was taken as proof the
+  // post went out, so a post that never published was indistinguishable from
+  // one that did.
+  it("keeps a post whose date has passed in Queued when it never published", () => {
+    const overdue = makePost({ scheduledFor: localIso(2026, 7, 1) })
 
-    expect(postsForTab([post], "queued", NOW)).toEqual([post])
-    expect(postsForTab([post], "published", NOW)).toEqual([])
+    expect(postsForTab([overdue], "queued")).toEqual([overdue])
+    expect(postsForTab([overdue], "published")).toEqual([])
+  })
+
+  it("counts a post published without ever being scheduled as published, not a draft", () => {
+    const post = makePost({
+      scheduledFor: null,
+      publishedAt: localIso(2026, 7, 20),
+      providerPostId: "urn:li:share:2",
+    })
+
+    expect(postsForTab([post], "published")).toEqual([post])
+    expect(postsForTab([post], "draft")).toEqual([])
+  })
+
+  it("puts every post on exactly one tab", () => {
+    const posts = [
+      makePost({ scheduledFor: localIso(2026, 8, 3) }),
+      makePost({ scheduledFor: localIso(2026, 7, 1) }),
+      makePost({ scheduledFor: null }),
+      makePost({ publishedAt: localIso(2026, 7, 2), providerPostId: "urn:li:share:3" }),
+    ]
+
+    for (const post of posts) {
+      const tabs = CONTENT_TABS.filter(({ value }) => belongsToTab(post, value))
+      expect(tabs).toHaveLength(1)
+    }
   })
 })
 
@@ -91,30 +130,65 @@ describe("filterPostsByQuery", () => {
   })
 })
 
+describe("isOverdue / hasFailed", () => {
+  it("calls a queued post overdue once its moment has passed", () => {
+    expect(isOverdue(makePost({ scheduledFor: localIso(2026, 7, 1) }), NOW)).toBe(true)
+    expect(isOverdue(makePost({ scheduledFor: localIso(2026, 8, 3) }), NOW)).toBe(false)
+  })
+
+  it("never calls a published or dateless post overdue", () => {
+    const published = makePost({
+      scheduledFor: localIso(2026, 7, 1),
+      publishedAt: localIso(2026, 7, 1),
+      providerPostId: "urn",
+    })
+
+    expect(isOverdue(published, NOW)).toBe(false)
+    expect(isOverdue(makePost({ scheduledFor: null }), NOW)).toBe(false)
+  })
+
+  it("separates a failed attempt from one that simply never ran", () => {
+    expect(hasFailed(makePost({ scheduledFor: localIso(2026, 7, 1) }))).toBe(false)
+    expect(
+      hasFailed(makePost({ scheduledFor: localIso(2026, 7, 1), publishError: "token_expired" }))
+    ).toBe(true)
+  })
+
+  it("does not call a published post failed, whatever an earlier attempt left behind", () => {
+    const recovered = makePost({
+      publishedAt: localIso(2026, 7, 2),
+      providerPostId: "urn",
+      publishError: "network",
+    })
+
+    expect(hasFailed(recovered)).toBe(false)
+  })
+})
+
 describe("dayKeyForPost", () => {
   it("matches the key of the group the post actually lands in", () => {
     const post = makePost({ scheduledFor: localIso(2026, 8, 3) })
-    const [month] = groupPostsByMonth([post], "queued", NOW)
+    const [month] = groupPostsByMonth([post], "queued")
 
-    expect(dayKeyForPost(post, "queued", NOW)).toBe(month.days[0].key)
+    expect(dayKeyForPost(post, "queued")).toBe(month.days[0].key)
   })
 
   it("returns null for a post that isn't on the tab at all", () => {
     const draft = makePost({ scheduledFor: null })
 
-    expect(dayKeyForPost(draft, "queued", NOW)).toBeNull()
-    expect(dayKeyForPost(draft, "draft", NOW)).not.toBeNull()
+    expect(dayKeyForPost(draft, "queued")).toBeNull()
+    expect(dayKeyForPost(draft, "draft")).not.toBeNull()
   })
 
   it("changes key when a date moves the post to another day, and holds when it doesn't", () => {
     const post = makePost({ scheduledFor: localIso(2026, 8, 3, 9) })
-    const key = dayKeyForPost(post, "queued", NOW)
+    const key = dayKeyForPost(post, "queued")
 
     // Same calendar day, different time — still the same deck.
-    expect(dayKeyForPost({ ...post, scheduledFor: localIso(2026, 8, 3, 21) }, "queued", NOW)).toBe(key)
+    expect(dayKeyForPost({ ...post, scheduledFor: localIso(2026, 8, 3, 21) }, "queued")).toBe(key)
     // Next day, and dropping the date entirely, both leave it.
-    expect(dayKeyForPost({ ...post, scheduledFor: localIso(2026, 8, 4) }, "queued", NOW)).not.toBe(key)
-    expect(dayKeyForPost({ ...post, scheduledFor: null }, "queued", NOW)).toBeNull()
+    expect(dayKeyForPost({ ...post, scheduledFor: localIso(2026, 8, 4) }, "queued")).not.toBe(key)
+    expect(dayKeyForPost({ ...post, scheduledFor: null }, "queued")).toBeNull()
   })
 })
 
@@ -126,7 +200,7 @@ describe("groupPostsByMonth", () => {
       makePost({ scheduledFor: localIso(2026, 7, 31, 18) }),
     ]
 
-    const months = groupPostsByMonth(posts, "queued", NOW)
+    const months = groupPostsByMonth(posts, "queued")
 
     expect(months.map((month) => month.label)).toEqual(["July 2026", "August 2026"])
     expect(months[0].days).toHaveLength(1)
@@ -136,12 +210,12 @@ describe("groupPostsByMonth", () => {
 
   it("orders published months and days newest-first", () => {
     const posts = [
-      makePost({ scheduledFor: localIso(2026, 5, 4) }),
-      makePost({ scheduledFor: localIso(2026, 7, 2) }),
-      makePost({ scheduledFor: localIso(2026, 7, 20) }),
+      makePost({ publishedAt: localIso(2026, 5, 4), providerPostId: "a" }),
+      makePost({ publishedAt: localIso(2026, 7, 2), providerPostId: "b" }),
+      makePost({ publishedAt: localIso(2026, 7, 20), providerPostId: "c" }),
     ]
 
-    const months = groupPostsByMonth(posts, "published", NOW)
+    const months = groupPostsByMonth(posts, "published")
 
     expect(months.map((month) => month.label)).toEqual(["July 2026", "May 2026"])
     expect(months[0].days.map((day) => day.day)).toEqual([20, 2])
@@ -153,7 +227,7 @@ describe("groupPostsByMonth", () => {
       makePost({ scheduledFor: null, createdAt: localIso(2026, 7, 30) }),
     ]
 
-    const months = groupPostsByMonth(posts, "draft", NOW)
+    const months = groupPostsByMonth(posts, "draft")
 
     expect(months).toHaveLength(1)
     expect(months[0].days.map((day) => day.day)).toEqual([30, 28])
@@ -172,19 +246,19 @@ describe("groupPostsByMonth", () => {
     // Queued reads its *days* forwards, but a day's own posts still lead with
     // the newest — otherwise a freshly generated post lands out of sight at
     // the bottom of a busy day.
-    const queued = groupPostsByMonth([older, newer], "queued", NOW)
+    const queued = groupPostsByMonth([older, newer], "queued")
     expect(queued[0].days[0].posts).toEqual([newer, older])
 
     const drafts = [
       makePost({ scheduledFor: null, createdAt: localIso(2026, 7, 30, 9) }),
       makePost({ scheduledFor: null, createdAt: localIso(2026, 7, 30, 17) }),
     ]
-    const draft = groupPostsByMonth(drafts, "draft", NOW)
+    const draft = groupPostsByMonth(drafts, "draft")
     expect(draft[0].days[0].posts).toEqual([drafts[1], drafts[0]])
   })
 
   it("returns no months for a tab with nothing in it", () => {
-    expect(groupPostsByMonth([makePost()], "queued", NOW)).toEqual([])
+    expect(groupPostsByMonth([makePost()], "queued")).toEqual([])
   })
 })
 
@@ -196,7 +270,7 @@ describe("ordering within a day", () => {
     const morning = makePost({ scheduledFor: localIso(2026, 8, 3, 9, 0) })
     const noon = makePost({ scheduledFor: localIso(2026, 8, 3, 12, 0) })
 
-    const [month] = groupPostsByMonth([evening, morning, noon], "queued", NOW)
+    const [month] = groupPostsByMonth([evening, morning, noon], "queued")
     expect(month.days[0].posts.map((p) => p.id)).toEqual([
       morning.id,
       noon.id,
@@ -204,11 +278,17 @@ describe("ordering within a day", () => {
     ])
   })
 
-  it("sorts Published by scheduled time, latest first", () => {
-    const morning = makePost({ scheduledFor: localIso(2026, 7, 1, 9, 0) })
-    const evening = makePost({ scheduledFor: localIso(2026, 7, 1, 18, 30) })
+  it("sorts Published by the time it went out, latest first", () => {
+    const morning = makePost({
+      publishedAt: localIso(2026, 7, 1, 9, 0),
+      providerPostId: "morning",
+    })
+    const evening = makePost({
+      publishedAt: localIso(2026, 7, 1, 18, 30),
+      providerPostId: "evening",
+    })
 
-    const [month] = groupPostsByMonth([morning, evening], "published", NOW)
+    const [month] = groupPostsByMonth([morning, evening], "published")
     expect(month.days[0].posts.map((p) => p.id)).toEqual([evening.id, morning.id])
   })
 
@@ -224,7 +304,7 @@ describe("ordering within a day", () => {
       createdAt: localIso(2026, 7, 25),
     })
 
-    const [month] = groupPostsByMonth([older, newer], "queued", NOW)
+    const [month] = groupPostsByMonth([older, newer], "queued")
     expect(month.days[0].posts.map((p) => p.id)).toEqual([newer.id, older.id])
   })
 
@@ -233,7 +313,7 @@ describe("ordering within a day", () => {
     const older = makePost({ scheduledFor: null, createdAt: localIso(2026, 7, 30, 9) })
     const newer = makePost({ scheduledFor: null, createdAt: localIso(2026, 7, 30, 17) })
 
-    const [month] = groupPostsByMonth([older, newer], "draft", NOW)
+    const [month] = groupPostsByMonth([older, newer], "draft")
     expect(month.days[0].posts.map((p) => p.id)).toEqual([newer.id, older.id])
   })
 })

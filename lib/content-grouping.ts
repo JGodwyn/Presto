@@ -2,10 +2,23 @@ import { formatDate } from "@/lib/format-date"
 import type { Post } from "@/types/post"
 
 // The Content page's three tabs (design-sync/content-base-calendar-view).
-// Membership is decided by *date*, not by the posts table's own `status`
-// column (per direct instruction): a post is queued if its scheduled date is
-// still ahead, published once that date has passed, and a draft when it has
-// no date at all.
+//
+// Published is decided by `publishedAt` — the recorded fact that a provider
+// confirmed the post went out — and the other two by date. This used to be
+// date-only: published meant "the scheduled date has passed", which cannot
+// tell a post that actually went out from one whose date arrived while
+// nothing happened (publish failed, token expired, nothing was running).
+// Both read as published, identically for LinkedIn and X, since platform was
+// never consulted at all.
+//
+// The three arms are total and disjoint, in this order:
+//   published  publishedAt is set, whenever that happened
+//   draft      no scheduled date and never published
+//   queued     has a date, not published — including a date already past
+//
+// An overdue post staying in Queued is the honest answer: it is still waiting
+// to go out, and nothing has sent it. `isOverdue` and `hasFailed` below are
+// what let the UI say so rather than leaving it looking merely scheduled.
 export type ContentTab = "queued" | "published" | "draft"
 
 export const CONTENT_TABS: { value: ContentTab; label: string }[] = [
@@ -38,19 +51,40 @@ export function formatDayLabel(month: MonthGroup, day: DayGroup): string {
   return formatDate(new Date(month.year, month.month, day.day))
 }
 
-export function belongsToTab(post: Post, tab: ContentTab, now: number): boolean {
+export function belongsToTab(post: Post, tab: ContentTab): boolean {
   switch (tab) {
-    case "queued":
-      return post.scheduledFor !== null && Date.parse(post.scheduledFor) >= now
     case "published":
-      return post.scheduledFor !== null && Date.parse(post.scheduledFor) < now
+      return post.publishedAt !== null
     case "draft":
-      return post.scheduledFor === null
+      return post.publishedAt === null && post.scheduledFor === null
+    case "queued":
+      return post.publishedAt === null && post.scheduledFor !== null
   }
 }
 
-export function postsForTab(posts: Post[], tab: ContentTab, now: number): Post[] {
-  return posts.filter((post) => belongsToTab(post, tab, now))
+// A queued post whose moment has passed without it going out. Not a tab of its
+// own — the design has three — but the card needs to say so, because
+// "scheduled for last Tuesday" and "scheduled for next Tuesday" are not the
+// same state and used to be indistinguishable once the date slid past.
+export function isOverdue(post: Post, now: number): boolean {
+  return (
+    post.publishedAt === null &&
+    post.scheduledFor !== null &&
+    Date.parse(post.scheduledFor) < now
+  )
+}
+
+// An attempt was made and the provider refused it. Distinct from merely
+// overdue: something tried, and there is a reason to show.
+export function hasFailed(post: Post): boolean {
+  return post.publishedAt === null && post.publishError !== null
+}
+
+// `now` is gone from this chain: membership is a property of the post now, not
+// of when you happen to be looking. The page still stamps a `now` — `isOverdue`
+// needs it — it just no longer decides which tab anything is on.
+export function postsForTab(posts: Post[], tab: ContentTab): Post[] {
+  return posts.filter((post) => belongsToTab(post, tab))
 }
 
 // Free-text search over the posts themselves. Matches the post's **content**
@@ -78,23 +112,38 @@ function dayKey(year: number, month: number, day: number): string {
 // post still belong to the day whose deck is open? A date change can move it
 // to another day, to another tab, or nowhere at all — and the answer decides
 // whether its card animates out of the deck or just updates in place.
-export function dayKeyForPost(
-  post: Post,
-  tab: ContentTab,
-  now: number
-): string | null {
-  if (!belongsToTab(post, tab, now)) return null
+export function dayKeyForPost(post: Post, tab: ContentTab): string | null {
+  if (!belongsToTab(post, tab)) return null
   const date = groupingDate(post, tab)
   return dayKey(date.getFullYear(), date.getMonth(), date.getDate())
 }
 
-// Which date a tab groups by. Queued/Published group by the date the post is
-// scheduled for — the whole point of those two tabs. Drafts have no such date,
-// so they fall under the day they were created (per direct instruction), which
-// keeps the chips and the "tap a day" interaction identical across all three
-// tabs rather than needing a shape of its own.
+// Which date a tab groups by.
+//
+// Published groups by when it actually went out, not by when it was scheduled
+// to: a post that published two days late belongs on the day it published, and
+// that is also the only date a post published straight from a draft has.
+// Queued groups by the date it is due. Drafts have neither, so they fall under
+// the day they were created (per direct instruction), which keeps the chips and
+// the "tap a day" interaction identical across all three tabs rather than
+// needing a shape of its own.
 function groupingDate(post: Post, tab: ContentTab): Date {
-  return new Date(tab === "draft" ? post.createdAt : (post.scheduledFor ?? post.createdAt))
+  return new Date(groupingTimestamp(post, tab))
+}
+
+// The single moment a tab orders and groups a post by. Grouping and sorting
+// have to read the *same* field or a day's chip and the cards inside it
+// disagree — Published grouped by `publishedAt` while still sorting by
+// `scheduledFor` put posts in a day they hadn't been ordered against.
+function groupingTimestamp(post: Post, tab: ContentTab): string {
+  switch (tab) {
+    case "published":
+      return post.publishedAt ?? post.scheduledFor ?? post.createdAt
+    case "queued":
+      return post.scheduledFor ?? post.createdAt
+    case "draft":
+      return post.createdAt
+  }
 }
 
 // Newest-first everywhere except Queued, which reads forwards: the next thing
@@ -119,9 +168,9 @@ function isAscending(tab: ContentTab): boolean {
 // falls through to the tiebreak and reads newest-first as it always has.
 function comparePosts(a: Post, b: Post, tab: ContentTab, ascending: boolean): number {
   if (tab !== "draft") {
-    const at = a.scheduledFor ? Date.parse(a.scheduledFor) : null
-    const bt = b.scheduledFor ? Date.parse(b.scheduledFor) : null
-    if (at !== null && bt !== null && at !== bt) {
+    const at = Date.parse(groupingTimestamp(a, tab))
+    const bt = Date.parse(groupingTimestamp(b, tab))
+    if (at !== bt) {
       return ascending ? at - bt : bt - at
     }
   }
@@ -139,11 +188,11 @@ function comparePosts(a: Post, b: Post, tab: ContentTab, ascending: boolean): nu
 // day the user actually chose. That makes this browser-correct and, on a
 // server rendering in a different timezone, approximate for posts sitting
 // within a few hours of midnight — the client render is the authority.
-export function groupPostsByMonth(posts: Post[], tab: ContentTab, now: number): MonthGroup[] {
+export function groupPostsByMonth(posts: Post[], tab: ContentTab): MonthGroup[] {
   const ascending = isAscending(tab)
   const months = new Map<string, MonthGroup>()
 
-  for (const post of postsForTab(posts, tab, now)) {
+  for (const post of postsForTab(posts, tab)) {
     const date = groupingDate(post, tab)
     const year = date.getFullYear()
     const month = date.getMonth()

@@ -28,6 +28,9 @@ function post(overrides: Partial<Post>): Post {
     scheduledFor: null,
     createdAt: new Date(NOW).toISOString(),
     isTryout: false,
+    publishedAt: null,
+    providerPostId: null,
+    publishError: null,
     ...overrides,
   }
 }
@@ -207,9 +210,10 @@ describe("formatRelativeDay", () => {
 })
 
 describe("totalsByState", () => {
-  it("splits the whole library by date, not by the status column", () => {
-    // `status` is deliberately wrong on each of these: nothing in the app ever
-    // writes "published", and the split must not read it.
+  it("counts Published from publishedAt, never from a passed date or the status column", () => {
+    // `status` is deliberately wrong on each of these: it is vestigial, and
+    // the split must not read it. Two of these have a date in the past and
+    // neither is published — under the old date-derived rule both were.
     const posts = [
       post({ scheduledFor: null, status: "published" }),
       onDay(30, { status: "draft" }),
@@ -217,16 +221,25 @@ describe("totalsByState", () => {
       onDay(3, { status: "scheduled" }),
     ]
 
-    expect(totalsByState(posts, NOW)).toEqual({
+    expect(totalsByState(posts)).toEqual({
       total: 4,
       draft: 1,
-      queued: 1,
-      published: 2,
+      queued: 3,
+      published: 0,
     })
   })
 
+  it("counts a post as published once it has actually gone out", () => {
+    const posts = [
+      onDay(2, { publishedAt: new Date(2026, 7, 2).toISOString(), providerPostId: "urn" }),
+      onDay(30),
+    ]
+
+    expect(totalsByState(posts)).toMatchObject({ total: 2, published: 1, queued: 1 })
+  })
+
   it("reports zeroes for an empty library rather than dividing by nothing", () => {
-    expect(totalsByState([], NOW)).toEqual({
+    expect(totalsByState([])).toEqual({
       total: 0,
       draft: 0,
       queued: 0,

@@ -1,15 +1,17 @@
+import { belongsToTab } from "@/lib/content-grouping"
 import type { Post, PostPlatform } from "@/types/post"
 
 // Everything the dashboard reads is derived here, from the posts table alone.
 //
-// The split is *date-derived*, deliberately mirroring lib/content-grouping.ts
-// rather than reading the posts table's own `status` column. Two reasons: the
-// Content page already decides its tabs that way (per direct instruction), so
-// a status-derived dashboard would contradict the page it summarises; and
-// nothing in the app ever writes `status: "published"` — only "draft" and
-// "scheduled" are ever inserted — so a "Posted" count read off that column
-// would sit at zero forever. If a real `published_at` lands later, this file
-// is the single place that changes.
+// The draft/queued/published split comes from lib/content-grouping.ts's
+// `belongsToTab`, so this page and the Content page it summarises cannot
+// disagree about what those three words mean. Published is `publishedAt` — the
+// recorded fact that a provider confirmed the post went out — never the
+// scheduled date having passed, and never the vestigial `status` column.
+//
+// The month calendar below is a different question and stays date-derived: it
+// is about *coverage* (which days have something scheduled on them), which is
+// true of a post whether or not it has gone out yet.
 //
 // Local date parts throughout, same as content-grouping: a scheduled day is
 // picked in the user's own timezone (Calendar hands back local midnight,
@@ -210,12 +212,17 @@ export interface PostTotals {
   published: number
 }
 
-export function totalsByState(posts: Post[], now: number): PostTotals {
+// Delegates to belongsToTab rather than restating the split: this bar sits
+// under the same three words the Content page's tabs use, and the two silently
+// disagreeing is worse than either being wrong on its own. It used to have its
+// own date-derived copy of the rule, which is exactly how it came to count
+// every past-dated post as published.
+export function totalsByState(posts: Post[]): PostTotals {
   const totals: PostTotals = { total: posts.length, draft: 0, queued: 0, published: 0 }
   for (const post of posts) {
-    if (post.scheduledFor === null) totals.draft += 1
-    else if (Date.parse(post.scheduledFor) >= now) totals.queued += 1
-    else totals.published += 1
+    if (belongsToTab(post, "published")) totals.published += 1
+    else if (belongsToTab(post, "queued")) totals.queued += 1
+    else totals.draft += 1
   }
   return totals
 }

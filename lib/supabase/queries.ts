@@ -163,7 +163,7 @@ export async function fetchUserAiModels(
 // thing that goes stale one call site at a time the moment a column is added
 // — as `is_tryout` just was.
 export const POST_COLUMNS =
-  "id, project_id, platform, status, content, topics, scheduled_for, created_at, is_tryout"
+  "id, project_id, platform, status, content, topics, scheduled_for, created_at, is_tryout, published_at, provider_post_id, publish_error"
 
 export type PostRow = {
   id: string
@@ -175,6 +175,9 @@ export type PostRow = {
   scheduled_for: string | null
   created_at: string
   is_tryout: boolean
+  published_at: string | null
+  provider_post_id: string | null
+  publish_error: string | null
 }
 
 export function mapPostRow(row: PostRow): Post {
@@ -188,6 +191,9 @@ export function mapPostRow(row: PostRow): Post {
     scheduledFor: row.scheduled_for,
     createdAt: row.created_at,
     isTryout: row.is_tryout,
+    publishedAt: row.published_at,
+    providerPostId: row.provider_post_id,
+    publishError: row.publish_error,
   }
 }
 

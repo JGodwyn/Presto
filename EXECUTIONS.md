@@ -4586,3 +4586,77 @@ just without a model, so no residual path can reach that validation message.
 
 Gates: tsc clean, eslint clean, vitest 247/23, build clean. Not verified
 in-browser — reproducing it needs a real provider key.
+
+---
+
+## 2026-09-01 — `publish-state` on `main`: published becomes a recorded fact
+
+Done on `main` at the user's explicit direction, with nothing in flight. Worth
+noting it is **not** housekeeping by AGENTS.md's definition — a migration plus
+hot files (`types/post.ts`, `lib/content-grouping.ts`, `lib/dashboard-summary.ts`)
+is exactly the case that rule says should be a branch. Flagged before starting;
+the user's call. Full branch gates were run regardless.
+
+**The question that started it.** "How do you decide publish for both Twitter
+(X) and LinkedIn since both appear in Content's published?" The answer was that
+nothing decided it. `belongsToTab` read `scheduledFor < now`, platform was never
+consulted, and the live DB had **306 posts: 76 showing as Published, 0 ever
+published**.
+
+**Model.** A post has exactly one `platform`, so there is no fan-out to
+reconcile — publishing is one attempt at one place. Migration
+`add_posts_publish_state` (additive, all-nullable) adds `published_at`,
+`provider_post_id`, `publish_started_at`, `publish_error`, plus a check
+constraint that a published post must carry a provider id — the pair that keeps
+`published_at` trustworthy.
+
+**Tabs.** `belongsToTab` is now total and disjoint on the post alone: published
+= `publishedAt` set; draft = no date and never published; queued = has a date
+and not published, *including a date already past*. An overdue post staying in
+Queued is the honest answer — it is still waiting and nothing has sent it. New
+`isOverdue` / `hasFailed` predicates say so; **their UI belongs with the branch
+that makes failure possible**, and is deliberately not built here.
+
+**`now` is gone from the whole chain** (`belongsToTab`, `postsForTab`,
+`dayKeyForPost`, `groupPostsByMonth`, `totalsByState`). Which tab a post is on is
+a property of the post, so it no longer moves with the clock — which also
+retired the once-per-request timestamp threaded down from `calendar/page.tsx`
+and its `react-hooks/purity` exception, a hydration hazard that existed only to
+serve the old rule.
+
+**Two drifts closed while in there.** `totalsByState` had its own copy of the
+split and now calls `belongsToTab`. Grouping and sorting within a tab had
+already diverged — Published grouped by the day it went out, sorted by when it
+was due — so both now read one `groupingTimestamp`.
+
+**Publish action.** Both findings the reviewer flagged are fixed. The post
+lookup is scoped `.eq("project_id")` as well as `.eq("id")` (RLS scopes to the
+user, but one user owns several projects, so id alone would publish project A's
+post through project B's connection). Idempotency is a **claim inside the
+update** — `.is("published_at", null)` plus a 5-minute stale window, returning
+the row — not a read-then-write, which leaves both requests believing they won.
+Success writes `published_at` + `provider_post_id` together; failure releases
+the claim and records `publish_error`.
+
+**Effect on the live data**, before/after, same 306 rows:
+
+| | before | after |
+|---|---|---|
+| Published | 76 | **0** |
+| Queued | 88 | **164** (76 of them overdue) |
+| Draft | 142 | 142 |
+
+Published reading zero is the correct answer and the whole point: nothing has
+ever been published. The 76 are pre-publishing test posts whose dates passed.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 errors — exactly `main`'s baseline |
+| `npm run test` | 253 passed / 22 files, excluding `lib/ai/generate.test.ts` (FOLLOWUPS §12, live Gemini quota) |
+| `npm run build` | clean |
+
+**Not done here, on purpose:** the overdue/failed card treatment, and anything
+that makes `posts.status` disappear — it is vestigial now and marked as such in
+`types/post.ts`, but dropping a column is not additive and no branch should own
+that while others are in flight.

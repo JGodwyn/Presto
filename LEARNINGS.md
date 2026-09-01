@@ -1095,3 +1095,33 @@ strip brackets), and pad the first hextet to four digits before comparing it —
 `fd00::1` is unique-local and `fd::1` is not, and the written prefix alone
 cannot tell them apart. Test the predicate directly against a table of
 spellings; a stubbed-fetch test only ever proves the one spelling you thought of.
+
+### "Published" derived from the clock cannot report a failure
+
+**Symptom.** The Content page's Published tab and the dashboard's Posted count
+both showed 76 posts. Nothing had ever been published — the app has never called
+a share endpoint. Both figures were also identical for LinkedIn and X, because
+neither consulted `platform` at all.
+
+**Cause.** `belongsToTab` said published meant `scheduledFor < now`. That is a
+statement about the calendar, not about the post: it cannot distinguish "went
+out" from "the date arrived and nothing happened". `posts.status` had a
+`'published'` value, but the only line writing it had no callers, so
+`dashboard-summary.ts` deliberately ignored the column and derived from dates
+too — two files agreeing on the same wrong answer, which is why it read as
+settled rather than as a placeholder.
+
+**Rule.** A state the outside world decides has to be *recorded*, not inferred
+from a schedule. The schedule is an intention; the provider's confirmation is
+the fact. Store the confirmation (`published_at`) with the provider's own id for
+what it became, constrain the pair so one cannot exist without the other, and
+have every tab, count and chip read that. What the clock can still tell you is
+that an intention has gone unmet — which is a different state (`isOverdue`),
+worth showing, and not the same as success.
+
+**Corollary.** When two files answer the same question with the same derivation,
+that is not corroboration — it is one rule copied twice, and it will drift the
+first time either side changes. `totalsByState` now calls `belongsToTab` rather
+than restating it, and grouping and sorting inside a tab now read one shared
+`groupingTimestamp`; they had already drifted, so Published grouped by the day a
+post went out while ordering the cards inside that day by when it was due.

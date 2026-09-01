@@ -23,6 +23,9 @@ function makePost(overrides: Partial<Post> = {}): Post {
     scheduledFor: null,
     createdAt: new Date().toISOString(),
     isTryout: false,
+    publishedAt: null,
+    providerPostId: null,
+    publishError: null,
     ...overrides,
   }
 }
