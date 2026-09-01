@@ -13,23 +13,16 @@ and cross-cutting work is finally safe.
 
 ---
 
-## 2. A token revoked at LinkedIn's end is invisible to us
+## 2. ~~A token revoked at LinkedIn's end is invisible to us~~ — DONE
 
-**From:** `feat/connections-page`, 2026-08-21.
-
-If a member revokes Presto's access from LinkedIn's own settings, the row here
-keeps reading green until its 60 days run out. Nothing pings LinkedIn to
-confirm the token still works, so the first symptom is a 401 from whatever
-finally uses it.
-
-**Do:** treat a 401 from any LinkedIn call as "this connection is dead" and mark
-the row — most likely a `status` column mirroring how `user_ai_models` flips to
-`'error'` after a failed BYOK generation, with the Connections row rendering the
-existing expired treatment (red strip, green Reconnect) for it.
-
-**Why it waited:** there is nothing that calls LinkedIn on a schedule yet, so
-there is no natural moment to notice. This lands most cheaply alongside item 1 —
-the first real *use* of a token is what makes the check meaningful.
+**Done 2026-08-31** (`feat/connection-expiry`). `social_accounts.status` flips
+to 'revoked' when `verifyLinkedInToken` gets a 401 from `/v2/userinfo`, checked
+in the background from the Connections page on a 1h throttle; the row, the
+active-connections badge and the dashboard checklist all read it through
+`connectionStatus`. Verified in-browser on 2026-09-01: the revoked treatment
+renders (red strip, "Connection revoked", Reconnect, no countdown, excluded from
+the active count) and a live check against `/v2/userinfo` stamps
+`last_checked_at` without re-calling on the next load.
 
 ---
 
@@ -87,6 +80,13 @@ protection is disabled on Supabase Auth. That's a dashboard toggle
 **From:** `feat/connections-page`, 2026-08-21. **Blocked on the user explicitly
 green-lighting publishing** — see AGENTS.md, "Hard constraint — publishing".
 Nothing here should be built speculatively.
+
+**Partly built as of 2026-08-31** (`feat/connection-expiry`, explicitly
+authorized): `lib/linkedin/publish.ts` + `publish-actions.ts` hold the share
+path behind a two-key gate that is refused-by-default, and nothing calls them.
+The scope flip below is still the un-taken step, and is still the destructive
+one. The author URN needed no migration after all — it has been stored as
+`social_accounts.provider_account_id` since this branch wrote it.
 
 Two facts confirmed against LinkedIn's docs that will shape that work:
 

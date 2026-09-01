@@ -11,8 +11,9 @@ import { Button } from "@/components/ui/button";
 import { ConfirmationModal } from "@/components/ui/confirmation-modal";
 import { Toast } from "@/components/ui/toast";
 import type { LinkedInFailure } from "@/lib/linkedin/oauth";
+import { useConnectionLivenessCheck } from "@/hooks/use-connection-liveness";
 import { withNetworkStatus } from "@/lib/network-status";
-import { expiryStatus } from "@/lib/format-date";
+import { connectionStatus, isConnectionDead } from "@/lib/format-date";
 import { ConnectionCountBadge } from "@/components/shared/connection-count-badge"
 import { cn } from "@/lib/utils";
 import type { PostPlatform } from "@/types/post";
@@ -166,9 +167,35 @@ function ConnectionsPanel({
     PLATFORMS.find(({ platform }) => platform === pendingDisconnect?.platform)
       ?.label ?? "account";
 
+  // A revoked connection can't be discovered from the row itself — only by
+  // using the token. This asks in the background after mount and flips the row
+  // to the dead treatment if the answer comes back revoked; see
+  // useConnectionLivenessCheck. Nothing else about the page waits on it.
+  const handleRevoked = React.useCallback((accountId: string) => {
+    setAccounts((current) =>
+      current.map((account) =>
+        account.id === accountId
+          ? { ...account, status: "revoked" as const }
+          : account
+      )
+    );
+  }, []);
+
+  useConnectionLivenessCheck({ accounts, projectId, onRevoked: handleRevoked });
+
   const connectedCount = accounts.length;
+  // "n connections active" must not count a revoked one either — it stopped
+  // working the moment access was removed at LinkedIn, however many days its
+  // token nominally has left.
   const activeCount = accounts.filter(
-    (account) => expiryStatus(new Date(account.expiresAt), new Date(now)) !== "expired"
+    (account) =>
+      !isConnectionDead(
+        connectionStatus(
+          new Date(account.expiresAt),
+          account.status === "revoked",
+          new Date(now)
+        )
+      )
   ).length;
 
   // 312px in the export — wider than the 272px empty-state text above it, so

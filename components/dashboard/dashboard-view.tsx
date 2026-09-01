@@ -6,7 +6,7 @@ import type { Post } from "@/types/post"
 import type { Instructions } from "@/types/instructions"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 import type { UserAiModel } from "@/types/ai-model"
-import { expiryStatus } from "@/lib/format-date"
+import { connectionStatus } from "@/lib/format-date"
 import {
   createdInMonth,
   createdWithinDays,
@@ -121,7 +121,12 @@ export function DashboardView({
   // than raising a banner of its own — the export has no notices strip, and
   // this row is already the page's one place that reports on connections.
   const expiring = socialAccounts.some(
-    (account) => expiryStatus(new Date(account.expiresAt), nowDate) !== "active"
+    (account) =>
+      connectionStatus(
+        new Date(account.expiresAt),
+        account.status === "revoked",
+        nowDate
+      ) !== "active"
   )
   const modelErrored = aiModels.some((model) => model.status === "error")
 

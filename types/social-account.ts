@@ -15,6 +15,10 @@
 
 import type { PostPlatform } from "@/types/post"
 
+// Mirrors user_ai_models.status, which flips to 'error' after a failed BYOK
+// generation — same shape, a value specific to what actually happens here.
+export type SocialAccountStatus = "active" | "revoked"
+
 export interface ConnectedSocialAccount {
   id: string
   platform: PostPlatform
@@ -26,4 +30,14 @@ export interface ConnectedSocialAccount {
   avatarUrl: string | null
   connectedAt: string
   expiresAt: string
+  // A connection can die *before* expiresAt: the member can revoke Presto's
+  // access from LinkedIn's own settings, which nothing here is told about. So
+  // "is this connection alive" is two questions — has the 60-day token lapsed
+  // (expiresAt, pure date math) and has it been revoked (this, which only a
+  // real call to LinkedIn can discover). See connectionStatus in
+  // lib/format-date.ts, which folds the two into one treatment.
+  status: SocialAccountStatus
+  // When the token was last confirmed alive. Null means never checked. Drives
+  // the Connections page's throttle, so a revisit doesn't call LinkedIn again.
+  lastCheckedAt: string | null
 }

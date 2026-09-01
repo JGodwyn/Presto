@@ -21,6 +21,8 @@ function account(
     avatarUrl: null,
     connectedAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
+    status: "active",
+    lastCheckedAt: null,
     ...overrides,
   }
 }
