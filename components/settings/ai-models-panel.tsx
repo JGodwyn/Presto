@@ -15,11 +15,14 @@ import { AddModelModal } from "@/components/settings/add-model-modal"
 import { AiModelEntry } from "@/components/settings/ai-model-entry"
 import type { UserAiModel } from "@/types/ai-model"
 
-// Ascending by createdAt — the order models were added in, which is also the
-// order the initial server fetch returns them. Only needed after a failed
-// delete puts one back; appends already go to the end.
-function sortByCreatedAt(models: UserAiModel[]) {
-  return [...models].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+// Newest first: the model you just added is the one you came here to see, so
+// it goes to the top of the tray rather than the bottom of a scrolled list.
+// Applied to the server fetch's own (ascending) order as well, so the list
+// reads the same way after a reload as it does right after an add. Only the
+// panel is reordered — fetchUserAiModels keeps its ascending order for the
+// Generate pill, where the list is a stable set of choices, not a history.
+function sortNewestFirst(models: UserAiModel[]) {
+  return [...models].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
 // The body of Profile's expanded "AI models" row (Figma
@@ -40,11 +43,13 @@ export function AiModelsPanel({
   projectId?: string
   initial: UserAiModel[]
 }) {
-  const [models, setModels] = React.useState(initial)
+  const [models, setModels] = React.useState(() => sortNewestFirst(initial))
   // Split from the toast's own open/close lifecycle so the message doesn't
   // blank out mid-exit-animation.
   const [toastOpen, setToastOpen] = React.useState(false)
   const [toastMessage, setToastMessage] = React.useState("")
+  const [toastVariant, setToastVariant] =
+    React.useState<React.ComponentProps<typeof Toast>["variant"]>("danger")
 
   // Holds the row awaiting confirmation. The delete itself stays optimistic
   // (AGENTS.md's feedback convention) — the modal gates *starting* it, it
@@ -56,8 +61,27 @@ export function AiModelsPanel({
     cornerRadius: 8,
   })
 
+  // Composed with the squircle hook's own callback ref so the tray can also be
+  // scrolled back to the top when a model is added — the new row goes in above
+  // whatever is on screen, and a tray already scrolled down would otherwise
+  // hide the one thing the user just did.
+  const listNodeRef = React.useRef<HTMLDivElement | null>(null)
+  const setListRef = React.useCallback(
+    (element: HTMLDivElement | null) => {
+      listNodeRef.current = element
+      listRef(element)
+    },
+    [listRef]
+  )
+
   const handleAdded = (model: UserAiModel) => {
-    setModels((prev) => [...prev, model])
+    // Before the row is inserted, so the browser has nothing to scroll-anchor
+    // against: at 0 an insertion above the viewport leaves the offset alone.
+    listNodeRef.current?.scrollTo({ top: 0 })
+    setModels((prev) => [model, ...prev])
+    setToastMessage("Model added")
+    setToastVariant("success")
+    setToastOpen(true)
   }
 
   // Optimistic per AGENTS.md's feedback convention: the row disappears on the
@@ -68,12 +92,13 @@ export function AiModelsPanel({
     void withNetworkStatus(deleteUserAiModel({ projectId, id: model.id })).then(
       (result) => {
         if (result === null) {
-          setModels((prev) => sortByCreatedAt([...prev, model]))
+          setModels((prev) => sortNewestFirst([...prev, model]))
           return
         }
         if ("error" in result) {
-          setModels((prev) => sortByCreatedAt([...prev, model]))
+          setModels((prev) => sortNewestFirst([...prev, model]))
           setToastMessage("Couldn't remove that model")
+          setToastVariant("danger")
           setToastOpen(true)
         }
       }
@@ -89,7 +114,7 @@ export function AiModelsPanel({
         <Toast
           open={toastOpen}
           onOpenChange={setToastOpen}
-          variant="danger"
+          variant={toastVariant}
           direction="top"
         >
           {toastMessage}
@@ -117,7 +142,7 @@ export function AiModelsPanel({
           // call made for the page-level <main>. The half-visible row is the
           // scroll affordance.
           <div
-            ref={listRef}
+            ref={setListRef}
             style={listStyle}
             className={cn(
               "flex max-h-38 flex-col gap-dist-xs overflow-y-auto rounded-rad-md border-[length:var(--stroke-lg)] border-border-subtle bg-surface-2",

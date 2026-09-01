@@ -4507,3 +4507,38 @@ its own, `lib/ai/fetch-url.test.ts` is 33 passed.
 **Left alone deliberately:** `feat/ai-models` still exists locally. It is fully
 merged and spent, but it is also the only unwind path back to `66e6dd1` while
 `main` is unpushed, so deleting it is the user's call, not housekeeping.
+
+---
+
+## 2026-09-01 — "Model added" toast + newest-first model list (main, housekeeping)
+
+Direct request, nothing in flight (`worktree.sh list` reported main only), so
+edited `main` per AGENTS.md's housekeeping exception. One file:
+`components/settings/ai-models-panel.tsx`.
+
+1. **Success toast.** The panel already had a toast, hardcoded to `danger` for
+   the failed-delete path. Added a `toastVariant` state alongside the existing
+   message/open pair rather than a second `<Toast>` — the two can't overlap
+   (you can't delete a row while the add modal is open) and one slot keeps the
+   `ToastSlot` portal single. `handleAdded` sets "Model added" / `success`.
+2. **Newest first.** `sortByCreatedAt` (ascending) became `sortNewestFirst`
+   (descending), applied to `initial` via a lazy `useState` initializer as well
+   as to the failed-delete reinsert, so a reload reads the same way as the
+   moment after an add. `handleAdded` prepends. **Deliberately scoped to the
+   panel** — `fetchUserAiModels` keeps its ascending `order()` because the
+   Generate page's model pill reads the same query, and a picker's option order
+   shouldn't shuffle because you added a key on another screen.
+3. **Scroll-to-top on add.** The tray is `max-h-38 overflow-y-auto`, so with 3+
+   models a new row at the top can land out of view. Composed a plain node ref
+   with the squircle hook's callback ref (`setListRef`) and `scrollTo({top:0})`
+   *before* the `setModels` call — at offset 0 an insertion above the viewport
+   doesn't get scroll-anchored back down.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `eslint` (changed file) | clean |
+| `vitest run` | 247 passed / 23 files |
+| `npm run build` | clean |
+
+Not verified in-browser — the add flow needs a real provider API key.
