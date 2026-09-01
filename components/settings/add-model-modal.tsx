@@ -81,7 +81,17 @@ function AddModelModal({
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
+  // Bumped on every key check and on every close. A server action can't be
+  // aborted, so this discards the *result* of one still in flight — which is
+  // the half that was observable: closing the dialog mid-check used to let the
+  // response land afterwards and push the stage to "model" against a form
+  // reset() had already emptied, so reopening showed the model list with no
+  // provider or key behind it. Saving from there sent empty fields and got
+  // "Pick a model and give it a name before saving." back from the action.
+  const requestIdRef = React.useRef(0)
+
   const reset = () => {
+    requestIdRef.current += 1
     setStage("key")
     setProviderSlug("")
     setApiKey("")
@@ -89,6 +99,7 @@ function AddModelModal({
     setModel(null)
     setLabel("")
     setError(null)
+    setVerifying(false)
   }
 
   // Loaded when the dialog opens rather than on mount — this costs a gateway
@@ -124,9 +135,16 @@ function AddModelModal({
     setError(null)
     setVerifying(true)
 
+    const requestId = ++requestIdRef.current
+
     const result = await withNetworkStatus(
       listGatewayModels({ providerSlug, apiKey })
     )
+
+    // Superseded — the dialog was closed, or another check started. Leave
+    // every piece of state alone, including `verifying`: whatever bumped the
+    // id owns it now.
+    if (requestId !== requestIdRef.current) return
 
     setVerifying(false)
 
@@ -316,6 +334,7 @@ function AddModelModal({
               size="xl"
               aria-label="Back"
               onClick={() => {
+                requestIdRef.current += 1
                 setStage("key")
                 setError(null)
                 // The picked model belongs to the key that listed it. Keeping it
@@ -332,7 +351,7 @@ function AddModelModal({
               variant="brand"
               size="xl"
               className="flex-1"
-              disabled={saving || !model}
+              disabled={saving || !model || !providerSlug || !apiKey.trim()}
               onClick={handleSave}
             >
               {saving ? "Saving…" : "Save"}

@@ -4560,3 +4560,29 @@ Not verified in-browser — the add flow needs a real provider API key.
 Gates: tsc clean, eslint clean on both files, vitest 247/23, build clean.
 Note: `npx prettier --write` on this repo adds semicolons the codebase doesn't
 use — reverted and reapplied by hand. Don't run it here.
+
+### Follow-up: a key check that outlived its dialog
+
+Reported: set a provider + key, hit Continue, close the dialog while it's
+checking — reopening lands on stage 2 (the model list), and saving from there
+returns "Pick a model and give it a name before saving."
+
+**One bug, not two.** `reset()` runs on close and empties the form, but the
+`listGatewayModels` promise was still in flight; when it resolved it ran
+`setModels(...)` / `setStage("model")` against the freshly-reset state. So the
+next open showed the model list with `providerSlug` and `apiKey` both `""` —
+and `addModelSchema`'s `min(1)` on those two is exactly what produced the save
+error the user couldn't place. Fixing the first removes the second.
+
+Fix: a `requestIdRef` stamped at the start of `handleContinue` and bumped by
+`reset()` (i.e. every close), by a subsequent check, and by Back. A superseded
+response returns before touching any state — including `verifying`, which
+whatever bumped the id now owns; `reset()` clears it. A server action can't be
+aborted, so this discards the result rather than the request, which is the half
+that was observable.
+
+Also belt-and-braces: Save is disabled without `providerSlug`/`apiKey`, not
+just without a model, so no residual path can reach that validation message.
+
+Gates: tsc clean, eslint clean, vitest 247/23, build clean. Not verified
+in-browser — reproducing it needs a real provider key.
