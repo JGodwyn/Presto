@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
 import { listProviders, providerFor, providerSlugOf } from "@/lib/ai/providers"
+import { isNetworkError } from "@/lib/network-error"
 import { encryptApiKey, lastFourOfKey } from "@/lib/ai/key-crypto"
 import { createClient } from "@/lib/supabase/server"
 import type { UserAiModel, UserAiModelStatus } from "@/types/ai-model"
@@ -67,6 +68,13 @@ async function requireUser(supabase: SupabaseClient) {
 // message defensively rather than gating on any one instance check — the trap
 // that made the old gateway classifier match nothing (see LEARNINGS.md).
 function keyFailureCopy(error: unknown, providerName: string): string {
+  // Checked first: a request that never arrived says nothing about the key, and
+  // telling someone to re-copy a perfectly good key because their wifi dropped
+  // sends them to fix the wrong thing.
+  if (isNetworkError(error)) {
+    return `Couldn't reach ${providerName}. Check your connection and try again.`
+  }
+
   const target = error as { status?: unknown; statusCode?: unknown; message?: unknown } | undefined
   const status =
     typeof target?.status === "number"

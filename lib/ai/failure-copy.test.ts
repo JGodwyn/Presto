@@ -2,7 +2,8 @@ import { APICallError, RetryError } from "ai"
 import { describe, expect, it } from "vitest"
 
 import { generationFailureCopy } from "@/lib/ai/failure-copy"
-import { classifyGenerationError, STREAM_ERROR_MARKER } from "@/lib/ai/generate"
+import { STREAM_ERROR_MARKER } from "@/lib/ai/model-constants"
+import { classifyGenerationError } from "@/lib/ai/generate"
 
 const FALLBACK = { message: "Couldn't regenerate that post", extraInfo: "Please try again" }
 

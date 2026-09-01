@@ -53,10 +53,20 @@ export async function resolveAttachment(
 
   const extension = entry.fileName.split(".").pop()?.toLowerCase() ?? ""
   const mediaType = FILE_MEDIA_TYPES[extension]
-  if (!mediaType) return null
+
+  // A stored file in a format we can no longer read — a legacy .doc, uploaded
+  // before that extension was dropped — is reported as unreadable rather than
+  // dropped. Returning null here would remove it from the prompt entirely while
+  // it still sat in Instructions looking like it was feeding the model, and
+  // silently contributing nothing is the one outcome worth ruling out. The
+  // prompt says so explicitly instead (see build-prompt.ts's "file" branch).
+  //
+  // There are no such rows today — checked both tables at the time this was
+  // written — so this is about the shape being safe, not a live migration.
+  if (!mediaType) return { kind: "file", fileName: entry.fileName, text: null }
 
   const { data, error } = await supabase.storage.from(bucket).download(entry.filePath)
-  if (error || !data) return null
+  if (error || !data) return { kind: "file", fileName: entry.fileName, text: null }
 
   const bytes = await data.arrayBuffer()
   return {

@@ -77,6 +77,67 @@ describe("fetchUrlText", () => {
     }
   })
 
+  // The bypass this guards: PRIVATE_HOST used to be checked only against the
+  // URL the user typed, while fetch followed redirects on its own — so a public
+  // address that 302s inward was fetched and inlined, guard unseen.
+  it("refuses a redirect into private space, however public the first hop is", async () => {
+    const original = globalThis.fetch
+    const seen: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      seen.push(String(input))
+      if (String(input).includes("example.com")) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: "http://169.254.169.254/latest/meta-data/" },
+        })
+      }
+      return new Response("SECRET", { status: 200, headers: { "content-type": "text/plain" } })
+    }) as typeof fetch
+
+    try {
+      expect(await fetchUrlText("https://example.com/redirects-inward")).toBeNull()
+      // The decisive assertion: the metadata address was never requested.
+      expect(seen.some((u) => u.includes("169.254.169.254"))).toBe(false)
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it("follows an ordinary public redirect", async () => {
+    const original = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/old")) {
+        return new Response(null, { status: 301, headers: { location: "https://example.com/new" } })
+      }
+      return new Response("<p>Moved here</p>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      })
+    }) as typeof fetch
+
+    try {
+      expect(await fetchUrlText("https://example.com/old")).toBe("Moved here")
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it("gives up rather than following a redirect loop forever", async () => {
+    const original = globalThis.fetch
+    let hops = 0
+    globalThis.fetch = (async () => {
+      hops++
+      return new Response(null, { status: 302, headers: { location: "https://example.com/loop" } })
+    }) as typeof fetch
+
+    try {
+      expect(await fetchUrlText("https://example.com/loop")).toBeNull()
+      expect(hops).toBeLessThanOrEqual(6)
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
   it("returns null for a non-text response instead of feeding bytes to the model", async () => {
     const original = globalThis.fetch
     globalThis.fetch = (async () =>

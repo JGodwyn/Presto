@@ -1,4 +1,4 @@
-import type { GenerationFailureReason } from "@/lib/ai/generate"
+import type { GenerationFailureReason } from "@/lib/ai/model-constants"
 
 // A toast's two lines: the headline and the small capsule under it
 // (components/ui/toast.tsx's `extraInfo`).

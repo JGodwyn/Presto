@@ -9,12 +9,8 @@ import {
   type ResolvedAttachment,
 } from "@/lib/ai/attachments"
 import { buildPostPrompt, pickTopicForIndex } from "@/lib/ai/build-prompt"
-import {
-  classifyGenerationError,
-  generatePost,
-  type GenerationFailureReason,
-  type ModelSelection,
-} from "@/lib/ai/generate"
+import { type GenerationFailureReason } from "@/lib/ai/model-constants"
+import { classifyGenerationError, generatePost, type ModelSelection } from "@/lib/ai/generate"
 import { resolveModelSelection, type ResolvedModel } from "@/lib/ai/resolve-model"
 import { pickDifferentTasteTestContent, pickTasteTestContent } from "@/lib/ai/taste-test"
 import {

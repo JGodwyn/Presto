@@ -107,7 +107,7 @@ function UploadDropzone({
           {file?.name ?? "Tap to upload a file"}
         </span>
         <span className="text-body-md text-text-subtle">
-          Supports PDF, Word, TXT files
+          Supports PDF, DOCX, TXT files
         </span>
       </button>
       {oversized ? <FieldError message="Keep your files less than 1MB" /> : null}

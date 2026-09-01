@@ -298,6 +298,12 @@ function AddModelModal({
               onClick={() => {
                 setStage("key")
                 setError(null)
+                // The picked model belongs to the key that listed it. Keeping it
+                // across a Back meant changing provider or key and saving a
+                // model the new key may not even have.
+                setModels([])
+                setModel(null)
+                setLabel("")
               }}
             >
               <ArrowLeft weight="bold" />

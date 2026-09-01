@@ -34,7 +34,7 @@ import {
   type SelectPillOption,
 } from "@/components/generate/select-pill"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
-import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/generate"
+import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/model-constants"
 import { generateSettingsStorageKey } from "@/lib/generate-settings"
 import { fetchSocialAccounts, fetchUserAiModels } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/client"

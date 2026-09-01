@@ -10,15 +10,25 @@
 // place a capability depended on which provider was selected.
 
 const FETCH_TIMEOUT_MS = 10_000
+// Redirects are followed by hand (see fetchUrlText) so every hop can be
+// re-checked. Enough for the http→https and apex→www hops real sites use.
+const MAX_REDIRECTS = 5
 // Enough for a long article; past this the tail is rarely the part that
 // characterises someone's writing, and it's prompt budget spent on nothing.
 const MAX_TEXT_LENGTH = 20_000
 const MAX_BYTES = 2_000_000
 
-// Hostnames that resolve inside the network this server runs on. The entries
-// are the user's own, so this is a guard against a typo or a copied internal
-// link rather than a hostile actor — a determined SSRF would need DNS-level
-// checks, which is disproportionate here and would still not be airtight.
+// Hostnames that resolve inside the network this server runs on.
+//
+// This is checked on **every hop**, not just the URL the user typed. Following
+// redirects automatically made the guard worse than useless: a public URL that
+// 302s to http://169.254.169.254/ (cloud metadata) or to localhost was fetched
+// and inlined into the prompt, and the guard never saw the final hop — a bypass
+// needing no DNS control at all.
+//
+// It is still not a complete SSRF defence: a hostname that *resolves* to a
+// private address passes, because that needs DNS-level checks. What it does
+// cover is the whole redirect chain, which is what makes it worth having.
 const PRIVATE_HOST = /^(localhost$|127\.|0\.0\.0\.0|10\.|192\.168\.|169\.254\.|::1$|\[::1\]$|172\.(1[6-9]|2\d|3[01])\.)/i
 
 function isFetchableUrl(raw: string): URL | null {
@@ -72,16 +82,40 @@ export async function fetchUrlText(raw: string): Promise<string | null> {
   if (!url) return null
 
   try {
-    const response = await fetch(url, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: {
-        // Some sites serve a bot-blocking page to an unfamiliar agent, and an
-        // Accept header keeps them from returning an API/JSON variant.
-        "user-agent": "PrestoBot/1.0 (+https://presto.app)",
-        accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
-      },
-    })
+    // One deadline across the whole chain, so a redirect loop can't buy extra
+    // time by resetting the clock on each hop.
+    const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    let current = url
+    let response: Response | null = null
+
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const hopResponse = await fetch(current, {
+        // Manual, so each Location can be re-checked before it is fetched.
+        redirect: "manual",
+        signal,
+        headers: {
+          // Some sites serve a bot-blocking page to an unfamiliar agent, and an
+          // Accept header keeps them from returning an API/JSON variant.
+          "user-agent": "PrestoBot/1.0 (+https://presto.app)",
+          accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
+        },
+      })
+
+      if (hopResponse.status < 300 || hopResponse.status >= 400) {
+        response = hopResponse
+        break
+      }
+
+      const location = hopResponse.headers.get("location")
+      if (!location) return null
+
+      // Resolved against the current URL so a relative Location works.
+      const next = isFetchableUrl(new URL(location, current).href)
+      if (!next) return null
+      current = next
+    }
+
+    if (!response) return null
     if (!response.ok) return null
 
     const contentType = response.headers.get("content-type") ?? ""

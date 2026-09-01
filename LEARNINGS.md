@@ -1024,3 +1024,44 @@ Everything server-to-server — the token exchange, `/v2/userinfo`, the liveness
 check, revoke — is a plain `fetch` from the Node process and works identically
 on any port. That's why the revocation check verified fine on :3002 and only
 Connect failed.
+
+## Bundles
+
+### A module-scope side effect defeats tree-shaking, and no gate can see it
+
+**Symptom.** `.next/static/chunks` went 3.7 MB → 6.9 MB, with a 1.07 MB chunk on
+four routes, containing `dangerouslyAllowBrowser`, `anthropic-version`,
+`x-api-key` and `api.groq.com`. No API key shipped — but four provider SDKs did.
+
+**Cause.** `lib/ai/providers.ts` builds its provider objects at module scope, so
+importing *anything* from a module that reaches it pulls the whole graph.
+`lib/ai/generate.ts` imports it for `modelFor`, and five client components
+imported a single constant — one string each — from `generate.ts`.
+
+**The part worth internalising: tsc, eslint, vitest and `next build` were all
+green the entire time.** Nothing in the standard gate set observes a bundle
+boundary. It took diffing built output between branches to see it, which is why
+it reached review rather than being caught locally.
+
+**Rule.** Constants a client component needs live in a module that imports
+nothing (`lib/ai/model-constants.ts`), and the module holding server-only
+machinery never re-exports them — a convenient re-export is just the trap with a
+shorter path back. Assert the boundary in a test that reads source
+(`lib/ai/no-client-sdk.test.ts`), since the build won't. And when a change could
+plausibly move bundle weight, `du -sh .next/static/chunks` plus a grep for
+vendor-specific strings is the only gate that actually checks.
+
+### A host allowlist checked before `redirect: "follow"` checks nothing
+
+**Symptom.** `fetch-url.ts` refused `http://169.254.169.254/` when typed
+directly, but happily fetched and inlined it when a public URL redirected there.
+
+**Cause.** The guard ran once, against the URL the user supplied; `fetch` then
+followed the chain itself. The final hop — the only one that matters — was never
+tested. No DNS control required, just a 302.
+
+**Rule.** A per-host check is only worth as much as the number of hops it sees.
+Use `redirect: "manual"` and re-run the check on every `Location` before
+fetching it, with a hop cap and one deadline across the chain. And keep the
+comment honest about scope: "this isn't an SSRF defence" invited exactly the
+bypass above, because it implied partial protection where there was none.

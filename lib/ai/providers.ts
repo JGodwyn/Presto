@@ -139,7 +139,11 @@ const openAiProvider: DirectProvider = {
 // The response carries a `displayName`, which saves prettifying ids the way
 // OpenAI's entry has to. It also carries `supportedGenerationMethods`, but see
 // GOOGLE_NON_WRITING below — that field is less useful than it first looks.
-const GOOGLE_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200"
+const GOOGLE_MODELS_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
+const GOOGLE_PAGE_SIZE = 200
+// Bounded so a malformed nextPageToken can't spin forever; 10 pages is 2000
+// models, far past anything Google publishes.
+const GOOGLE_MAX_PAGES = 10
 
 // `supportedGenerationMethods: ["generateContent"]` describes the *method*, not
 // the output modality — Google's image, speech, transcription and music models
@@ -161,24 +165,41 @@ interface GoogleModel {
   supportedGenerationMethods?: string[]
 }
 
+interface GoogleModelsPage {
+  models?: GoogleModel[]
+  nextPageToken?: string
+}
+
 const googleProvider: DirectProvider = {
   slug: "google",
   name: providerDisplayName("google"),
   keyHint: "AIza…",
 
   async listModels(apiKey) {
-    const response = await fetch(GOOGLE_MODELS_URL, {
-      headers: { "x-goog-api-key": apiKey },
-    })
-    if (!response.ok) {
-      // Shaped like the vendor SDKs' errors so keyFailureCopy can classify it
-      // by status the same way.
-      throw Object.assign(new Error(`Google returned ${response.status}`), {
-        status: response.status,
-      })
-    }
+    // Paginated: the endpoint caps a page at pageSize and hands back a
+    // nextPageToken, so a single request silently truncated the catalog.
+    const models: GoogleModel[] = []
+    let pageToken: string | undefined
 
-    const { models = [] } = (await response.json()) as { models?: GoogleModel[] }
+    for (let page = 0; page < GOOGLE_MAX_PAGES; page++) {
+      const url = new URL(GOOGLE_MODELS_BASE)
+      url.searchParams.set("pageSize", String(GOOGLE_PAGE_SIZE))
+      if (pageToken) url.searchParams.set("pageToken", pageToken)
+
+      const response = await fetch(url, { headers: { "x-goog-api-key": apiKey } })
+      if (!response.ok) {
+        // Shaped like the vendor SDKs' errors so keyFailureCopy can classify it
+        // by status the same way.
+        throw Object.assign(new Error(`Google returned ${response.status}`), {
+          status: response.status,
+        })
+      }
+
+      const body = (await response.json()) as GoogleModelsPage
+      models.push(...(body.models ?? []))
+      pageToken = body.nextPageToken
+      if (!pageToken) break
+    }
 
     return models
       .filter((model) => model.supportedGenerationMethods?.includes("generateContent"))

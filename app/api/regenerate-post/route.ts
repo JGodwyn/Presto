@@ -7,13 +7,8 @@ import {
   resolveGenerationContext,
 } from "@/app/projects/[projectId]/generate/post-actions"
 import { buildPostPrompt } from "@/lib/ai/build-prompt"
-import {
-  classifyGenerationError,
-  type GenerationFailureReason,
-  STREAM_DONE_MARKER,
-  STREAM_ERROR_MARKER,
-  streamPost,
-} from "@/lib/ai/generate"
+import { STREAM_DONE_MARKER, STREAM_ERROR_MARKER, type GenerationFailureReason } from "@/lib/ai/model-constants"
+import { classifyGenerationError, streamPost } from "@/lib/ai/generate"
 import { resolveModelSelection } from "@/lib/ai/resolve-model"
 import { pickDifferentTasteTestContent } from "@/lib/ai/taste-test"
 import { NETWORK_ERROR_MESSAGE } from "@/lib/network-error"

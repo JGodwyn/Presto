@@ -32,7 +32,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
-import { STREAM_DONE_MARKER, STREAM_ERROR_MARKER } from "@/lib/ai/generate"
+import { STREAM_DONE_MARKER, STREAM_ERROR_MARKER } from "@/lib/ai/model-constants"
 import { generationFailureCopy } from "@/lib/ai/failure-copy"
 import { getCaretOffsetFromPoint } from "@/lib/caret"
 import { formatDate } from "@/lib/format-date"
