@@ -3613,3 +3613,183 @@ included. tsc and eslint clean. `npm test` 177/178 — `lib/ai/generate.test.ts`
 fails on a real 429 from Gemini ("Quota exceeded for metric …
 generate_content_free_tier_requests, limit: 20"), i.e. the live free-tier quota,
 not this change.
+
+---
+
+## 2026-08-31 — LinkedIn publishing groundwork, built refused-by-default
+
+`feat/connection-expiry` (branch name predates the task — this is publishing
+groundwork, not the expiry work its slug names; the branch was empty when
+picked up). Explicitly authorized: "groundwork, scope flip last", with the
+standing instruction that no live post fires without asking first. **Nothing
+was published, and nothing can be.**
+
+**One thing I got wrong first and corrected before writing code.** I reported
+that the author URN wasn't stored and would need a migration. It is stored:
+`social_accounts.provider_account_id` holds the OIDC `sub` and the callback has
+written it since the connections branch — `fetchSocialAccounts` simply omits it
+from its `.select()`, correctly, because no client needs it. Confirmed against
+the live table. So this task needed **no schema change at all**, didn't claim
+the schema lock, and stayed additive alongside the in-flight `ai-models`
+worktree.
+
+- `lib/linkedin/publish.ts` — the share path plus the gate. **Two independent
+  keys, neither turned:** `PRESTO_ENABLE_LIVE_PUBLISH` (absent, and deliberately
+  *not* added to `.env.local.example` — it's an act, not configuration), and
+  `w_member_social` in the connection's granted scope (never requested, so no
+  stored token carries it). Checked in that order; not collapsed into one
+  boolean, so flipping either alone is still a refusal.
+- `parseGrantedScopes` splits on **both** commas and whitespace — FOLLOWUPS #5's
+  trap: scopes are sent space-delimited and come back comma-delimited. Verified
+  against the real row, which reads `email,openid,profile`.
+- `postShare` is written against LinkedIn's versioned `rest/posts` API and is
+  **unverified against a live call**, by construction. Commented as such: it's
+  the starting point for the first real attempt, not known-good.
+- `app/projects/[projectId]/generate/publish-actions.ts` — `publishPost`, beside
+  the other post-level actions. Gated **before** the token is decrypted, so a
+  refused publish never puts a plaintext token in memory; `publishTextPost`
+  gates again before requesting. The duplication is the point.
+- Two refusals that aren't about the gate: a **`is_tryout` post can never
+  publish** (it borrows a real platform value, so without the check it would
+  resolve to the user's genuine connection and post under their name), and a
+  non-LinkedIn platform is refused outright.
+- Nothing calls `publishPost`: no button, no cron, no `vercel.json`. `status:
+  "published"` is written only on a real success, which is why nothing in the
+  app has ever set it (see lib/dashboard-summary.ts).
+
+**Verified.** `lib/linkedin/publish.test.ts` (15 tests) pins both keys, the
+either-delimiter parsing, and — the property that actually matters — that a
+refusal **makes no network call at all**, via a stubbed `fetch` asserted
+uncalled. A gate that returned the right code *after* posting would pass every
+other test and still have published. Also pinned: the switch opens only for the
+exact string `"true"`. tsc clean, eslint clean on the three new files, 190/190
+tests pass (`lib/ai/generate.test.ts` excluded from the run — FOLLOWUPS #12, it
+spends live Gemini quota).
+
+---
+
+## 2026-08-31 — Connection revocation: a dead token stops reading green
+
+Same branch, second task, and the one its slug actually names. Its `.worktree`
+manifest carried a `PURPOSE` line all along — "surface LinkedIn token expiry
+before it lapses and make reconnecting a first-class action, so a 60-day expiry
+is visible and recoverable rather than a **silent 401**" — which I'd earlier
+reported as "no brief recorded anywhere" after checking git, the project logs
+and `worktree.sh list`, but not the manifest itself. The silent-401 half is
+FOLLOWUPS #2 and is what this does.
+
+**Schema slot claimed** (`SCHEMA=owned` in `.worktree`; `schema-owner` now
+reports this branch). Both migrations are additive, so the in-flight
+`ai-models` dev server is unaffected.
+
+- Migration `add_social_accounts_status`: `status` ('active' | 'revoked',
+  default 'active') mirroring `user_ai_models.status`, plus `last_checked_at`.
+  A follow-up migration fixes that column's comment — the code stamps every
+  *completed attempt*, including an indeterminate one, not only confirmations.
+- `verifyLinkedInToken` (lib/linkedin/oauth.ts) asks `/v2/userinfo` — the
+  cheapest call needing a token, and one the existing sign-in scopes already
+  allow, so this works today with no scope change. **Fails open**: only an
+  explicit 401 means revoked. A 429/5xx/dropped connection is "couldn't tell",
+  same principle as `didFallBackOffByok`. 403 is deliberately excluded — that's
+  an answer about the call, not a verdict on the token.
+- `lib/linkedin/liveness.ts` holds the throttle (1h) and `isLivenessCheckDue`,
+  imported by **both** the page and the action rather than duplicated. The
+  server re-runs it as the authority, so a client with a stale copy can only
+  reach our own server, never LinkedIn.
+- `useConnectionLivenessCheck` (hooks/) runs after mount, never blocking a
+  render, sequentially over accounts, with a ref of already-asked ids so the
+  state update it causes can't re-trigger it. Acts only on a definite
+  "revoked" — `null` (offline) and `error` both leave the row alone.
+- `connectionStatus`/`isConnectionDead` (lib/format-date.ts) fold the two ways
+  a connection dies into one treatment. **Expiry is checked first**: a lapsed
+  *and* revoked token reads "expired", the reason a reader expects and one
+  that's true whether or not a check ever ran.
+- Every previous `expiryStatus` caller now goes through it — the row, the
+  panel's "n connections active" badge, and the dashboard's setup checklist —
+  so a revoked connection stops counting as active in all three.
+
+**The bug this would have shipped with.** The OAuth callback upserts, and an
+upsert only writes the columns it names — so reconnecting an account that had
+been marked revoked would have kept `status = 'revoked'` against a brand-new
+working token, leaving the row dead forever. The callback now resets `status`
+and `last_checked_at` explicitly.
+
+**Verified:** tsc clean, eslint clean on all seven touched files, 200/200 tests
+(`lib/ai/generate.test.ts` excluded — FOLLOWUPS #12), `next build` compiles.
+New tests: `lib/linkedin/liveness.test.ts` (throttle boundary, never-checked,
+already-revoked, unparseable timestamp) and a `connectionStatus` block in
+`lib/format-date.test.ts` (all four states, plus the lapsed-and-revoked
+precedence).
+
+**Browser verification was blocked at first, then done** — recorded because the
+gap was real for a while. On 2026-08-31 the Claude-in-Chrome extension was
+disconnected and the chrome-devtools browser is a fresh profile with no session,
+so the visual treatment couldn't be seen; the row was restored to its true state
+immediately and the gap logged. The user reconnected the extension on
+2026-09-01 and it was verified in full on **:3002**:
+
+- **Revoked treatment** (row forced to `revoked`, token still 54 days from
+  expiry — exactly the case the column exists for): red `surface-danger` strip
+  reading "Connection **revoked**" with the WarningDiamond, a green Reconnect,
+  and **no countdown**, despite those 54 days. The badge read "No connections
+  active", so a revoked row is excluded from the count.
+- **Active treatment restored**: green strip, "Connected as Godwin John",
+  Disconnect, "Expires in 54 days", badge "1 connection active".
+- **The check firing for real**, which is the part unit tests can't reach:
+  with `last_checked_at` reset to null, one page load took it to 18 seconds ago
+  while `status` stayed `active` — i.e. the hook fired on mount, the action
+  decrypted the stored token, and LinkedIn's `/v2/userinfo` answered 200.
+- **The throttle**: a second load left that timestamp untouched, so no second
+  call to LinkedIn.
+
+The row was left `active` with a genuine `last_checked_at`, which is simply
+where a real check leaves it. There is still no DOM test environment here (node
+only; jsdom would be a new package), so the *automated* coverage remains the
+unit tests on the pure predicates plus tsc on the wiring.
+
+**Port note:** this worktree's manifest says 3003, but Next refused a second
+dev server for the same directory and the one actually serving this code is on
+**:3002** (3000 = main, 3001 = ai-models). Worth checking with `lsof` before
+screenshotting anything here.
+
+---
+
+## 2026-09-01 — Disconnect's revoke path, exercised live at last
+
+The last unexercised piece of the LinkedIn lifecycle (AGENTS.md had it as the
+one path never run against the real API). Run at the user's request on their
+own live connection.
+
+**Method.** `disconnect` swallows every error by design — a failed decrypt or a
+rejected revoke is silent — so the outcome at LinkedIn is the only observable.
+The discriminator: LinkedIn skips the consent screen when a grant is live, and
+shows it when the grant is gone. So *"does reconnecting prompt for
+permission?"* answers *"did the revoke land?"*.
+
+- Disconnect via the real UI: confirmation modal → row deleted (0 rows) → empty
+  state restored, no error toast.
+- Reconnect prompted the **full permission screen** (user-reported).
+- **Control, run afterwards with the grant live and the browser signed in:**
+  hitting the authorize leg again completed **silently** — same row id, but
+  `connected_at` 13:47:07 → 13:53:20, so a real round trip that minted a new
+  token and upserted in place rather than a no-op.
+
+Live grant ⇒ silent; post-revoke ⇒ consent. **The revoke reaches LinkedIn.**
+Confidence is strong rather than absolute: the user's recollection was hedged,
+and that reconnect was also the first login in that browser profile. The
+airtight version is disconnect-then-connect with a session already established.
+
+**A real trap found, and it is not in the code — see LEARNINGS.** The first
+reconnect attempt was made from this worktree (:3002) and died at LinkedIn's
+own error page: *"The redirect_uri does not match the registered value"*.
+`getLinkedInConfig` derives the redirect URI from the request origin, and only
+`localhost:3000` is registered on the LinkedIn app, so **the connect leg only
+works on :3000** whatever port you develop on. Nothing server-to-server is
+affected (token exchange, userinfo, the liveness check, revoke are all plain
+fetches), which is why the revocation work verified fine on :3002.
+
+**Bonus confirmation of the migration's safety.** The reconnect ran through
+:3000 — i.e. **main**, which predates the `status`/`last_checked_at` columns —
+and wrote a valid row, the defaults filling in (`active`, null). Live proof the
+additive migration is backward-compatible with the unmerged main checkout,
+which is running right now.

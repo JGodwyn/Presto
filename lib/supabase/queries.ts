@@ -274,7 +274,7 @@ export async function fetchSocialAccounts(
   const { data, error } = await supabase
     .from("social_accounts")
     .select(
-      "id, platform, account_name, account_email, avatar_url, connected_at, expires_at"
+      "id, platform, account_name, account_email, avatar_url, connected_at, expires_at, status, last_checked_at"
     )
     .eq("project_id", projectId)
     .order("connected_at", { ascending: true })
@@ -289,5 +289,7 @@ export async function fetchSocialAccounts(
     avatarUrl: row.avatar_url,
     connectedAt: row.connected_at,
     expiresAt: row.expires_at,
+    status: row.status,
+    lastCheckedAt: row.last_checked_at,
   }))
 }

@@ -861,3 +861,35 @@ its id is in `.next/server/server-reference-manifest.json`, keyed by the routes
 that contain it. `POST` it with `Next-Action: <id>` and a JSON `[]` body, and
 read the response headers — a healthy action redirect is a `303` carrying
 `x-action-redirect` and `content-type: text/x-component` and **no** `location`.
+
+---
+
+## The LinkedIn connect flow only works on the port registered with LinkedIn
+
+**Symptom.** Clicking Connect from a worktree's dev server lands on LinkedIn's
+own error page: "Bummer, something went wrong. **The redirect_uri does not
+match the registered value**". Nothing in this app's logs shows a failure — the
+request never reaches the callback, so there is no `connect_error` code and no
+toast either.
+
+**Cause.** `getLinkedInConfig` (lib/linkedin/oauth.ts) derives the redirect URI
+from the *request's own origin*, which is deliberate — it keeps localhost,
+previews and production working with no per-environment config. But LinkedIn
+matches `redirect_uri` against an exact allow-list registered on the app, and
+only `http://localhost:3000/api/connections/linkedin/callback` is on it. A
+worktree serves on 3001, 3002, … so its origin produces a URI LinkedIn has
+never seen.
+
+**Rule.** **Do the OAuth connect/reconnect leg on :3000** (the main checkout),
+whatever port you're developing on. Every worktree shares one database, so a
+row created from :3000 is immediately visible to the branch you're working on —
+and the state cookie is host-only (cookies ignore port), so the two legs can
+even straddle ports if you pin `LINKEDIN_REDIRECT_URI`. Adding each worktree
+port to the LinkedIn app's registered list would also work, and is worth doing
+if this keeps biting.
+
+**What is *not* affected.** Only the browser-redirect legs care about the port.
+Everything server-to-server — the token exchange, `/v2/userinfo`, the liveness
+check, revoke — is a plain `fetch` from the Node process and works identically
+on any port. That's why the revocation check verified fine on :3002 and only
+Connect failed.

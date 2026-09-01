@@ -136,3 +136,37 @@ export function expiryStatus(expiresAt: Date, now: Date): ExpiryStatus {
   const days = Math.max(1, Math.round(remaining / MS_PER_DAY))
   return days <= EXPIRY_WARNING_DAYS ? "expiring" : "active"
 }
+
+// The four treatments a connected row can be in, once *both* ways a connection
+// can die are folded together. `expiryStatus` above answers only the first.
+export type ConnectionStatus = ExpiryStatus | "revoked"
+
+// Which treatment a connection is in.
+//
+// Two independent things can kill it, and only one is computable from a date:
+// the 60-day token lapses (expiresAt), or the member revokes Presto's access
+// from LinkedIn's own settings, which nothing here is told about and only a
+// real call can discover (see verifyLinkedInToken).
+//
+// **Expiry is checked first**, deliberately. A token that has both lapsed and
+// been revoked is most usefully described as expired: that is the reason the
+// reader expects, it is true regardless of whether any check has run, and both
+// states lead to the same Reconnect action anyway. Revocation is the answer
+// only when the date alone wouldn't have told them anything was wrong — which
+// is exactly the case this whole column exists for.
+export function connectionStatus(
+  expiresAt: Date,
+  revoked: boolean,
+  now: Date
+): ConnectionStatus {
+  const expiry = expiryStatus(expiresAt, now)
+  if (expiry === "expired") return "expired"
+  if (revoked) return "revoked"
+  return expiry
+}
+
+// Whether a connection is dead — the two states that get the red treatment and
+// a Reconnect. One predicate so callers can't drift on which states count.
+export function isConnectionDead(status: ConnectionStatus): boolean {
+  return status === "expired" || status === "revoked"
+}

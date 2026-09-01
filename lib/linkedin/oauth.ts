@@ -259,3 +259,39 @@ export async function revokeLinkedInToken(
     // Deliberately swallowed — see above.
   }
 }
+
+// Whether the stored token is still good, asked of LinkedIn directly.
+//
+// A connection can die well before its 60-day expiry: the member can revoke
+// Presto's access from LinkedIn's own settings, and nothing tells us. The only
+// way to find out is to use the token, so this makes the cheapest call that
+// needs one — the same `/v2/userinfo` the connect flow already reads, which
+// needs nothing beyond the sign-in scopes every connection already has.
+//
+// **Fails open, deliberately**, in the same spirit as didFallBackOffByok
+// (lib/ai/generate.ts): only an explicit 401 is treated as revoked. A 429, a
+// 5xx or a dropped connection all mean "couldn't tell", and marking a working
+// connection dead on a flaky lookup is worse than missing a revoked one — the
+// next check gets another go, and expiry still catches the row eventually.
+export type TokenLiveness = "alive" | "revoked" | "unknown"
+
+export async function verifyLinkedInToken(
+  accessToken: string
+): Promise<TokenLiveness> {
+  let response: Response
+  try {
+    response = await fetch(USERINFO_URL, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    })
+  } catch {
+    return "unknown"
+  }
+
+  if (response.ok) return "alive"
+  // 401 is the revoked/invalid-token answer. 403 is *not* included: that's a
+  // permissions answer about the call, not a verdict on the token itself, and
+  // reading it as revocation would kill a connection over a scope problem.
+  if (response.status === 401) return "revoked"
+  return "unknown"
+}

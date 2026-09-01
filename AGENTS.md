@@ -353,3 +353,10 @@ phrased.
 - **The app chrome locks while a generation runs.** Leaving the generating page unmounts the view, and that unmount is what ends the run — so `lib/generation-lock.ts` (a module store, same shape as network-status/section-navigation) is set by GeneratingView for as long as `status === "generating"`, and `hooks/use-generation-lock.ts` has ProjectSidebar and ProjectsNavbar render at `opacity-40` and `inert` (not `pointer-events-none` — a keyboard user could still tab into it and navigate away). Released on Stop, on completion, and on unmount. Verified in-browser; `lib/generation-lock.test.ts` pins the store.
 <!-- END:presto-agent-rules -->
 - **The account screen has a user-level route.** `/profile` renders the same screen as `/projects/<id>/profile` — nothing on it is project-scoped — but with the picker's chrome (ProjectsNavbar, `backHref="/projects"`) and no sidebar, instead of forwarding into the user's first project the way it used to. `components/profile/profile-content.tsx` is the shared server component both routes render; `projectId` is now optional all the way down (ProfileScreen → EditableName/ChangePasswordPanel/AiModelsPanel → `updateDisplayName`/`addUserAiModel`/`deleteUserAiModel`), where it only picks which path a write revalidates. "Replay onboarding" is in-project only — the tour narrates the sidebar, and there isn't one out here. Top-level `/settings` now forwards to `/profile`. Deliberately a page, not a modal: the screen is expected to grow and a dialog holding more than this would be unusable on a phone.
+- `disconnect`'s decrypt-and-revoke path **is now exercised live** (2026-09-01,
+  `feat/connection-expiry`), superseding the "still unexercised" note earlier in
+  this list: revoking really does destroy the grant at LinkedIn's end. Also
+  learned the hard way — **the OAuth connect leg only works on :3000**, the one
+  redirect URI registered on the LinkedIn app; from a worktree port it dies at
+  LinkedIn with "redirect_uri does not match the registered value". Server-to-
+  server calls are unaffected on any port. See LEARNINGS.md.

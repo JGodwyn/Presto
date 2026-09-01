@@ -1086,3 +1086,37 @@ group* — Base UI shows the next tooltip in a group instantly, so sliding acros
 the bar's bands or from one pill to the other doesn't re-wait. That grouping
 now also spans the app as a whole, so moving between any two triggers while one
 tooltip is open is instant.
+
+---
+
+## 9h. Social connections — the fourth state, "revoked"
+
+§9a describes the connected row's three treatments, all driven by how much of
+the 60-day token is left. There is now a fourth, and it is the one no date can
+produce: the member removed Presto's access at LinkedIn's end, so a token with
+weeks still on it simply stopped working.
+
+**It reuses the expired treatment exactly** — red `surface-danger` block, the
+WarningDiamond, the success-green Reconnect, no countdown — and changes only
+the line of copy, to "Connection revoked". Deliberate: the *cause* differs, the
+*remedy* doesn't, and inventing a fifth colour for "dead in a different way"
+would ask the reader to learn a distinction that changes nothing they can act
+on. **No Figma frame draws this**; it is composed from the exported expired
+state.
+
+**The countdown is dropped here too**, and that's the reason the rule is "dead"
+rather than "expired": a revoked connection often has plenty of days left, and
+showing "Expires in 54 days" under a red strip reads as a contradiction.
+
+`connectionStatus(expiresAt, revoked, now)` (lib/format-date.ts) is the single
+place that decides, and `isConnectionDead` the single predicate for "red and
+Reconnect", so no caller can drift on which states count. **Expiry is checked
+first**: a token that has both lapsed and been revoked reads "expired", the
+reason a reader expects and one that is true whether or not a check ever ran.
+
+Everything that counts *active* connections routes through the same pair — the
+row, the "n connections active" badge, and the dashboard's setup checklist — so
+a revoked connection stops counting as active everywhere at once. The Generate
+page's account pill deliberately does **not**: generation never touches the
+access token, so greying out a dead account there would block a choice that
+still works (see the note in components/generate/account-options.tsx).

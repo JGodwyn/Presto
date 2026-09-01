@@ -39,11 +39,12 @@ export interface AccountOption extends SelectPillOption {
 }
 
 // `connectedPlatforms` is which platforms this project has a row for in
-// public.social_accounts. An *expired* connection still counts as connected:
-// generation never touches the access token — publishing, which would, is
-// deliberately not built (AGENTS.md, "Hard constraint — publishing") — so
-// greying an expired account out would block a choice that works perfectly
-// well. Expiry is Connections' business, and it says so there.
+// public.social_accounts. A connection that is *expired, or revoked at
+// LinkedIn's end*, still counts as connected: generation never touches the
+// access token — publishing, which would, is deliberately not built
+// (AGENTS.md, "Hard constraint — publishing") — so greying a dead account out
+// would block a choice that works perfectly well. The health of a connection
+// is Connections' business, and it says so there.
 export function buildAccountOptions(
   connectedPlatforms: PostPlatform[]
 ): AccountOption[] {
