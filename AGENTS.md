@@ -46,6 +46,22 @@ Exported from Figma as JSON, two files:
 
 Labels follow the Figma designs: "Instructions" (covers both instructions and resources — one combined section, not two) and "Content" (the content-calendar section; route path stays `calendar`).
 
+## Reporting back — keep it short
+
+When a task is done, the reply is a short summary, not a write-up. The user has
+said plainly they will not read a long one.
+
+- **Lead with what they must act on**, or would be surprised by. If there's
+  nothing, say what changed in a line or two and stop.
+- **Flag only what's genuinely notable**: a blocked step, a judgment call you
+  made for them, something left undone, a caveat that will bite later.
+- **Don't explain what worked.** A change that did exactly what was asked needs
+  naming, not justifying. No reasoning, no alternatives considered, no
+  play-by-play of how you got there.
+- **Say it once.** No restating the request, no summary of the summary.
+- The detail belongs in `EXECUTIONS.md` — that's what it's for. Write it there
+  and let the reply stay thin.
+
 ## Project logs — read and write these
 
 Three append-as-you-go files at the repo root. They are the working memory this
@@ -353,3 +369,4 @@ phrased.
 - **The app chrome locks while a generation runs.** Leaving the generating page unmounts the view, and that unmount is what ends the run — so `lib/generation-lock.ts` (a module store, same shape as network-status/section-navigation) is set by GeneratingView for as long as `status === "generating"`, and `hooks/use-generation-lock.ts` has ProjectSidebar and ProjectsNavbar render at `opacity-40` and `inert` (not `pointer-events-none` — a keyboard user could still tab into it and navigate away). Released on Stop, on completion, and on unmount. Verified in-browser; `lib/generation-lock.test.ts` pins the store.
 <!-- END:presto-agent-rules -->
 - **The account screen has a user-level route.** `/profile` renders the same screen as `/projects/<id>/profile` — nothing on it is project-scoped — but with the picker's chrome (ProjectsNavbar, `backHref="/projects"`) and no sidebar, instead of forwarding into the user's first project the way it used to. `components/profile/profile-content.tsx` is the shared server component both routes render; `projectId` is now optional all the way down (ProfileScreen → EditableName/ChangePasswordPanel/AiModelsPanel → `updateDisplayName`/`addUserAiModel`/`deleteUserAiModel`), where it only picks which path a write revalidates. "Replay onboarding" is in-project only — the tour narrates the sidebar, and there isn't one out here. Top-level `/settings` now forwards to `/profile`. Deliberately a page, not a modal: the screen is expected to grow and a dialog holding more than this would be unusable on a phone.
+- **BYOK no longer goes through the Vercel AI Gateway** (supersedes the BYOK bullet above): user keys now call providers directly via `lib/ai/providers.ts`, a small `DirectProvider` registry (`listModels` + `languageModel` per provider). Anthropic and OpenAI are implemented (OpenAI needs id-based filtering to separate chat models from embeddings/audio/image, since its model list publishes no type field — pinned by `lib/ai/providers.test.ts`); adding a provider is one entry plus its `@ai-sdk/*` package. The gateway was dropped because its BYOK mode requires *us* to hold paid credits, and because it silently served free-tier-eligible models on its own account — making a fake key look valid (LEARNINGS.md). Consequences: no `AI_GATEWAY_API_KEY`, no fallback detection (`didFallBackOffByok`/`confirmedRanOnByok` deleted — a direct call can't fall back), key verification is now free (listing models with the key *is* the check), and `google.tools.urlContext` is explicitly built-in-only, so a BYOK model reads URL entries as plain prompt text. Stored model ids stay prefixed (`anthropic/claude-sonnet-5`) and the `gateway_model_id` column keeps its now-misnomer name — renaming it buys nothing and schema changes are serialized. Packages: `@ai-sdk/anthropic`, `@anthropic-ai/sdk` (the latter only for `models.list()`).

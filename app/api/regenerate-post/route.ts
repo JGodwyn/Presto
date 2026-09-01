@@ -6,11 +6,9 @@ import {
   requireUser,
   resolveGenerationContext,
 } from "@/app/projects/[projectId]/generate/post-actions"
-import { resolveAttachmentInputs } from "@/lib/ai/attachments"
 import { buildPostPrompt } from "@/lib/ai/build-prompt"
 import {
   classifyGenerationError,
-  didFallBackOffByok,
   type GenerationFailureReason,
   STREAM_DONE_MARKER,
   STREAM_ERROR_MARKER,
@@ -153,10 +151,6 @@ export async function POST(request: Request) {
     guidance: parsed.data.guidance,
   })
 
-  const { fileParts, useUrlContext } = resolveAttachmentInputs([
-    ...context.writingStyles,
-    ...context.references,
-  ])
 
   // STREAM_DONE_MARKER promises the client that the new text is *saved*, not
   // merely that the stream ended -- the two tees run independently, so
@@ -170,8 +164,6 @@ export async function POST(request: Request) {
 
   const result = streamPost({
     prompt,
-    fileParts,
-    useUrlContext,
     model: resolvedModel.selection,
     onEnd: async (end) => {
       try {
@@ -187,21 +179,7 @@ export async function POST(request: Request) {
           return
         }
 
-        // Same BYOK-fallback bookkeeping as the non-streaming path
-        // (post-actions.ts's runGeneration) — non-fatal in both directions.
-        if (resolvedModel.modelRowId && (await didFallBackOffByok(end.generationId))) {
-          try {
-            await supabase
-              .from("user_ai_models")
-              .update({
-                status: "error",
-                last_error: "Your API key didn't work, so this ran on Presto's own credits.",
-              })
-              .eq("id", resolvedModel.modelRowId)
-          } catch {
-            // Non-fatal.
-          }
-        }
+        // No BYOK-fallback bookkeeping — see post-actions.ts's runGeneration.
 
         const { error } = await supabase
           .from("posts")

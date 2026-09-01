@@ -68,7 +68,7 @@ function UploadDropzone({
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.doc,.docx,.txt"
+        accept=".pdf,.docx,.txt"
         className="hidden"
         onChange={handleChange}
       />

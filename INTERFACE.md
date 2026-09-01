@@ -1086,3 +1086,29 @@ group* — Base UI shows the next tooltip in a group instantly, so sliding acros
 the bar's bands or from one pill to the other doesn't re-wait. That grouping
 now also spans the app as a whole, so moving between any two triggers while one
 tooltip is open is instant.
+
+## AI models list (Profile) — from the "ProfileScreenRedesign" export
+
+The saved-models list is **one bordered tray, not a stack of cards**
+(`components/settings/ai-models-panel.tsx` + `ai-model-entry.tsx`):
+
+- Tray: `bg-surface-2`, `border-border-subtle` at `stroke-lg` (2px), `rad-md`
+  (8px, squircled), `gap-dist-xs` (2px).
+- Row: `bg-surface-3`, `px-pad-sm py-pad-xs`, **square corners** — the tray's
+  rounding clips them. 52px tall at one line of each text style.
+- **The 2px gaps are the separators.** The tray's own surface-2 shows through
+  between surface-3 rows, which is why there is no divider element and why
+  `DottedDivider` was removed from this list.
+- Row text: label `body-lg`/`text-bold`, then `{Provider} key ending ***{last4}`
+  in `body-md`/`text-subtle`. Delete affordance is 24×24, `p-pad-xs`,
+  `bg-surface-2`, `rad-sm` (4px, squircled), 16px Trash.
+- **Scrolling:** `max-h-38` (152px) rather than the export's fixed height. At
+  three rows the export deliberately clips the third mid-line to signal more
+  content, and max-h reproduces that while letting one or two rows hug instead
+  of leaving a band of empty tray. Native scrollbar hidden
+  (`HIDE_NATIVE_SCROLLBAR_CLASSNAME`); **no custom thumb** — at this width it
+  would sit on the delete buttons, the same call made for the page-level
+  `<main>`. The half-visible row is the affordance.
+- Verified against the export in-browser: 148px inner height (152 − 2px
+  borders), 52px rows, 2px gap, 2px border, `#e7dfdc`, clip-path applied,
+  scrollTop 0 → 120.

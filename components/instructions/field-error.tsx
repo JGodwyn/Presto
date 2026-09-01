@@ -17,9 +17,16 @@ function FieldError({
   className?: string
 }) {
   return (
-    <div className={cn("flex items-center gap-dist-md", className)}>
-      <Warning weight="bold" className="size-4 shrink-0 text-icon-danger" />
-      <p className="text-body-md-bold text-text-danger">{message}</p>
+    <div className={cn("flex items-start gap-dist-md", className)}>
+      {/* Top-aligned rather than centred on the whole block, so a message that
+          wraps to two lines doesn't leave the icon floating between them. The
+          wrapper takes the text's own line-height token so the icon still sits
+          optically centred on the *first* line — a hardcoded top offset would
+          be an invented spacing value. */}
+      <span className="flex h-[var(--text-body-lg-bold--line-height)] shrink-0 items-center">
+        <Warning weight="bold" className="size-4 text-icon-danger" />
+      </span>
+      <p className="text-body-lg-bold text-text-danger">{message}</p>
     </div>
   )
 }

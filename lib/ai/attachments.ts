@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+import { extractFileText } from "@/lib/ai/extract-file-text"
+import { fetchUrlText } from "@/lib/ai/fetch-url"
+
 // A resolved WritingStyle/ContentReference entry, ready for the prompt
 // builder — both tables share this exact shape (kind/content/fileName/
 // filePath), so one resolver works for either. "text"/"url" need no I/O
@@ -8,12 +11,17 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 // the otherwise-pure lib/ai/build-prompt.ts.
 export type ResolvedAttachment =
   | { kind: "text"; text: string }
-  | { kind: "url"; url: string }
-  | { kind: "file"; fileName: string; mediaType: string; data: string }
+  // `text` is the fetched page content, or null when it couldn't be read.
+  // Fetching happens here rather than at the model, so every provider gets
+  // identical content — see lib/ai/fetch-url.ts.
+  | { kind: "url"; url: string; text: string | null }
+  // `text` is the extracted document text, or null when it couldn't be read.
+  // Extraction happens here rather than at the model, for the same reason as
+  // "url" above — see lib/ai/extract-file-text.ts.
+  | { kind: "file"; fileName: string; text: string | null }
 
 const FILE_MEDIA_TYPES: Record<string, string> = {
   pdf: "application/pdf",
-  doc: "application/msword",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   txt: "text/plain",
 }
@@ -37,7 +45,8 @@ export async function resolveAttachment(
   }
 
   if (entry.kind === "url") {
-    return entry.content ? { kind: "url", url: entry.content } : null
+    if (!entry.content) return null
+    return { kind: "url", url: entry.content, text: await fetchUrlText(entry.content) }
   }
 
   if (!entry.fileName || !entry.filePath) return null
@@ -53,28 +62,6 @@ export async function resolveAttachment(
   return {
     kind: "file",
     fileName: entry.fileName,
-    mediaType,
-    data: Buffer.from(bytes).toString("base64"),
-  }
-}
-
-// Turns a resolved attachment list into the two things generatePost/streamPost
-// actually need: the file parts to send inline, and whether the prompt
-// mentions a URL the model should fetch itself (google.tools.urlContext(),
-// wired in lib/ai/generate.ts). Shared by post-actions.ts's runGeneration and
-// the streaming regenerate route so both derive it the same way.
-export function resolveAttachmentInputs(attachments: ResolvedAttachment[]): {
-  fileParts: { mediaType: string; data: string; filename?: string }[]
-  useUrlContext: boolean
-} {
-  return {
-    fileParts: attachments
-      .filter((attachment): attachment is Extract<ResolvedAttachment, { kind: "file" }> => attachment.kind === "file")
-      .map((attachment) => ({
-        mediaType: attachment.mediaType,
-        data: attachment.data,
-        filename: attachment.fileName,
-      })),
-    useUrlContext: attachments.some((attachment) => attachment.kind === "url"),
+    text: await extractFileText(mediaType, bytes),
   }
 }

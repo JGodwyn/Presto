@@ -308,3 +308,21 @@ it wants a shared shape rather than three copies.
 **Why it waited:** it touches three files in `components/content` and
 `components/generate` at once, and the review that found it landed after the
 merge.
+
+## Confirm the password-manager fix in Dia
+
+The Add-a-model dialog was autofilling the user's email into **Provider** and a
+saved password into **API key** — reported on Dia, never reproduced in Chrome.
+The standard fix is applied (`autoComplete="new-password"` on the key field,
+`off` plus `data-1p-ignore`/`data-lpignore`/`data-bwignore` on both, and a
+`name` that doesn't read as a credential), and the attributes are confirmed
+present in the DOM with both fields empty in Chrome.
+
+**Do:** open the dialog in Dia and check nothing is filled. If it still is, the
+next lever is structural rather than declarative — the two inputs are adjacent
+siblings, which is the shape the heuristic matches. The modal is already
+two-stage, so Provider could move into a stage of its own, away from the
+password field; a hidden decoy input is the uglier fallback.
+
+**Why it waited:** it can only be verified in a browser this session has no
+access to.

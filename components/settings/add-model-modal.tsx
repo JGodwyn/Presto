@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowLeft, CaretDown, Key, Plus } from "@phosphor-icons/react"
+import { ArrowLeft, Key, Plus } from "@phosphor-icons/react"
 
 import {
   addUserAiModel,
@@ -22,7 +22,7 @@ import { PillInput } from "@/components/ui/pill-input"
 import { withNetworkStatus } from "@/lib/network-status"
 import { FieldError } from "@/components/instructions/field-error"
 import { ModelCombobox } from "@/components/settings/model-combobox"
-import { SelectPill } from "@/components/generate/select-pill"
+import { ProviderCombobox } from "@/components/settings/provider-combobox"
 import type { UserAiModel } from "@/types/ai-model"
 
 // Two stages in one dialog. Splitting them isn't cosmetic: the model list
@@ -30,6 +30,17 @@ import type { UserAiModel } from "@/types/ai-model"
 // what proves it can reach the provider at all — and there's no point letting
 // someone pick a model against a key that will fail on the first generation.
 type Stage = "key" | "model"
+
+// Google first if it's there — it's the provider the built-in model uses, so
+// it's the one someone is most likely to already have a key for. Otherwise
+// just the first alphabetically.
+function preferredSlug(providers: GatewayProviderOption[]): string {
+  return (
+    providers.find((provider) => provider.slug === "google")?.slug ??
+    providers[0]?.slug ??
+    ""
+  )
+}
 
 // The "Add a model" modal. Trigger swaps shape the same way
 // WritingStyleModal's does: a labeled button for the card's empty state, an
@@ -79,7 +90,16 @@ function AddModelModal({
   // effect on `open`: it's a one-off fetch, not state being kept in sync with
   // anything (see react-hooks/set-state-in-effect).
   const loadProviders = () => {
-    if (providers.length > 0 || loadingProviders) return
+    // Already fetched on an earlier open. The catalog is worth keeping, but
+    // reset() cleared the *selection* on close, so the default has to be
+    // reapplied here — early-returning outright left the field reading
+    // "Choose provider" with Continue permanently disabled (it's gated on
+    // providerSlug), which is exactly what happened on every reopen.
+    if (providers.length > 0) {
+      if (!providerSlug) setProviderSlug(preferredSlug(providers))
+      return
+    }
+    if (loadingProviders) return
 
     setLoadingProviders(true)
     void listGatewayProviders().then((result) => {
@@ -89,12 +109,7 @@ function AddModelModal({
         return
       }
       setProviders(result.providers)
-      // Google first if it's there — it's the provider the built-in model
-      // uses, so it's the one someone is most likely to already have a key
-      // for. Otherwise just the first alphabetically.
-      const preferred =
-        result.providers.find((p) => p.slug === "google") ?? result.providers[0]
-      if (preferred) setProviderSlug(preferred.slug)
+      setProviderSlug(preferredSlug(result.providers))
     })
   }
 
@@ -150,10 +165,6 @@ function AddModelModal({
     reset()
   }
 
-  const providerOptions = providers.map((provider) => ({
-    value: provider.slug,
-    label: provider.name,
-  }))
   const selectedProvider = providers.find((p) => p.slug === providerSlug)
 
   return (
@@ -182,9 +193,9 @@ function AddModelModal({
 
       <DialogContent popupClassName="w-90">
         <DialogTitle>Add a model</DialogTitle>
-        <DialogDescription>
+        <DialogDescription className="text-body-lg">
           {stage === "key"
-            ? "Bring your own API key — your posts generate on your account, not Presto's."
+            ? "Bring your own API key. Your posts generate on your account, not Presto's."
             : `Pick which ${selectedProvider?.name ?? ""} model to generate with.`}
         </DialogDescription>
 
@@ -196,47 +207,66 @@ function AddModelModal({
         >
           {stage === "key" ? (
             <>
-              <div className="flex flex-col gap-dist-sm">
-                <span className="text-body-lg text-text-bold">Provider</span>
-                {loadingProviders ? (
-                  <p className="text-body-lg text-text-subtle">Loading providers…</p>
-                ) : providerOptions.length > 0 ? (
-                  <SelectPill
-                    options={providerOptions}
-                    value={providerSlug}
-                    onChange={setProviderSlug}
-                    ariaLabel="Provider"
-                  >
-                    <span>{selectedProvider?.name ?? "Pick a provider"}</span>
-                    <CaretDown
-                      className="size-4 transition-transform duration-150 ease-out group-aria-expanded/select-pill:rotate-180"
-                      weight="bold"
-                    />
-                  </SelectPill>
-                ) : null}
-              </div>
+              {loadingProviders ? (
+                <p className="text-body-lg text-text-subtle">Loading providers…</p>
+              ) : providers.length > 0 ? (
+                <ProviderCombobox
+                  providers={providers}
+                  value={providerSlug}
+                  onChange={setProviderSlug}
+                />
+              ) : null}
 
               <PillInput
                 label="API key"
                 type="password"
-                autoComplete="off"
-                placeholder="Paste your key"
+                // A text field followed by a type="password" field is exactly
+                // the shape a browser's password manager looks for, so Dia (and
+                // any Chromium browser) was autofilling an email into Provider
+                // and a saved password into this one. `autoComplete="off"` does
+                // not stop it — Chromium ignores that on password fields
+                // specifically, because too many sites used it wrongly.
+                // "new-password" is the documented signal that this is not a
+                // credential to fill, and the data-* opt-outs cover 1Password,
+                // LastPass and Bitwarden, which have their own heuristics.
+                autoComplete="new-password"
+                name="provider-api-key"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore
+                placeholder={selectedProvider?.keyHint ?? "Paste your key"}
                 icon={<Key weight="bold" />}
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 aria-invalid={!!error}
-                helperText="Stored encrypted. Presto never shows it again after this."
+                helperText="Encrypted. Presto never shows it again."
+                helperTextClassName="font-medium"
               />
             </>
           ) : (
             <>
-              <ModelCombobox models={models} value={model} onChange={setModel} />
+              <ModelCombobox
+                models={models}
+                value={model}
+                // Prefill the name with the model's own — the common case is
+                // wanting exactly that, and it's still a plain editable field.
+                // Picking a different model overwrites it, which is right: the
+                // name it's overwriting was one we chose, not one they typed.
+                onChange={(next) => {
+                  setModel(next)
+                  setLabel(next.name)
+                }}
+              />
               <PillInput
                 label="Name"
+                autoComplete="off"
+                data-1p-ignore
+                data-lpignore="true"
                 placeholder={model?.name ?? "What to call it"}
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
-                helperText="How it appears in the Generate page's model picker."
+                helperText="How it appears in Generate's model picker."
+                helperTextClassName="font-medium"
               />
             </>
           )}

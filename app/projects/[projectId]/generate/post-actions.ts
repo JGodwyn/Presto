@@ -6,13 +6,11 @@ import { z } from "zod"
 
 import {
   resolveAttachment,
-  resolveAttachmentInputs,
   type ResolvedAttachment,
 } from "@/lib/ai/attachments"
 import { buildPostPrompt, pickTopicForIndex } from "@/lib/ai/build-prompt"
 import {
   classifyGenerationError,
-  didFallBackOffByok,
   generatePost,
   type GenerationFailureReason,
   type ModelSelection,
@@ -149,40 +147,16 @@ export async function resolveGenerationContext(
 // generatePost threw (callers run it through classifyGenerationError) — the
 // only thing swallowed here is the BYOK-fallback bookkeeping, which must never
 // fail a generation that otherwise succeeded.
+// Attachments no longer reach the model separately: lib/ai/attachments.ts
+// resolves text, URLs and documents all to text, and buildPostPrompt has
+// already folded them into `prompt` by the time this runs. There is likewise
+// no BYOK-fallback bookkeeping — a direct provider call can't silently run on
+// our credentials, so there is nothing to detect afterwards.
 async function runGeneration(
-  supabase: SupabaseClient,
   resolvedModel: Extract<ResolvedModel, { selection: ModelSelection }>,
-  prompt: string,
-  attachments: ResolvedAttachment[]
+  prompt: string
 ): Promise<string> {
-  const { fileParts, useUrlContext } = resolveAttachmentInputs(attachments)
-
-  const result = await generatePost({
-    prompt,
-    fileParts,
-    useUrlContext,
-    model: resolvedModel.selection,
-  })
-
-  // The gateway can silently fall back onto this app's own credentials
-  // when a user's key fails (see didFallBackOffByok). Flag the model so
-  // Connections tells them to replace the key, instead of it quietly
-  // costing us on every future run. Non-fatal in both directions: the
-  // post still saves, and a failed flag write changes nothing.
-  if (resolvedModel.modelRowId && (await didFallBackOffByok(result.generationId))) {
-    try {
-      await supabase
-        .from("user_ai_models")
-        .update({
-          status: "error",
-          last_error: "Your API key didn't work, so this ran on Presto's own credits.",
-        })
-        .eq("id", resolvedModel.modelRowId)
-    } catch {
-      // Non-fatal.
-    }
-  }
-
+  const result = await generatePost({ prompt, model: resolvedModel.selection })
   return result.content
 }
 
@@ -281,10 +255,7 @@ export async function generateAndSavePost(
     })
 
     try {
-      content = await runGeneration(supabase, resolvedModel, prompt, [
-        ...context.writingStyles,
-        ...context.references,
-      ])
+      content = await runGeneration(resolvedModel, prompt)
     } catch (error) {
       // Still surfaces batchContextId even on failure — the context was
       // already resolved (and, on a miss, cached) above this point, so a
@@ -420,10 +391,7 @@ export async function regeneratePost(
     })
 
     try {
-      content = await runGeneration(supabase, resolvedModel, prompt, [
-        ...context.writingStyles,
-        ...context.references,
-      ])
+      content = await runGeneration(resolvedModel, prompt)
     } catch (error) {
       return {
         error: "Couldn't regenerate that post. Please try again.",

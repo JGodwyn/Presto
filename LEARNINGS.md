@@ -861,3 +861,135 @@ its id is in `.next/server/server-reference-manifest.json`, keyed by the routes
 that contain it. `POST` it with `Next-Action: <id>` and a JSON `[]` body, and
 read the response headers — a healthy action redirect is a `303` carrying
 `x-action-redirect` and `content-type: text/x-component` and **no** `location`.
+
+## AI Gateway BYOK
+
+**Symptom.** Adding a user's own Anthropic key failed with "That key didn't
+work with Anthropic. Check you copied all of it and that it's still active."
+The account behind the key did have no balance, which made the message look
+roughly right — it wasn't.
+
+**Cause, two layers.**
+
+1. **BYOK on the Vercel AI Gateway requires paid credits on the *gateway*
+   account** (ours, the operator's — not the end user's). Without them every
+   BYOK request fails, whatever the user's provider key is:
+   `403 GatewayInternalServerError: "Bring Your Own Key (BYOK) is available
+   only with paid credits."` Listing the catalog is free, so the modal loads
+   fine and the wall only appears at the verification step, which is what makes
+   it read as a key problem.
+2. **Gateway errors are not `APICallError`.** They surface as
+   `GatewayInternalServerError` (and siblings), carrying `statusCode` and
+   `message` but failing `APICallError.isInstance`. So a classifier gated on
+   that instance check matches *nothing* and every failure falls through to
+   whatever the generic branch says — which is how one catch-all message ended
+   up blaming the key for an operator billing problem.
+
+**Rule.** Classify provider/gateway failures by **duck-typed `statusCode` +
+message text**, never by `APICallError.isInstance` alone — see
+`verifyFailureCopy` in settings/model-actions.ts. And order the branches so the
+BYOK-needs-credits case is checked *before* the generic 401/403 one, since it
+is itself a 403. Related: `classifyGenerationError` (lib/ai/generate.ts) has
+the same instance-check assumption and will mis-bucket gateway errors as
+"unknown" — untouched here, but it is the same trap.
+
+**Also worth knowing:** the built-in Gemini model is unaffected by any of this.
+It calls `google()` on `GOOGLE_GENERATIVE_AI_API_KEY` directly and never routes
+through the gateway.
+
+### A free-tier model makes a fake BYOK key look valid
+
+**Symptom.** Adding `anthropic/claude-3-haiku` with a personal Anthropic key
+succeeded; every other Anthropic model failed. Read as "that one model works" —
+it isn't.
+
+**Cause.** Haiku is in the gateway's **free tier**, and for a free-tier-eligible
+model the gateway serves the request on *its own* account and ignores the BYOK
+credential entirely. Proven with a syntactically fake key, same key both calls:
+
+- `anthropic/claude-3-haiku` → `GatewayRateLimitError: "Free tier requests on
+  this model are rate-limited"` — i.e. accepted, then rate-limited. Never an
+  auth error, because the key was never used.
+- `anthropic/claude-sonnet-5` → `"Bring Your Own Key (BYOK) is available only
+  with paid credits"` — not free-tier, so the real BYOK path is reached.
+
+`verifyProviderKey` only asked `didFallBackOffByok`, which answers "is there
+positive evidence of a fallback" and says *no* when it can't tell. So the
+free-tier run passed and a key that had never been exercised got saved.
+
+**Rule.** **Add-time verification must fail closed; post-generation checks fail
+open.** The asymmetry is the whole point: saving an unexercised key means every
+later generation quietly bills *us*, whereas flagging a working model on one
+flaky lookup is a lesser harm. `confirmedRanOnByok` (lib/ai/generate.ts)
+requires `isByok === true` and is what add-time uses;
+`didFallBackOffByok` keeps its lenient contract for the post-generation path.
+Corollary: "the request succeeded" is never evidence a BYOK key works.
+
+## JSX
+
+### An interior space next to an expression can vanish across a line break
+
+**Symptom.** `Anthropic key ending ***TwAA` rendered as **"Anthropickey ending
+***TwAA"** — one space, silently gone. The source looked correct:
+
+```jsx
+<p>
+  {providerDisplayName(model.providerSlug)} key ending &bull;&bull;&bull;
+  {model.keyLastFour}
+</p>
+```
+
+**Cause.** JSX text is normalised line by line, and a literal that begins right
+after an expression but whose node spans multiple lines loses that leading
+space. Reading the source doesn't reveal it — the space is plainly there on the
+line — so this only shows up in the rendered output.
+
+**Rule.** When interpolating into a sentence, build the whole string in one
+expression (`` {`${name} key ending ***${last4}`} ``) rather than alternating
+JSX text and `{}`. It's immune to the whitespace rules, and it reads as the
+sentence it is. `{" "}` also works but is easy to drop in a later edit. Check
+`textContent` in the DOM, not the source, when spacing looks wrong.
+
+### `supportedGenerationMethods` is not a modality filter
+
+**Symptom.** Google's provider list offered image, music, speech and
+transcription models as things you could write posts with.
+
+**Cause.** The filter was `supportedGenerationMethods.includes("generateContent")`,
+described in an earlier commit as "an exact capability check rather than id
+heuristics". That was wrong. The field names the *method* the model is called
+through, not what it emits — Gemini's image, TTS, transcribe and Lyria music
+models all list `generateContent` too.
+
+**And the ids don't rescue it.** A modality-word blocklist gets most of them,
+but `nano-banana-pro-preview` is image generation and `lyria-3-*` is music;
+neither says so in its name. Only checking against the live catalog surfaced
+those two — 39 models list `generateContent`, and just 20 can write a post.
+
+**Rule.** Treat a provider's capability metadata as necessary, not sufficient.
+Every provider here needs a maintained blocklist (`GOOGLE_NON_WRITING`,
+`OPENAI_NON_TEXT`, `GROQ_NON_TEXT`), each pinned by tests against real catalog
+ids, and each re-checked against the live list rather than reasoned about — the
+names that trip it are exactly the ones you wouldn't predict.
+
+### `autoComplete="off"` does not stop password managers
+
+**Symptom.** Opening the Add-a-model dialog in Dia autofilled the user's email
+into the **Provider** field and a saved password into the **API key** field,
+even though the key field already had `autoComplete="off"`.
+
+**Cause.** Two parts. The dialog's shape — a text input immediately followed by
+a `type="password"` input — is precisely the heuristic browsers use to detect a
+login form. And **Chromium deliberately ignores `autocomplete="off"` on
+password fields**, because sites misused it widely enough that honouring it hurt
+users more than it helped.
+
+**Rule.** For a password-typed field that is *not* a credential (an API key, a
+token, a secret to store rather than sign in with):
+`autoComplete="new-password"` — the documented "don't fill this" signal that
+Chromium does respect — plus `data-1p-ignore` / `data-lpignore` /
+`data-bwignore` for 1Password, LastPass and Bitwarden, which run their own
+heuristics regardless of the browser. Give the **text field beside it** the same
+treatment: it's the other half of the pair the heuristic matches on, and it's
+what receives the email. Also avoid `name`/`id` values like `username`,
+`email` or `password` on such fields.

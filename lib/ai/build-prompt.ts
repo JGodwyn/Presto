@@ -12,16 +12,22 @@ function describeAttachment(attachment: ResolvedAttachment): string {
     case "text":
       return attachment.text
     case "url":
-      // No fetch happens here — this just puts the URL in front of the
-      // model; google.tools.urlContext() (wired in lib/ai/generate.ts,
-      // enabled whenever any attachment is this kind) is what lets Gemini
-      // actually read it.
-      return `Available at this URL: ${attachment.url}`
+      // The content is fetched server-side (lib/ai/fetch-url.ts) and inlined
+      // here, so this reads the same to every provider. When the fetch failed
+      // the URL is still named rather than dropped — it's often descriptive on
+      // its own — but the model is told plainly that the page wasn't read, so
+      // it can't treat the address as though it had seen the contents.
+      return attachment.text
+        ? `From ${attachment.url}:\n${attachment.text}`
+        : `(couldn't read ${attachment.url} — don't assume anything about its contents)`
     case "file":
-      // The actual bytes travel separately as a FilePart (see
-      // lib/ai/generate.ts) — this line just tells the model one exists and
-      // what it's called.
-      return `(see attached file: ${attachment.fileName})`
+      // The document's text is extracted server-side (lib/ai/extract-file-text.ts)
+      // and inlined, so every provider reads the same words. As with a URL, a
+      // file that couldn't be read is named and disclaimed rather than dropped
+      // or quietly presented as though it had been read.
+      return attachment.text
+        ? `From ${attachment.fileName}:\n${attachment.text}`
+        : `(couldn't read ${attachment.fileName} — don't assume anything about its contents)`
   }
 }
 

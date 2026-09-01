@@ -2,42 +2,30 @@
 
 import * as React from "react"
 import { createPortal } from "react-dom"
-import { MagnifyingGlass } from "@phosphor-icons/react"
 
-import type { GatewayModelOption } from "@/app/projects/[projectId]/settings/model-actions"
+import type { GatewayProviderOption } from "@/app/projects/[projectId]/settings/model-actions"
 import { Menu, MenuItem } from "@/components/ui/menu"
 import { PillInput } from "@/components/ui/pill-input"
 
-// Prices are USD per token, which is unreadable at human scale (Gemini Flash
-// input is ~0.0000003); per-million is how providers actually quote it. Kept
-// even though the direct-provider path currently reports no pricing (the
-// providers' model endpoints don't publish it) — the column renders only when
-// a price is set, and a provider that does publish one needs no change here.
-const TOKENS_PER_PRICE_UNIT = 1_000_000
-
-function formatPrice(perToken: string | null): string | null {
-  if (perToken == null) return null
-  const perMillion = Number(perToken) * TOKENS_PER_PRICE_UNIT
-  if (!Number.isFinite(perMillion)) return null
-  // Sub-dollar rates would collapse toward "$0.00" at two decimals — the
-  // cheap models are exactly the ones worth being able to tell apart.
-  return `$${perMillion < 1 ? perMillion.toFixed(3) : perMillion.toFixed(2)}/M in`
-}
-
-// Searchable single-select over the provider's model catalog. Structurally
-// the same combobox as components/instructions/topic-picker.tsx — opens on
-// focus, filters as you type, arrow/Enter/Escape keyboard nav, portaled menu
-// (every ancestor here is squircle-clipped, and clip-path clips absolutely
-// positioned descendants too) — but single-select with no "add" row, since
-// a model that isn't in the catalog can't be routed to.
-export function ModelCombobox({
-  models,
+// Searchable single-select over the gateway's provider list. The same
+// combobox as components/settings/model-combobox.tsx, which is itself
+// components/instructions/topic-picker.tsx's — opens on focus, filters as you
+// type, arrow/Enter/Escape keyboard nav, portaled menu (every ancestor here
+// is squircle-clipped, and clip-path clips absolutely positioned descendants
+// too). Two differences from the model twin: no leading search icon, and no
+// right-hand price column, since a provider has no single price.
+//
+// Replaced a SelectPill here. The list is short today (lib/ai/providers.ts
+// implements Anthropic only), but it grows one entry per provider added and
+// the field is the same either way.
+export function ProviderCombobox({
+  providers,
   value,
   onChange,
 }: {
-  models: GatewayModelOption[]
-  value: GatewayModelOption | null
-  onChange: (model: GatewayModelOption) => void
+  providers: GatewayProviderOption[]
+  value: string
+  onChange: (slug: string) => void
 }) {
   const [query, setQuery] = React.useState("")
   const [focused, setFocused] = React.useState(false)
@@ -52,16 +40,18 @@ export function ModelCombobox({
   } | null>(null)
 
   const trimmed = query.trim().toLowerCase()
-  const suggestions = models.filter(
-    (model) =>
-      model.name.toLowerCase().includes(trimmed) || model.id.toLowerCase().includes(trimmed)
+  const suggestions = providers.filter(
+    (provider) =>
+      provider.name.toLowerCase().includes(trimmed) ||
+      provider.slug.toLowerCase().includes(trimmed)
   )
   const open = focused && suggestions.length > 0
   // Typing can shrink the list under the last keyboard position.
   const active = Math.min(activeIndex, suggestions.length - 1)
+  const selected = providers.find((provider) => provider.slug === value)
 
-  const pick = (model: GatewayModelOption) => {
-    onChange(model)
+  const pick = (provider: GatewayProviderOption) => {
+    onChange(provider.slug)
     setQuery("")
     setActiveIndex(0)
     setKeyboardActive(false)
@@ -109,16 +99,16 @@ export function ModelCombobox({
     <>
       <div ref={anchorRef}>
         <PillInput
-          label="Model"
+          label="Provider"
           fieldSize="md"
-          icon={<MagnifyingGlass weight="bold" />}
-          // The picked model shows as the placeholder rather than the input's
-          // value, so the field stays a live search box — clicking back into
-          // it to change your mind doesn't mean clearing text first. Which is
-          // why the colour has to switch: a real choice sitting in the
-          // placeholder slot would otherwise read as unfilled grey prompt text.
-          className={value ? "placeholder:text-text-bold" : undefined}
-          placeholder={value ? value.name : `Search ${models.length} models`}
+          // The picked provider shows as the placeholder rather than the
+          // input's value, so the field stays a live search box — clicking
+          // back into it to change your mind doesn't mean clearing text first.
+          // Which is exactly why the colour has to switch: a real choice
+          // sitting in the placeholder slot would otherwise read as unfilled
+          // grey prompt text.
+          className={selected ? "placeholder:text-text-bold" : undefined}
+          placeholder={selected ? selected.name : "Choose provider"}
           role="combobox"
           // The other half of the login-form shape the password manager
           // matches on — see the API key field in add-model-modal.tsx.
@@ -175,7 +165,7 @@ export function ModelCombobox({
               <Menu
                 id={listboxId}
                 role="listbox"
-                aria-label="Models"
+                aria-label="Providers"
                 // preventDefault keeps focus on the input while an option is
                 // clicked — otherwise the input's blur closes the menu before
                 // the click lands.
@@ -183,29 +173,19 @@ export function ModelCombobox({
                 containerClassName="transition-[opacity,translate] duration-150 ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0"
                 className="max-h-70"
               >
-                {suggestions.map((model, index) => {
-                  const price = formatPrice(model.inputPricePerToken)
-                  return (
-                    <MenuItem
-                      key={model.id}
-                      id={`${listboxId}-${index}`}
-                      role="option"
-                      aria-selected={model.id === value?.id}
-                      highlighted={keyboardActive && index === active}
-                      withDivider={index > 0}
-                      onClick={() => pick(model)}
-                    >
-                      <span className="flex min-w-0 flex-1 items-center gap-dist-md">
-                        <span className="truncate">{model.name}</span>
-                        {price ? (
-                          <span className="ml-auto shrink-0 text-body-md text-text-subtle">
-                            {price}
-                          </span>
-                        ) : null}
-                      </span>
-                    </MenuItem>
-                  )
-                })}
+                {suggestions.map((provider, index) => (
+                  <MenuItem
+                    key={provider.slug}
+                    id={`${listboxId}-${index}`}
+                    role="option"
+                    aria-selected={provider.slug === value}
+                    highlighted={keyboardActive && index === active}
+                    withDivider={index > 0}
+                    onClick={() => pick(provider)}
+                  >
+                    <span className="truncate">{provider.name}</span>
+                  </MenuItem>
+                ))}
               </Menu>
             </div>,
             document.body

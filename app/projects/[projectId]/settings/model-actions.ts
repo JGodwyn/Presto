@@ -2,33 +2,12 @@
 
 import { revalidatePath } from "next/cache"
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { gateway, generateText } from "ai"
 import { z } from "zod"
 
-import { didFallBackOffByok } from "@/lib/ai/generate"
+import { listProviders, providerFor, providerSlugOf } from "@/lib/ai/providers"
 import { encryptApiKey, lastFourOfKey } from "@/lib/ai/key-crypto"
 import { createClient } from "@/lib/supabase/server"
 import type { UserAiModel, UserAiModelStatus } from "@/types/ai-model"
-
-// Providers whose names don't survive a naive title-case of their gateway
-// slug. Anything not listed falls back to capitalizing the slug, so a
-// provider added to the gateway tomorrow still shows up looking reasonable
-// without a code change here.
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  openai: "OpenAI",
-  xai: "xAI",
-  deepseek: "DeepSeek",
-  mistral: "Mistral",
-  perplexity: "Perplexity",
-  cohere: "Cohere",
-  vertex: "Google Vertex",
-  bedrock: "Amazon Bedrock",
-  azure: "Azure OpenAI",
-}
-
-function providerDisplayName(slug: string): string {
-  return PROVIDER_DISPLAY_NAMES[slug] ?? slug.charAt(0).toUpperCase() + slug.slice(1)
-}
 
 export interface GatewayModelOption {
   id: string
@@ -43,6 +22,10 @@ export interface GatewayProviderOption {
   slug: string
   name: string
   modelCount: number
+  // What this provider's key looks like, for the field's placeholder. Carried
+  // through the action rather than imported: lib/ai/providers.ts pulls in the
+  // vendor SDKs, so a client component can't read it directly.
+  keyHint: string
 }
 
 type UserAiModelRow = {
@@ -79,98 +62,51 @@ async function requireUser(supabase: SupabaseClient) {
   return user
 }
 
-// The gateway's own catalog, fetched with this app's AI_GATEWAY_API_KEY (not
-// the user's — listing models costs nothing and needs no provider
-// credentials). Language models only: the same endpoint also returns image,
-// embedding, and speech models, none of which can write a post.
-async function fetchLanguageModels(): Promise<GatewayModelOption[]> {
-  const { models } = await gateway.getAvailableModels()
+// Turns a provider-SDK failure into copy that names the actual problem. The
+// providers' SDKs throw their own error classes, so this reads statusCode and
+// message defensively rather than gating on any one instance check — the trap
+// that made the old gateway classifier match nothing (see LEARNINGS.md).
+function keyFailureCopy(error: unknown, providerName: string): string {
+  const target = error as { status?: unknown; statusCode?: unknown; message?: unknown } | undefined
+  const status =
+    typeof target?.status === "number"
+      ? target.status
+      : typeof target?.statusCode === "number"
+        ? target.statusCode
+        : undefined
+  const detail = typeof target?.message === "string" ? target.message : ""
 
-  return models
-    .filter((model) => model.modelType == null || model.modelType === "language")
-    .map((model) => ({
-      id: model.id,
-      name: model.name,
-      inputPricePerToken: model.pricing?.input ?? null,
-    }))
-}
-
-function providerSlugOf(modelId: string): string {
-  return modelId.split("/")[0] ?? ""
-}
-
-// Runs a genuine, minimal generation on the user's credentials. There's no
-// "just check this key" endpoint on the gateway, and more importantly no
-// request flag that forbids the gateway from silently falling back to this
-// app's own credentials when a user's key fails — so the only trustworthy
-// check is to make a real call and then ask, after the fact, whose key paid
-// for it. A key that "works" on our credits is a broken key, and is reported
-// as one.
-async function verifyProviderKey(
-  providerSlug: string,
-  apiKey: string,
-  gatewayModelId: string
-): Promise<{ error: string } | { ok: true }> {
-  let generationId: string | undefined
-
-  try {
-    const result = await generateText({
-      model: gatewayModelId,
-      providerOptions: { gateway: { byok: { [providerSlug]: [{ apiKey }] } } },
-      prompt: "Reply with the single word: ok",
-      maxOutputTokens: 1,
-    })
-    generationId = result.providerMetadata?.gateway?.generationId as string | undefined
-  } catch {
-    return {
-      error: `That key didn't work with ${providerDisplayName(providerSlug)}. Check you copied all of it and that it's still active.`,
-    }
+  if (status === 401 || status === 403) {
+    return `${providerName} rejected that key. Check you copied all of it and that it's still active.`
   }
-
-  if (await didFallBackOffByok(generationId)) {
-    return {
-      error: `That key was rejected by ${providerDisplayName(providerSlug)}. Check it's still active and has billing enabled.`,
-    }
+  if (status === 429) {
+    return `${providerName} is rate limiting that key. Wait a moment and try again.`
   }
-
-  return { ok: true }
+  if (/credit|balance|billing|insufficient|payment|fund/i.test(detail)) {
+    return `That key works, but the ${providerName} account behind it has no credit. Add billing on ${providerName}, then try again.`
+  }
+  return `That key didn't work with ${providerName}. Check you copied all of it and that it's still active.`
 }
 
-// Cheapest language model the provider offers, used as the target for the
-// verification call above — a key check shouldn't cost the user a frontier
-// model's per-token rate. Unpriced models sort last rather than first: a
-// missing price means unknown, not free.
-function cheapestModel(models: GatewayModelOption[]): GatewayModelOption | undefined {
-  return [...models].sort((a, b) => {
-    const priceA = a.inputPricePerToken == null ? Infinity : Number(a.inputPricePerToken)
-    const priceB = b.inputPricePerToken == null ? Infinity : Number(b.inputPricePerToken)
-    return priceA - priceB
-  })[0]
-}
-
-// Populates the modal's first dropdown. No user credentials involved — this
-// is just "what can the gateway route to".
+// Populates the modal's first dropdown. Now a local list rather than a network
+// call — the app supports exactly the providers lib/ai/providers.ts implements,
+// so there is nothing to fetch and nothing to fail. modelCount is 0 because a
+// provider's catalog isn't knowable until a key is pasted (that's what step two
+// is for); the UI doesn't render it.
 export async function listGatewayProviders(): Promise<
   { error: string } | { ok: true; providers: GatewayProviderOption[] }
 > {
-  let models: GatewayModelOption[]
-  try {
-    models = await fetchLanguageModels()
-  } catch {
-    return { error: "Couldn't load the model catalog. Please try again." }
+  return {
+    ok: true,
+    providers: listProviders()
+      .map((provider) => ({
+        slug: provider.slug,
+        name: provider.name,
+        modelCount: 0,
+        keyHint: provider.keyHint,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
   }
-
-  const counts = new Map<string, number>()
-  for (const model of models) {
-    const slug = providerSlugOf(model.id)
-    if (slug) counts.set(slug, (counts.get(slug) ?? 0) + 1)
-  }
-
-  const providers = [...counts.entries()]
-    .map(([slug, modelCount]) => ({ slug, name: providerDisplayName(slug), modelCount }))
-    .sort((a, b) => a.name.localeCompare(b.name))
-
-  return { ok: true, providers }
 }
 
 const listModelsSchema = z.object({
@@ -195,24 +131,31 @@ export async function listGatewayModels(
     return { error: "You need to be signed in to add a model." }
   }
 
-  let allModels: GatewayModelOption[]
+  const provider = providerFor(parsed.data.providerSlug)
+  if (!provider) {
+    return { error: "That provider isn't supported yet." }
+  }
+
+  // Listing *is* the key check, and it's free — a bad key fails here with the
+  // provider's own 401 and no tokens are generated. The old gateway path had
+  // to burn a real one-token generation to learn the same thing, because it
+  // had no per-key catalog endpoint to ask.
+  let models: GatewayModelOption[]
   try {
-    allModels = await fetchLanguageModels()
-  } catch {
-    return { error: "Couldn't load the model catalog. Please try again." }
+    models = (await provider.listModels(parsed.data.apiKey)).map((model) => ({
+      id: model.id,
+      name: model.name,
+      // Providers don't publish per-model pricing on their model endpoints the
+      // way the gateway catalog did. The combobox already renders the price
+      // column only when it's set.
+      inputPricePerToken: null,
+    }))
+  } catch (error) {
+    return { error: keyFailureCopy(error, provider.name) }
   }
 
-  const models = allModels.filter(
-    (model) => providerSlugOf(model.id) === parsed.data.providerSlug
-  )
   if (models.length === 0) {
-    return { error: "That provider doesn't have any models available right now." }
-  }
-
-  const target = cheapestModel(models)!
-  const verified = await verifyProviderKey(parsed.data.providerSlug, parsed.data.apiKey, target.id)
-  if ("error" in verified) {
-    return verified
+    return { error: `That key doesn't have access to any ${provider.name} models.` }
   }
 
   return { ok: true, models }
@@ -254,17 +197,26 @@ export async function addUserAiModel(
     return { error: "You need to be signed in to add a model." }
   }
 
-  // Re-verified against the model actually being saved, not the cheap one
-  // listGatewayModels probed with — a key can be valid for a provider but not
-  // entitled to a specific model, and finding that out now beats finding out
-  // mid-batch.
-  const verified = await verifyProviderKey(
-    parsed.data.providerSlug,
-    parsed.data.apiKey,
-    parsed.data.gatewayModelId
-  )
-  if ("error" in verified) {
-    return verified
+  const provider = providerFor(parsed.data.providerSlug)
+  if (!provider) {
+    return { error: "That provider isn't supported yet." }
+  }
+
+  // Re-listed rather than re-generated: it re-proves the key still works and
+  // confirms the chosen model is one this key can actually see, without
+  // spending anything on the user's account. Deliberately *not* a trial
+  // generation — that would charge them to save a row, and would reject a
+  // valid key on an unfunded account, which is a billing problem to discover
+  // at generation time rather than a reason to refuse to store the key.
+  let available: string[]
+  try {
+    available = (await provider.listModels(parsed.data.apiKey)).map((model) => model.id)
+  } catch (error) {
+    return { error: keyFailureCopy(error, provider.name) }
+  }
+
+  if (!available.includes(parsed.data.gatewayModelId)) {
+    return { error: `That key can't access ${parsed.data.gatewayModelId}.` }
   }
 
   const { data, error } = await supabase
