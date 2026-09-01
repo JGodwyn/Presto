@@ -4542,3 +4542,21 @@ edited `main` per AGENTS.md's housekeeping exception. One file:
 | `npm run build` | clean |
 
 Not verified in-browser — the add flow needs a real provider API key.
+
+### Follow-up, same day: no tick on the success toast, and no already-added models in the picker
+
+1. **`showIcon={toastVariant !== "success"}`** on the panel's toast. The prop
+   already existed; the danger case keeps its icon.
+2. **`AddModelModal` takes `existingModelIds`** and filters the catalog with it
+   (`availableModels`, derived at render rather than filtered into `models` at
+   fetch time, so a delete while the dialog is open puts the option back). The
+   panel passes `models.map(m => m.gatewayModelId)` — the same column the
+   `(user_id, gateway_model_id)` unique constraint is on, which is what the
+   "You've already added that model." error was reporting. That server check
+   stays as a backstop; it just isn't reachable through the UI any more.
+   When a key's whole catalog is already added, stage 2 replaces the combobox
+   and Name field with a line saying so — Back is the way out.
+
+Gates: tsc clean, eslint clean on both files, vitest 247/23, build clean.
+Note: `npx prettier --write` on this repo adds semicolons the codebase doesn't
+use — reverted and reapplied by hand. Don't run it here.

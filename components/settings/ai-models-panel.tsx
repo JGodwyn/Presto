@@ -115,6 +115,9 @@ export function AiModelsPanel({
           open={toastOpen}
           onOpenChange={setToastOpen}
           variant={toastVariant}
+          // The success case here is a plain confirmation — the tray behind it
+          // already shows the new row, so the tick is saying it twice.
+          showIcon={toastVariant !== "success"}
           direction="top"
         >
           {toastMessage}
@@ -164,7 +167,12 @@ export function AiModelsPanel({
           </div>
         ) : null}
 
-        <AddModelModal projectId={projectId} onAdded={handleAdded} block />
+        <AddModelModal
+          projectId={projectId}
+          onAdded={handleAdded}
+          existingModelIds={models.map((model) => model.gatewayModelId)}
+          block
+        />
       </div>
 
       <ConfirmationModal

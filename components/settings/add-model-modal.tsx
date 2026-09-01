@@ -48,11 +48,18 @@ function preferredSlug(providers: GatewayProviderOption[]): string {
 function AddModelModal({
   projectId,
   onAdded,
+  existingModelIds = [],
   compact = false,
   block = false,
 }: {
   projectId?: string
   onAdded: (model: UserAiModel) => void
+  // Models already on the account, by their prefixed id. Filtered out of the
+  // catalog rather than left in to fail on Save against the (user_id,
+  // gateway_model_id) unique constraint — offering a choice that can only
+  // produce "You've already added that model." isn't a choice. The server
+  // check stays as the backstop it always was.
+  existingModelIds?: string[]
   compact?: boolean
   // Profile's expanded "AI models" panel draws the trigger full-width at the
   // export's 40px button size, rather than the inline `sm` the card uses.
@@ -167,6 +174,12 @@ function AddModelModal({
 
   const selectedProvider = providers.find((p) => p.slug === providerSlug)
 
+  // Derived rather than filtered into `models` at fetch time, so a model added
+  // and then deleted while the dialog is open comes back on its own.
+  const availableModels = models.filter(
+    (option) => !existingModelIds.includes(option.id)
+  )
+
   return (
     <Dialog
       open={open}
@@ -243,10 +256,17 @@ function AddModelModal({
                 helperTextClassName="font-medium"
               />
             </>
+          ) : availableModels.length === 0 ? (
+            // Every model this key can reach is already on the account. Back
+            // is still the way out, so there's nothing to add here beyond
+            // saying why the picker is gone.
+            <p className="text-body-lg text-text-subtle">
+              You&rsquo;ve already added every model this key can reach.
+            </p>
           ) : (
             <>
               <ModelCombobox
-                models={models}
+                models={availableModels}
                 value={model}
                 // Prefill the name with the model's own — the common case is
                 // wanting exactly that, and it's still a plain editable field.
