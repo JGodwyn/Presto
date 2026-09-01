@@ -1065,3 +1065,33 @@ Use `redirect: "manual"` and re-run the check on every `Location` before
 fetching it, with a hop cap and one deadline across the chain. And keep the
 comment honest about scope: "this isn't an SSRF defence" invited exactly the
 bypass above, because it implied partial protection where there was none.
+
+### A private-address guard that only knows the IPv4 spellings
+
+**Symptom.** `fetch-url.ts`'s `PRIVATE_HOST` regex blocked
+`169.254.169.254`, `localhost` and `[::1]`, so it read as a working guard. Run
+against the other literal spellings of the same addresses, it allowed every one:
+
+```
+ALLOWED  [fd00:ec2::254]      EC2's IPv6 instance-metadata address
+ALLOWED  localhost.           legal FQDN spelling, still resolves to 127.0.0.1
+ALLOWED  [::ffff:a9fe:a9fe]   v4-mapped 169.254.169.254
+ALLOWED  [fe80::1]  [::]  100.64.0.1
+```
+
+**Cause.** One regex, written from the IPv4 forms outward. Three things it could
+not see: an IPv6 literal arrives from URL parsing with its brackets attached and
+was never anchored for; `^localhost$` misses a trailing dot; and an IPv4 address
+can be *embedded* in an IPv6 literal, dotted or as the final two hextets, which
+no amount of IPv4 prefix matching will catch. It shipped in a branch whose
+redirect handling was itself a fix for the previous version of this guard — the
+mechanism was reworked correctly and the predicate it called was left alone.
+
+**Rule.** A range check is a predicate with a table of literals behind it, not a
+regex. Cover both families and the bridges between them: IPv4 prefixes, IPv6
+`::`/`::1`/`fc00::/7`/`fe80::/10`, and v4-mapped forms tested as the IPv4
+address they actually reach. Normalize first (lowercase, strip a trailing dot,
+strip brackets), and pad the first hextet to four digits before comparing it —
+`fd00::1` is unique-local and `fd::1` is not, and the written prefix alone
+cannot tell them apart. Test the predicate directly against a table of
+spellings; a stubbed-fetch test only ever proves the one spelling you thought of.

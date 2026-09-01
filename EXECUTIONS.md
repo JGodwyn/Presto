@@ -4454,3 +4454,56 @@ refactor plus server-side guards; behaviour was verified before the review and
 the changes since are structural. The one behavioural change a person should
 still click through is the add-model modal's Back button now clearing the picked
 model.
+
+---
+
+## 2026-09-01 — Housekeeping on `main`: close the SSRF finding `/integrate` merged past
+
+Not a branch. Nothing in flight (`worktree.sh list` empty), so this went straight
+onto `main` per AGENTS.md's housekeeping rule.
+
+**Why it was needed.** The `/integrate` sweep that merged `feat/ai-models`
+(`931b38f`) merged before its `/code-review` pass returned. That report landed
+minutes later with a blocking finding the reviewer had missed, and it was right.
+
+**The finding, re-verified before fixing.** `PRIVATE_HOST` in
+`lib/ai/fetch-url.ts` covered only the IPv4 spellings. Running the actual regex
+against parsed hostnames: `[fd00:ec2::254]`, `localhost.`,
+`[::ffff:a9fe:a9fe]`, `[fe80::1]`, `[::]` and `100.64.0.1` all passed, while
+`169.254.169.254` / `localhost` / `[::1]` / `127.0.0.1` were blocked — so the
+guard looked correct from the cases anyone would try first. These are private
+address *literals*, which is exactly what the guard claimed to cover; the file's
+documented gap was only about hostnames that *resolve* privately. Reachable both
+from a pasted URL entry and from a redirect off a public page — the case the
+per-hop re-check in the same branch was added to defend.
+
+**Done.** Replaced the regex with an `isPrivateHost` predicate (normalize →
+IPv4 prefixes → IPv6 `::`/`::1`/`fc00::/7`/`fe80::/10` → v4-mapped forms tested
+as the IPv4 address they reach). Exported it and added a 20-case table test, both
+directions. `isFetchableUrl` is the only caller and every redirect hop already
+goes through it, so both entry points are covered by the one change. See
+LEARNINGS.md for the shape of the mistake.
+
+**Also cleared:** two worktree husks left at `../presto-worktrees/` by
+`worktree.sh remove` failing on its own `.next` artifacts (`ai-models`, 235 MB,
+already deregistered from git; `connection-expiry`, 40 KB, `.next` only, no
+`.git`). `git worktree list` showed only the main checkout before and after.
+`../presto-worktrees/` is now empty. The `ai-models` husk would otherwise have
+blocked a future `/branch ai-models`.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 errors — exactly `main`'s baseline (all pre-existing `react-hooks/refs` in untouched files) |
+| `npm run test` | 246 passed / 22 files, **excluding `lib/ai/generate.test.ts`** |
+| `npm run build` | clean |
+
+**On the excluded test:** FOLLOWUPS §12 — that file makes a live Gemini call and
+`.env.local` is injected into vitest, so a plain run spends free-tier quota and
+takes ~90s. This change is confined to `fetch-url.ts` and touches no generation
+path, so it was excluded deliberately rather than skipped by accident. Ran on
+its own, `lib/ai/fetch-url.test.ts` is 33 passed.
+
+**Left alone deliberately:** `feat/ai-models` still exists locally. It is fully
+merged and spent, but it is also the only unwind path back to `66e6dd1` while
+`main` is unpushed, so deleting it is the user's call, not housekeeping.

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { fetchUrlText, htmlToText, truncateForPrompt } from "@/lib/ai/fetch-url"
+import {
+  fetchUrlText,
+  htmlToText,
+  isPrivateHost,
+  truncateForPrompt,
+} from "@/lib/ai/fetch-url"
 
 describe("htmlToText", () => {
   it("drops script and style content rather than reading it as prose", () => {
@@ -35,6 +40,43 @@ describe("truncateForPrompt", () => {
     const out = truncateForPrompt("abcdefghij", 5)
     expect(out.startsWith("abcde")).toBe(true)
     expect(out).toContain("[truncated]")
+  })
+})
+
+// Every one of these is a literal spelling of an address inside our own
+// network. The first version of this guard was a single regex covering only
+// the IPv4 forms, so the whole second list reached the network — including
+// EC2's IPv6 metadata endpoint. Testing the predicate directly rather than
+// through a stubbed fetch: what fails here is a spelling nobody thought of.
+describe("isPrivateHost", () => {
+  it.each([
+    ["localhost", "localhost"],
+    ["a fully-qualified localhost", "localhost."],
+    ["a .localhost subdomain", "api.localhost"],
+    ["loopback", "127.0.0.1"],
+    ["the unspecified address", "0.0.0.0"],
+    ["cloud metadata", "169.254.169.254"],
+    ["private class A", "10.1.2.3"],
+    ["private class B", "172.16.0.1"],
+    ["private class C", "192.168.1.1"],
+    ["carrier-grade NAT", "100.64.0.1"],
+    ["IPv6 loopback", "[::1]"],
+    ["the IPv6 unspecified address", "[::]"],
+    ["IPv6 unique-local", "[fd00:ec2::254]"],
+    ["IPv6 link-local", "[fe80::1]"],
+    ["v4-mapped metadata, hextets", "[::ffff:a9fe:a9fe]"],
+    ["v4-mapped metadata, dotted", "[::ffff:169.254.169.254]"],
+  ])("refuses %s", (_label, host) => {
+    expect(isPrivateHost(host)).toBe(true)
+  })
+
+  it.each([
+    ["an ordinary host", "example.com"],
+    ["a public IPv4 address", "93.184.216.34"],
+    ["a public IPv6 address", "[2001:db8::1]"],
+    ["a hextet that only looks unique-local", "[fd::1]"],
+  ])("allows %s", (_label, host) => {
+    expect(isPrivateHost(host)).toBe(false)
   })
 })
 

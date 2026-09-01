@@ -18,7 +18,12 @@ const MAX_REDIRECTS = 5
 const MAX_TEXT_LENGTH = 20_000
 const MAX_BYTES = 2_000_000
 
-// Hostnames that resolve inside the network this server runs on.
+// Address ranges that land inside the network this server runs on. Written as
+// a predicate rather than one regex because the literal forms of a private
+// address are genuinely varied — the first version of this covered only the
+// IPv4 spellings, and let `[fd00:ec2::254]` (EC2's IPv6 metadata address),
+// `localhost.` and `[::ffff:a9fe:a9fe]` (v4-mapped 169.254.169.254) straight
+// through while claiming to block exactly those hosts.
 //
 // This is checked on **every hop**, not just the URL the user typed. Following
 // redirects automatically made the guard worse than useless: a public URL that
@@ -28,8 +33,63 @@ const MAX_BYTES = 2_000_000
 //
 // It is still not a complete SSRF defence: a hostname that *resolves* to a
 // private address passes, because that needs DNS-level checks. What it does
-// cover is the whole redirect chain, which is what makes it worth having.
-const PRIVATE_HOST = /^(localhost$|127\.|0\.0\.0\.0|10\.|192\.168\.|169\.254\.|::1$|\[::1\]$|172\.(1[6-9]|2\d|3[01])\.)/i
+// cover is every private-address *literal*, on every hop of the chain.
+
+// Leading-octet match, so it over-blocks a public hostname that happens to
+// start "10." — deliberate. Refusing to read someone's URL entry is a far
+// cheaper mistake here than fetching the metadata endpoint.
+const PRIVATE_IPV4 =
+  /^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/
+
+// `[::1]` arrives from URL parsing with its brackets still attached, and a
+// trailing dot is a legal fully-qualified spelling that still resolves — so
+// `localhost.` reaches 127.0.0.1 while `^localhost$` misses it.
+function normalizeHost(hostname: string): string {
+  const host = hostname.toLowerCase().replace(/\.+$/, "")
+  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host
+}
+
+// An IPv6 literal can carry an IPv4 address inside it, dotted (::ffff:127.0.0.1)
+// or as the final two hextets (::ffff:7f00:1). Both need testing as the IPv4
+// address they actually reach.
+function embeddedIpv4(host: string): string | null {
+  const dotted = /(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(host)
+  if (dotted) return dotted[1]
+
+  const hextets = /^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host)
+  if (!hextets) return null
+
+  const high = parseInt(hextets[1], 16)
+  const low = parseInt(hextets[2], 16)
+  return `${high >>> 8}.${high & 0xff}.${low >>> 8}.${low & 0xff}`
+}
+
+function isPrivateIpv6(host: string): boolean {
+  if (host === "::" || host === "::1") return true
+
+  const mapped = embeddedIpv4(host)
+  if (mapped && PRIVATE_IPV4.test(mapped)) return true
+
+  // The first hextet decides the range, but it has to be padded to its full
+  // four digits first: `fd00::1` is unique-local, `fd::1` (hextet 0x00fd) is
+  // not, and comparing the written prefix alone can't tell them apart.
+  const written = host.startsWith("::") ? "0" : host.split(":")[0]
+  const hextet = parseInt(written.padStart(4, "0"), 16)
+  if (Number.isNaN(hextet)) return true
+
+  if (hextet >>> 8 === 0xfc || hextet >>> 8 === 0xfd) return true // fc00::/7
+  return (hextet & 0xffc0) === 0xfe80 // fe80::/10
+}
+
+// Exported for its own test: the failure mode here is a spelling nobody
+// thought of, which is a table of literals to check, not a fetch to stub.
+export function isPrivateHost(hostname: string): boolean {
+  const host = normalizeHost(hostname)
+  if (host === "") return true
+  if (host === "localhost" || host.endsWith(".localhost")) return true
+  if (PRIVATE_IPV4.test(host)) return true
+  return host.includes(":") ? isPrivateIpv6(host) : false
+}
 
 function isFetchableUrl(raw: string): URL | null {
   let url: URL
@@ -39,7 +99,7 @@ function isFetchableUrl(raw: string): URL | null {
     return null
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null
-  if (PRIVATE_HOST.test(url.hostname)) return null
+  if (isPrivateHost(url.hostname)) return null
   return url
 }
 
