@@ -22,13 +22,23 @@ export type SocialAccountStatus = "active" | "revoked"
 export interface ConnectedSocialAccount {
   id: string
   platform: PostPlatform
-  // LinkedIn's `name` claim — "Godwin John".
+  // LinkedIn's `name` claim, or X's — "Godwin John".
   accountName: string
+  // X's `username`, stored without the leading @ (the UI adds it). Null on
+  // LinkedIn, which has no handle.
+  accountHandle: string | null
   accountEmail: string | null
   // LinkedIn's `picture` claim. Null when the member has no photo, which the
   // connected row falls back to the app's gradient avatar for.
   avatarUrl: string | null
   connectedAt: string
+  // When the connection dies and the member has to reconnect — **not**
+  // necessarily when the access token expires. LinkedIn's 60-day token is the
+  // connection, so the two coincide. X's access token lasts two hours and is
+  // renewed silently, so this is its refresh token's ~6-month horizon instead;
+  // showing the token's own expiry there would tell every X user their
+  // connection was expiring today, forever. fetchSocialAccounts resolves which
+  // column that is, so nothing downstream branches on platform.
   expiresAt: string
   // A connection can die *before* expiresAt: the member can revoke Presto's
   // access from LinkedIn's own settings, which nothing here is told about. So

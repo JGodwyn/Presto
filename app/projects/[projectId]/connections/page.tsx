@@ -22,6 +22,7 @@ export default async function ConnectionsPage({
   searchParams: Promise<{
     connected?: string | string[]
     connect_error?: string | string[]
+    connect_error_platform?: string | string[]
   }>
 }) {
   const [{ projectId }, query] = await Promise.all([params, searchParams])
@@ -47,6 +48,7 @@ export default async function ConnectionsPage({
         now={now}
         connected={first(query.connected)}
         connectError={first(query.connect_error)}
+        connectErrorPlatform={first(query.connect_error_platform)}
       />
     </div>
   )

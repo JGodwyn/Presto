@@ -19,8 +19,9 @@ import { cn } from "@/lib/utils";
 import type { PostPlatform } from "@/types/post";
 import type { ConnectedSocialAccount } from "@/types/social-account";
 
-// Figma "Connect / Base" lists LinkedIn first with a Connect button and X as
-// plain "Coming soon" text — one row per platform, in that order. The export
+// Figma "Connect / Base" lists LinkedIn first, X second. The export drew X as
+// plain "Coming soon" text; both are connectable now, so both get a button and
+// `available` is what a future third platform would set to false. The export
 // writes "Linkedin"; the rest of the app writes "LinkedIn", so the brand
 // casing is corrected here the same way the Content page's "it's" typo was.
 const PLATFORMS: {
@@ -29,7 +30,7 @@ const PLATFORMS: {
   available: boolean;
 }[] = [
   { platform: "linkedin", label: "LinkedIn", available: true },
-  { platform: "x", label: "X (Twitter)", available: false },
+  { platform: "x", label: "X (Twitter)", available: true },
 ];
 
 // What the callback's `connect_error` codes say to the user. Nothing from
@@ -38,16 +39,23 @@ const PLATFORMS: {
 //
 // "denied" is deliberately absent: cancelling on LinkedIn's consent screen is
 // a decision, not a failure, and gets no toast.
-const FAILURE_MESSAGES: Partial<Record<LinkedInFailure, string>> = {
-  config: "LinkedIn isn't set up yet",
+//
+// LinkedInFailure and XFailure carry identical codes, so one table serves both
+// with the provider's name filled in — the callback route says which provider
+// it was via `connect_error_platform`, and an absent one reads as LinkedIn,
+// which is the only value the LinkedIn route has ever sent.
+const failureMessages = (
+  provider: string,
+): Partial<Record<LinkedInFailure, string>> => ({
+  config: `${provider} isn't set up yet`,
   session: "You need to be signed in to connect an account",
   project: "Couldn't find that project",
   state: "That connection attempt expired. Please try again",
-  exchange: "LinkedIn couldn't complete the connection",
-  profile: "Couldn't read your LinkedIn profile",
+  exchange: `${provider} couldn't complete the connection`,
+  profile: `Couldn't read your ${provider} profile`,
   save: "Couldn't save that connection. Please try again",
-  network: "Couldn't reach LinkedIn. Check your connection and try again",
-};
+  network: `Couldn't reach ${provider}. Check your connection and try again`,
+});
 
 // The outcome the callback route reported in the URL, as a toast — or null
 // when there's nothing to say.
@@ -58,9 +66,10 @@ const FAILURE_MESSAGES: Partial<Record<LinkedInFailure, string>> = {
 // page already showed, over the top of it.
 function outcomeToast(
   connectError: string | null,
+  provider: string,
 ): { message: string; variant: "danger" } | null {
   if (connectError) {
-    const message = FAILURE_MESSAGES[connectError as LinkedInFailure];
+    const message = failureMessages(provider)[connectError as LinkedInFailure];
     if (message) return { message, variant: "danger" };
   }
   return null;
@@ -79,12 +88,14 @@ function ConnectionsPanel({
   now,
   connected,
   connectError,
+  connectErrorPlatform,
 }: {
   projectId: string;
   accounts: ConnectedSocialAccount[];
   now: number;
   connected: string | null;
   connectError: string | null;
+  connectErrorPlatform: string | null;
 }) {
   const [accounts, setAccounts] = React.useState(initialAccounts);
   const [connecting, setConnecting] = React.useState<PostPlatform | null>(null);
@@ -99,7 +110,13 @@ function ConnectionsPanel({
   // document load, so mount is exactly when there is something to report, and
   // reading it here keeps the effect below to its one legitimate job (telling
   // an external system — the router — to drop the query params).
-  const outcome = outcomeToast(connectError);
+  const outcome = outcomeToast(
+    connectError,
+    // The label carries the brand the copy should name. PLATFORMS is the one
+    // place those live, so the toast can't drift from the row above it.
+    PLATFORMS.find(({ platform }) => platform === connectErrorPlatform)?.label ??
+      "LinkedIn",
+  );
   // Split from the toast's own open/close lifecycle so the message doesn't
   // blank out mid-exit-animation — same reason as writing-style-card.tsx.
   const [toastOpen, setToastOpen] = React.useState(() => outcome !== null);
@@ -133,10 +150,12 @@ function ConnectionsPanel({
 
   const handleConnect = (platform: PostPlatform) => {
     setConnecting(platform);
-    // Not router.push: the destination is a route handler that redirects to
-    // linkedin.com, which is a document navigation the client router can't own.
+    // Not router.push: the destination is a route handler that redirects to the
+    // provider's consent screen, which is a document navigation the client
+    // router can't own. The two providers have parallel route pairs rather than
+    // one parameterized route — see lib/x/oauth.ts on why they aren't merged.
     window.location.assign(
-      `/api/connections/linkedin/authorize?projectId=${projectId}`,
+      `/api/connections/${platform}/authorize?projectId=${projectId}`,
     );
   };
 

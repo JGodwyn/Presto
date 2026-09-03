@@ -99,6 +99,12 @@ interface GeneratedPostCardProps {
   // the state) — this card only owns the placeholder it shows while that's in
   // flight, so it just awaits whatever this resolves to.
   onRegenerate: () => Promise<void>
+  // A reroll started somewhere other than this card's own button — the
+  // too-long-to-switch dialog is the only one today. Without it that reroll
+  // shows no feedback at all (this card owns the placeholder, and never learns
+  // the call went out) and slips past the re-entrancy guard below, so the
+  // card's own button could fire a second one alongside it.
+  regenerating?: boolean
   // Seeded from whichever account was selected on the Generate page;
   // tapping the pill below cycles it independently per card from there.
   // The resolved account this post goes out as — a connected account's own
@@ -145,6 +151,7 @@ export function GeneratedPostCard({
   onTurnToDraft,
   onOpen,
   onRegenerate,
+  regenerating = false,
   account,
   nextAccount,
   onSocialChange,
@@ -166,6 +173,8 @@ export function GeneratedPostCard({
   // reported (as a Toast) by whoever owns onRegenerate, and this card simply
   // reappears with its original content, which is still the truth.
   const [isRegenerating, setIsRegenerating] = React.useState(false)
+  // Either source keeps the placeholder up and the button shut.
+  const busy = isRegenerating || regenerating
   const isMountedRef = React.useRef(true)
   React.useEffect(() => {
     isMountedRef.current = true
@@ -175,7 +184,7 @@ export function GeneratedPostCard({
   }, [])
 
   const handleRegenerate = async () => {
-    if (isRegenerating) return
+    if (busy) return
     setIsRegenerating(true)
     try {
       await onRegenerate()
@@ -313,7 +322,7 @@ export function GeneratedPostCard({
   // this one's default footprint on its own, but a caller that resizes this
   // card (the Content deck's h-98/w-68) has to resize both, or the card
   // visibly changes size the moment it stops being a placeholder.
-  if (isRegenerating) {
+  if (busy) {
     return (
       <div
         key="regenerating"

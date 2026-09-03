@@ -12,11 +12,17 @@ import {
 } from "@/app/projects/[projectId]/generate/post-actions"
 import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import {
-  nextPostAccount,
+  nextAllowedPostAccount,  nextPostAccount,
+  PLATFORM_LABELS,
   resolvePostAccount,
   type PostAccountTarget,
 } from "@/lib/post-account"
+import {
+  exceedsPlatformLimit,
+  PLATFORM_LENGTH_LIMITS,
+} from "@/lib/post-length"
 import { Button } from "@/components/ui/button"
+import { ConfirmationModal } from "@/components/ui/confirmation-modal"
 import { Toast } from "@/components/ui/toast"
 import {
   Tooltip,
@@ -261,6 +267,19 @@ export function DayDeck({
   const [toastExtraInfo, setToastExtraInfo] = React.useState<string | undefined>(
     undefined
   )
+  // Split from the message for the same reason, and held rather than derived so
+  // the button doesn't vanish while the toast is still animating out.
+  // The account switch refused for being too long, with the post it was for.
+  const [blockedSwitch, setBlockedSwitch] = React.useState<{
+    post: Post
+    target: PostAccountTarget
+  } | null>(null)
+  // A reroll started from that dialog rather than a card's own button. The card
+  // owns its placeholder and never sees this call go out, so without it the
+  // regenerate happens with no feedback at all.
+  const [dialogRegeneratingId, setDialogRegeneratingId] = React.useState<
+    string | null
+  >(null)
 
   // How long the whole put-away takes, last card included — what the scrim
   // waits for before it starts fading (see its own note below), and what the
@@ -647,10 +666,31 @@ export function DayDeck({
 
   // Platform and isTryout move together: "Try out" is a cycle position rather
   // than a platform of its own, so a switch always writes both.
+  // The one rule the pill and the guard share. Try out is never refused:
+  // postAccountCycle gives it the post's own platform, and nothing is
+  // published from a try-out post.
+  const refusesPost = (post: Post, target: PostAccountTarget) =>
+    !target.isTryout && exceedsPlatformLimit(post.content, target.platform)
+
   const handleSocialChange = (post: Post, target: PostAccountTarget) => {
+    // Refused here rather than skipped in the cycle — see post-details.tsx for
+    // why: a position that quietly stops being offered reads as "not
+    // connected", and the user never learns the post is simply too long.
+    if (refusesPost(post, target)) {
+      setBlockedSwitch({ post, target })
+      return
+    }
+
+    commitSocialChange(post, target)
+  }
+
+  // The write half, so a reroll that was blocking a switch can apply it once
+  // the new text lands.
+  const commitSocialChange = (post: Post, target: PostAccountTarget) => {
     const previous = { platform: post.platform, isTryout: post.isTryout }
     const patch = { platform: target.platform, isTryout: target.isTryout }
     patchPost(post.id, patch)
+
     void withNetworkStatus(
       updatePost({ projectId, id: post.id, patch }),
     ).then((result) => {
@@ -677,13 +717,20 @@ export function DayDeck({
   // Awaited, not optimistic — there's nothing to show until the model has
   // produced it, and the card holds its own placeholder for exactly this long
   // (same contract as the Generating page's own regenerate).
-  const handleRegenerate = async (post: Post) => {
+  const handleRegenerate = async (post: Post, switchTo?: PostAccountTarget) => {
     // This screen has no model picker of its own, so it reuses whichever
     // model the Generate page last ran on — a BYOK user's reroll should keep
     // running on their own key.
     const model = readPreferredModel(projectId) ?? BUILTIN_MODEL_ID
     const result = await withNetworkStatus(
-      regeneratePost({ projectId, id: post.id, model }),
+      regeneratePost({
+        projectId,
+        id: post.id,
+        model,
+        // The post is still on its old platform until this succeeds, so the
+        // prompt has to be told what it is writing for.
+        targetPlatform: switchTo?.platform,
+      }),
     )
     if (result === null) return
     if ("error" in result) {
@@ -699,6 +746,19 @@ export function DayDeck({
       return
     }
     patchPost(post.id, { content: result.post.content })
+    // Re-checked against the new text rather than assumed — see the same guard
+    // in post-details.tsx. A reroll having *happened* is not the same as the
+    // result fitting.
+    if (switchTo) {
+      if (exceedsPlatformLimit(result.post.content, switchTo.platform)) {
+        showError(
+          `Still too long for ${PLATFORM_LABELS[switchTo.platform]}`,
+          "The post was rewritten but stayed over the limit",
+        )
+      } else {
+        commitSocialChange({ ...post, content: result.post.content }, switchTo)
+      }
+    }
   }
 
   // Portalled to <body>, and it has to be: GlowPanel carries a clip-path (the
@@ -827,6 +887,7 @@ export function DayDeck({
                         onTurnToDraft={() => handleTurnToDraft(post)}
                         onOpen={() => closeThenOpen(post.id)}
                         onRegenerate={() => handleRegenerate(post)}
+                        regenerating={dialogRegeneratingId === post.id}
                         account={resolvePostAccount(post, accounts)}
                         nextAccount={nextPostAccount(post, accounts)}
                         onSocialChange={(target) =>
@@ -869,6 +930,53 @@ export function DayDeck({
       </div>
 
       <div className="pointer-events-none fixed inset-x-0 top-pad-2xl z-50 flex justify-center">
+        <ConfirmationModal
+          open={blockedSwitch !== null}
+          onOpenChange={(open) => {
+            if (!open) setBlockedSwitch(null)
+          }}
+          title={`Too long for ${blockedSwitch ? PLATFORM_LABELS[blockedSwitch.target.platform] : ""}`}
+          description={
+            blockedSwitch
+              ? `This post is ${blockedSwitch.post.content.trim().length.toLocaleString()} characters and ${PLATFORM_LABELS[blockedSwitch.target.platform]} allows ${(PLATFORM_LENGTH_LIMITS[blockedSwitch.target.platform] ?? 0).toLocaleString()}. Regenerate it to fit, or shorten it yourself first.`
+              : ""
+          }
+          actionLabel="Regenerate"
+          actionVariant="brand"
+          secondaryAction={(() => {
+            if (!blockedSwitch) return undefined
+            // The position the cycle would have reached had the refused one
+            // not been offered. Absent when there is none, leaving the corner
+            // X as the only way out — which is correct.
+            // nextAllowedPostAccount, not nextPostAccount — see post-details.
+            const skip = nextAllowedPostAccount(
+              blockedSwitch.post,
+              accounts,
+              (target) => refusesPost(blockedSwitch.post, target),
+            )
+            if (!skip) return undefined
+            return {
+              label: `Skip to ${resolvePostAccount({ ...blockedSwitch.post, ...skip }, accounts).label}`,
+              onClick: () => {
+                const { post } = blockedSwitch
+                setBlockedSwitch(null)
+                commitSocialChange(post, skip)
+              },
+            }
+          })()}
+          onConfirm={() => {
+            const pending = blockedSwitch
+            setBlockedSwitch(null)
+            // Unlike post-details, there is no second dialog to pass through —
+            // this screen has no model picker, so the reroll starts here.
+            if (!pending) return
+            setDialogRegeneratingId(pending.post.id)
+            void handleRegenerate(pending.post, pending.target).finally(() =>
+              setDialogRegeneratingId(null),
+            )
+          }}
+        />
+
         <Toast
           open={toastOpen}
           onOpenChange={setToastOpen}

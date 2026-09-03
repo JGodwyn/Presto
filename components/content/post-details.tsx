@@ -31,6 +31,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  exceedsPlatformLimit,
+  PLATFORM_LENGTH_LIMITS,
+} from "@/lib/post-length"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { STREAM_DONE_MARKER, STREAM_ERROR_MARKER } from "@/lib/ai/model-constants"
 import { generationFailureCopy } from "@/lib/ai/failure-copy"
@@ -38,7 +42,8 @@ import { getCaretOffsetFromPoint } from "@/lib/caret"
 import { formatDate } from "@/lib/format-date"
 import { formatClockTime } from "@/lib/time-of-day"
 import {
-  nextPostAccount,
+  nextAllowedPostAccount,  nextPostAccount,
+  PLATFORM_LABELS,
   resolvePostAccount,
   type PostAccountTarget,
 } from "@/lib/post-account"
@@ -211,13 +216,17 @@ export function PostDetails({
   // Platform and isTryout move together: "Try out" is a cycle position rather
   // than a platform of its own, so a switch always writes both. Optimistic
   // with a revert, like every other edit on this page.
-  const handleSocialChange = (target: PostAccountTarget) => {
+  //
+  // Split into a commit half and a guard half so a reroll that was blocking a
+  // switch can apply it once the new text lands.
+  const commitSocialChange = (target: PostAccountTarget) => {
     const previous = {
       platform: currentPost.platform,
       isTryout: currentPost.isTryout,
     }
     const patch = { platform: target.platform, isTryout: target.isTryout }
     patchPost(patch)
+
     void withNetworkStatus(
       updatePost({ projectId: currentPost.projectId, id: currentPost.id, patch })
     ).then((result) => {
@@ -226,6 +235,44 @@ export function PostDetails({
         if (result !== null) showError("Couldn't change that post's account")
       }
     })
+  }
+
+  // The one rule the pill and the guard below must agree on: a position this
+  // post cannot move to. Try out is never refused — postAccountCycle gives it
+  // the post's own platform, and nothing is published from a try-out post.
+  const refusesPost = (target: PostAccountTarget) =>
+    !target.isTryout && exceedsPlatformLimit(currentPost.content, target.platform)
+
+  // Where "Skip to …" goes: the next position this post can actually move to.
+  // **nextAllowedPostAccount, not nextPostAccount** — the latter deliberately
+  // hands back a *refused* target when every position is refused, so the pill
+  // stays live and can explain itself, and a button built on that would perform
+  // the very switch this dialog opened to refuse. Null here means no second
+  // button and closing is the only way out, which is correct.
+  const skipTarget = nextAllowedPostAccount(currentPost, accounts, refusesPost)
+
+  const handleSocialChange = (target: PostAccountTarget) => {
+    // **The switch is refused while the post cannot fit the platform**, rather
+    // than allowed with a warning. A post on X that X would reject is not a
+    // state worth being able to reach: the only thing to do from there is fix
+    // it, so the fix is asked for first.
+    //
+    // Skipped for a Try out target, and that exemption is load-bearing rather
+    // than a special case: postAccountCycle gives a Try out position the
+    // *post's own* platform, so an X post switching to Try out arrives here
+    // with target.platform === "x" and would otherwise be blocked by a limit
+    // that cannot apply — nothing is ever published from a try-out post.
+    // The pill offers X like any other position, and the refusal happens here
+    // rather than by quietly skipping it in the cycle: a position that silently
+    // stops being offered reads as "X isn't connected", and the user never
+    // learns the post is simply too long. The dialog is where both the reason
+    // and the way past it live.
+    if (refusesPost(target)) {
+      setBlockedSwitch(target)
+      return
+    }
+
+    commitSocialChange(target)
   }
 
   // Click-to-edit content, in place: same idea as GeneratedPostCard's
@@ -399,6 +446,25 @@ export function PostDetails({
   }
 
   const [regenerateOpen, setRegenerateOpen] = React.useState(false)
+  // The account switch that was refused for being too long, held so the modal
+  // can name it and so a successful reroll knows what to switch to afterwards.
+  const [blockedSwitch, setBlockedSwitch] =
+    React.useState<PostAccountTarget | null>(null)
+  // The switch to apply after a reroll launched from the too-long dialog. State
+  // rather than a ref because the regenerate dialog renders from it — it is
+  // what tells that dialog which platform the reroll is *for*, and so which
+  // models can meet its length limit. Cleared once used, so an ordinary later
+  // reroll can't re-trigger a switch the user already got.
+  const [pendingSwitch, setPendingSwitch] =
+    React.useState<PostAccountTarget | null>(null)
+  // The account a reroll is currently writing *for*, while it is in flight.
+  // Display only — the post genuinely stays on its old platform until the new
+  // text lands (that ordering is the whole point of refusing the switch), but
+  // showing the old one while the user watches a post being written for the
+  // new one is a lie about what is happening. State rather than the ref above
+  // because the pill has to re-render when it changes.
+  const [regeneratingFor, setRegeneratingFor] =
+    React.useState<PostAccountTarget | null>(null)
   const [isRegenerating, setIsRegenerating] = React.useState(false)
   // What's actually shown in the body while regenerating — advances toward
   // `receivedRef.current` one line at a time (see the reveal effect below).
@@ -516,9 +582,19 @@ export function PostDetails({
   const handleRegenerate = async (
     guidance: string,
     model: string,
-    topic: string | undefined
+    topic: string | undefined,
+    // Set only by the too-long-to-switch flow. The post is still on its old
+    // platform for the whole of this call — the switch is applied at the end,
+    // and only on a clean finish — so the prompt has to be told what it is
+    // writing for rather than reading it off the row.
+    switchTo?: PostAccountTarget
   ) => {
     setRegenerateOpen(false)
+    // Consumed, not read: `switchTo` already holds it, and leaving it set would
+    // make a later ordinary reroll apply a switch nobody asked for — no failure
+    // path below clears it, they all return early.
+    setPendingSwitch(null)
+    setRegeneratingFor(switchTo ?? null)
     setIsRegenerating(true)
     setChunks([])
     receivedRef.current = ""
@@ -561,6 +637,7 @@ export function PostDetails({
           model,
           guidance: guidance || undefined,
           topic,
+          targetPlatform: switchTo?.platform,
         }),
       })
     } catch (error) {
@@ -677,6 +754,24 @@ export function PostDetails({
     // above returns before here, and none of them persisted anything.
     if (topic && topic !== currentPost.topics[0]) {
       patchPost({ topics: [topic] })
+    }
+    // The switch that was refused before the reroll. Deliberately last, and
+    // only on this clean-finish path: every failure above returns before here.
+    //
+    // **Re-checked against the new text rather than assumed.** "It has been
+    // regenerated" is not the same as "it fits" — a model can overshoot, and
+    // TasteTest ignores the prompt entirely and always will. Committing on the
+    // strength of the reroll alone would put a post on X that X would reject,
+    // which is the exact state the refusal exists to prevent.
+    if (switchTo) {
+      if (exceedsPlatformLimit(receivedRef.current, switchTo.platform)) {
+        showError(
+          `Still too long for ${PLATFORM_LABELS[switchTo.platform]}`,
+          "The post was rewritten but stayed over the limit"
+        )
+      } else {
+        commitSocialChange(switchTo)
+      }
     }
     // The reveal effect's own tick takes it from here — it notices
     // streamDoneRef flipping true, catches the last (possibly unterminated)
@@ -888,8 +983,21 @@ export function PostDetails({
             topic has since been deleted from Instructions renders retired. */}
           <div className="flex shrink-0 flex-wrap items-center gap-dist-md">
             <PostAccountPill
-              account={resolvePostAccount(currentPost, accounts)}
-              nextAccount={nextPostAccount(currentPost, accounts)}
+              // While a reroll is in flight for a *different* account, the
+              // pill shows that one. Gated on isRegenerating rather than
+              // cleared on every exit path: releaseRegenerate deliberately
+              // does no setState (it also runs on unmount), so the flag that
+              // is already maintained everywhere is the reliable gate, and a
+              // stale regeneratingFor simply never renders.
+              account={resolvePostAccount(
+                isRegenerating && regeneratingFor
+                  ? { ...currentPost, ...regeneratingFor }
+                  : currentPost,
+                accounts
+              )}
+              nextAccount={
+                isRegenerating ? null : nextPostAccount(currentPost, accounts)
+              }
               onSelect={handleSocialChange}
               className="max-w-60"
             />
@@ -1000,15 +1108,62 @@ export function PostDetails({
           direct request to mirror the Generate page's own treatment. */}
       <RegenerateModal
         open={regenerateOpen}
-        onOpenChange={setRegenerateOpen}
+        onOpenChange={(open) => {
+          // Backing out of the reroll abandons the switch it was going to
+          // apply — the post stays where it was, which is what refusing the
+          // switch in the first place promised.
+          if (!open) setPendingSwitch(null)
+          setRegenerateOpen(open)
+        }}
         projectId={currentPost.projectId}
         // The same live topic list the chips above are checked against — no
         // extra fetch, and the two can't disagree about what still exists.
         topics={activeTopics}
         currentTopic={currentPost.topics[0]}
+        // The platform this reroll writes for: the one a refused switch is
+        // waiting on, or the post's own when it is an ordinary regenerate.
+        targetPlatform={pendingSwitch?.platform ?? currentPost.platform}
         onConfirm={(guidance, model, topic) =>
-          void handleRegenerate(guidance, model, topic)
+          void handleRegenerate(guidance, model, topic, pendingSwitch ?? undefined)
         }
+      />
+
+      {/* The refused switch. Confirming hands straight over to the regenerate
+          dialog, carrying the pending switch with it — the post moves only once
+          text written for the target platform exists. Dismissing leaves the
+          post exactly where it was. */}
+      <ConfirmationModal
+        open={blockedSwitch !== null}
+        onOpenChange={(open) => {
+          if (!open) setBlockedSwitch(null)
+        }}
+        title={`Too long for ${blockedSwitch ? PLATFORM_LABELS[blockedSwitch.platform] : ""}`}
+        description={
+          blockedSwitch
+            ? `This post is ${currentPost.content.trim().length.toLocaleString()} characters and ${PLATFORM_LABELS[blockedSwitch.platform]} allows ${(PLATFORM_LENGTH_LIMITS[blockedSwitch.platform] ?? 0).toLocaleString()}. Regenerate it to fit, or shorten it yourself first.`
+            : ""
+        }
+        actionLabel="Regenerate"
+        actionVariant="brand"
+        secondaryAction={
+          skipTarget
+            ? {
+                label: `Skip to ${resolvePostAccount({ ...currentPost, ...skipTarget }, accounts).label}`,
+                onClick: () => {
+                  const target = skipTarget
+                  setBlockedSwitch(null)
+                  commitSocialChange(target)
+                },
+              }
+            : undefined
+        }
+        onConfirm={() => {
+          // Handed over before this modal closes, so the regenerate dialog
+          // opens already knowing which platform the reroll is for.
+          setPendingSwitch(blockedSwitch)
+          setBlockedSwitch(null)
+          setRegenerateOpen(true)
+        }}
       />
 
       {/* The same shared picker the generated-post card uses

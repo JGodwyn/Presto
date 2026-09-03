@@ -7,12 +7,19 @@ import { isLivenessCheckDue } from "@/lib/linkedin/liveness"
 import { withNetworkStatus } from "@/lib/network-status"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 
-// Asks LinkedIn, in the background, whether each connection is still alive.
+// Asks each provider, in the background, whether a connection is still alive.
 //
-// **Why this exists at all:** a member can revoke Presto's access from
-// LinkedIn's own settings, and nothing tells us. The row keeps reading green
-// until its 60 days run out, so the first symptom would be a 401 from whatever
-// finally used the token. The only way to find out is to use it.
+// **Why this exists at all:** a member can revoke Presto's access from the
+// provider's own settings, and nothing tells us. The row keeps reading green
+// until its expiry runs out, so the first symptom would be a rejection from
+// whatever finally used the token. The only way to find out is to use it.
+//
+// How that is done differs per platform and is decided server-side by
+// checkSocialAccountLiveness — LinkedIn spends a request, X gets the answer
+// free from the token refresh it needs anyway. This hook is deliberately
+// platform-blind: an earlier version filtered X out here, which pushed a
+// server-side policy into the client and left X connections never checked at
+// all once they had a real answer to give.
 //
 // Runs *after* mount and never blocks a render: the page paints from the
 // database as it always did, and a row only changes if the answer comes back
