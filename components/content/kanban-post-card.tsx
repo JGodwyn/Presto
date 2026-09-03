@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 
+import { PostStatusMarker } from "@/components/content/post-status-marker"
 import { PostAccountPill } from "@/components/shared/post-account-pill"
 import { Chip } from "@/components/ui/chip"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
@@ -103,6 +104,9 @@ export function KanbanPostCard({
             {formatClockTime(scheduled)}
           </span>
         ) : null}
+        {/* Straight after the time, which is what it qualifies: the time says
+            when this was meant to go out, and the marker says it didn't. */}
+        <PostStatusMarker post={post} />
         <PostAccountPill
           account={account}
           // Display-only here: the whole card is a single link to the post's

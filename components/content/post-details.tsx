@@ -8,6 +8,7 @@ import {
   ArrowArcLeftIcon,
   ArrowClockwise,
   CalendarDots,
+  PaperPlaneTilt,
   CaretLeft,
   PencilSimple,
   Scribble,
@@ -17,9 +18,11 @@ import {
 import { TextMorph } from "torph/react"
 
 import { deletePost, updatePost } from "@/app/projects/[projectId]/generate/post-actions"
+import { publishPost } from "@/app/projects/[projectId]/generate/publish-actions"
 import { RegenerateModal } from "@/components/content/regenerate-modal"
 import { StreamedLine } from "@/components/content/streamed-line"
 import { DateTimePickerDialog } from "@/components/shared/date-time-picker-dialog"
+import { PostStatusMarker } from "@/components/content/post-status-marker"
 import { PostAccountPill } from "@/components/shared/post-account-pill"
 import { AnimateText } from "@/components/ui/animated-text"
 import { Button } from "@/components/ui/button"
@@ -44,6 +47,7 @@ import {
 } from "@/lib/post-account"
 import { isNetworkError } from "@/lib/network-error"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { canAttemptPublish } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -150,6 +154,17 @@ export function PostDetails({
     ? new Date(currentPost.scheduledFor)
     : undefined
 
+  // Once a post is live, this page can no longer tell the whole truth about
+  // it: LinkedIn owns the copy that people are reading, and nothing here can
+  // change or recall it. So the two actions that would make the screen lie are
+  // shut off — regenerating would show text that isn't what went out, and
+  // moving it back to drafts would file a published post as unwritten. Delete
+  // stays (it removes Presto's record, and its own copy says the live post
+  // survives), and the publish control is gone by construction, since
+  // canAttemptPublish refuses an already-published post.
+  const isPublished = currentPost.publishedAt !== null
+  const canPublish = canAttemptPublish(currentPost, accounts)
+
   const { ref: contentFadeRef, onScroll: onContentScroll } = useScrollFade()
   // A separate instance for the streaming view specifically: during the
   // ~300ms the old view is fading out (AnimatePresence, below), both it and
@@ -161,10 +176,12 @@ export function PostDetails({
   const [pickerOpen, setPickerOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [isDeleting, setIsDeleting] = React.useState(false)
+  const [publishOpen, setPublishOpen] = React.useState(false)
+  const [isPublishing, setIsPublishing] = React.useState(false)
 
   const [toast, setToast] = React.useState<{
     open: boolean
-    variant: "info" | "danger"
+    variant: "info" | "danger" | "success"
     message: string
     action?: ToastAction
     // The small capsule tucked under the toast (toast.tsx's `extraInfo`) —
@@ -684,6 +701,49 @@ export function PostDetails({
     streamDoneRef.current = true
   }
 
+  // The one irreversible, public action on this page. Awaited rather than
+  // optimistic — there is nothing true to show until LinkedIn has confirmed
+  // the post exists — and the only thing here that asks before it runs.
+  const handleConfirmPublish = async () => {
+    setIsPublishing(true)
+    const result = await withNetworkStatus(
+      publishPost({ projectId: currentPost.projectId, id: currentPost.id })
+    )
+    setIsPublishing(false)
+
+    if (result === null) {
+      setPublishOpen(false)
+      return
+    }
+    if ("error" in result) {
+      setPublishOpen(false)
+      // The action's refusals are already written for a reader — the gate
+      // being shut, a connection to reconnect, LinkedIn refusing — so they are
+      // shown verbatim rather than flattened into one generic line.
+      showError(result.error)
+      // Only an attempt that reached LinkedIn wrote publish_error to the row;
+      // a refusal (the gate, an expired connection) left the post untouched,
+      // and mirroring one here would show a failure the database doesn't have.
+      if (result.recorded) patchPost({ publishError: result.failure ?? "publish" })
+      return
+    }
+
+    setPublishOpen(false)
+    patchPost({
+      status: "published",
+      publishedAt: result.publishedAt,
+      providerPostId: result.postUrn,
+      publishError: null,
+    })
+    setToast({
+      open: true,
+      variant: "success",
+      message: "Published to LinkedIn",
+      action: undefined,
+      extraInfo: undefined,
+    })
+  }
+
   const handleConfirmDelete = async () => {
     setIsDeleting(true)
     const result = await withNetworkStatus(
@@ -727,6 +787,33 @@ export function PostDetails({
         </Button>
 
         <div className="flex items-center gap-dist-md">
+          {/* Publishing leads the row, and is the one control here in the
+              success green — Regenerate already owns `brand`, and the two
+              must not read as the same weight of action when one of them is
+              irreversible and public. Gone entirely once the post is live
+              (canAttemptPublish), rather than sitting there disabled. */}
+          {canPublish ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="success"
+                    size="icon-sm"
+                    aria-label="Publish post now"
+                    disabled={isPublishing}
+                    onClick={() => setPublishOpen(true)}
+                  >
+                    {isPublishing ? (
+                      <SpinnerGap weight="bold" className="animate-spin" />
+                    ) : (
+                      <PaperPlaneTilt weight="bold" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipContent>Publish now</TooltipContent>
+            </Tooltip>
+          ) : null}
           <Tooltip>
             <TooltipTrigger
               render={
@@ -734,7 +821,7 @@ export function PostDetails({
                   variant="brand"
                   size="icon-sm"
                   aria-label="Regenerate post"
-                  disabled={isRegenerating}
+                  disabled={isRegenerating || isPublished}
                   onClick={() => setRegenerateOpen(true)}
                 >
                   {isRegenerating ? (
@@ -745,7 +832,11 @@ export function PostDetails({
                 </Button>
               }
             />
-            <TooltipContent>Regenerate</TooltipContent>
+            <TooltipContent>
+              {isPublished
+                ? "Already published — rewriting it here wouldn't change the live post"
+                : "Regenerate"}
+            </TooltipContent>
           </Tooltip>
           {/* The export's own labels: "Move to drafts" on a dated post. The
               drafts screen shows a calendar icon here instead — its label prop
@@ -759,6 +850,7 @@ export function PostDetails({
                   variant="brand-secondary"
                   size="icon-sm"
                   aria-label={scheduled ? "Move to drafts" : "Add to calendar"}
+                  disabled={isPublished}
                   onClick={
                     scheduled ? handleMoveToDraft : () => setPickerOpen(true)
                   }
@@ -772,7 +864,11 @@ export function PostDetails({
               }
             />
             <TooltipContent>
-              {scheduled ? "Make draft" : "Add to calendar"}
+              {isPublished
+                ? "Already published — it can't go back to being a draft"
+                : scheduled
+                  ? "Make draft"
+                  : "Add to calendar"}
             </TooltipContent>
           </Tooltip>
           <Tooltip>
@@ -887,6 +983,10 @@ export function PostDetails({
             display-only here (they're assigned at generation), and one whose
             topic has since been deleted from Instructions renders retired. */}
           <div className="flex shrink-0 flex-wrap items-center gap-dist-md">
+            {/* Leads the row when there is something wrong: the card's version
+                of this shows a two-word label, and here — where there is room
+                and where the fix lives — it carries the reason as well. */}
+            <PostStatusMarker post={currentPost} withReason />
             <PostAccountPill
               account={resolvePostAccount(currentPost, accounts)}
               nextAccount={nextPostAccount(currentPost, accounts)}
@@ -1025,12 +1125,36 @@ export function PostDetails({
           confirmation-modal.tsx, design-sync/defaultconfirmationmodal) — a
           single full-width danger action, no separate Cancel button; the
           dialog's own corner X is the dismiss. */}
+      {/* Publishing is the only thing in this app that puts something in
+          front of other people, and Presto cannot take it back afterwards —
+          so it asks first, and the question names the account it goes out as
+          rather than just "are you sure". */}
+      <ConfirmationModal
+        open={publishOpen}
+        onOpenChange={(open) => {
+          if (!open && !isPublishing) setPublishOpen(false)
+        }}
+        icon={
+          <PaperPlaneTilt weight="fill" className="size-12 text-icon-success" />
+        }
+        title="Publish this post?"
+        description={`This goes out publicly as ${resolvePostAccount(currentPost, accounts).label} right now, and Presto can't take it back.`}
+        actionLabel="Publish now"
+        actionVariant="success"
+        isPending={isPublishing}
+        onConfirm={() => void handleConfirmPublish()}
+      />
+
       <ConfirmationModal
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         icon={<Trash weight="bold" className="size-12 text-icon-minimal" />}
         title="Delete post"
-        description="You can't undo this. Are you sure you want to delete this post?"
+        description={
+          isPublished
+            ? "This removes Presto's copy. The post itself stays up on LinkedIn — delete it there too if you want it gone."
+            : "You can't undo this. Are you sure you want to delete this post?"
+        }
         actionLabel="Delete post"
         isPending={isDeleting}
         onConfirm={() => void handleConfirmDelete()}

@@ -3,13 +3,14 @@
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { X } from "@phosphor-icons/react"
+import { PaperPlaneTilt, X } from "@phosphor-icons/react"
 
 import {
   deletePost,
   regeneratePost,
   updatePost,
 } from "@/app/projects/[projectId]/generate/post-actions"
+import { publishPost } from "@/app/projects/[projectId]/generate/publish-actions"
 import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import {
   nextPostAccount,
@@ -17,6 +18,8 @@ import {
   type PostAccountTarget,
 } from "@/lib/post-account"
 import { Button } from "@/components/ui/button"
+import { PostStatusMarker } from "@/components/content/post-status-marker"
+import { ConfirmationModal } from "@/components/ui/confirmation-modal"
 import { Toast } from "@/components/ui/toast"
 import {
   Tooltip,
@@ -29,6 +32,7 @@ import { generationFailureCopy } from "@/lib/ai/failure-copy"
 import { BUILTIN_MODEL_ID } from "@/lib/ai/model-constants"
 import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { canAttemptPublish } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -256,6 +260,16 @@ export function DayDeck({
   const [closing, setClosing] = React.useState(false)
   const [toastOpen, setToastOpen] = React.useState(false)
   const [toastMessage, setToastMessage] = React.useState("")
+  // Every other toast this deck raises reports a failure; publishing is the
+  // one thing here worth confirming succeeded, so the variant is state now.
+  const [toastVariant, setToastVariant] = React.useState<"danger" | "success">(
+    "danger",
+  )
+  // The post awaiting a publish confirmation, and whether its send is in
+  // flight. Held as the post itself rather than an id so the modal can name
+  // the account it is going out as while the menu that opened it is long gone.
+  const [publishTarget, setPublishTarget] = React.useState<Post | null>(null)
+  const [publishing, setPublishing] = React.useState(false)
   // Split from the message so it can't blank out mid-exit-animation, same as
   // the message itself.
   const [toastExtraInfo, setToastExtraInfo] = React.useState<string | undefined>(
@@ -272,8 +286,16 @@ export function DayDeck({
   const dragScroll = useDragScroll()
 
   const showError = (message: string, extraInfo?: string) => {
+    setToastVariant("danger")
     setToastMessage(message)
     setToastExtraInfo(extraInfo)
+    setToastOpen(true)
+  }
+
+  const showSuccess = (message: string) => {
+    setToastVariant("success")
+    setToastMessage(message)
+    setToastExtraInfo(undefined)
     setToastOpen(true)
   }
 
@@ -645,6 +667,58 @@ export function DayDeck({
     )
   }
 
+  // Publishing, which is the one action here that is **irreversible and
+  // public** — so it is the one that asks first (ConfirmationModal) and the
+  // one that is awaited rather than optimistic. Nothing about the card moves
+  // until LinkedIn has confirmed the post exists: flying it home on a hope and
+  // reversing that on a failure would mean showing "published" for a post that
+  // never went out.
+  const handlePublish = async () => {
+    const post = publishTarget
+    if (!post) return
+
+    setPublishing(true)
+    const result = await withNetworkStatus(
+      publishPost({ projectId, id: post.id }),
+    )
+    setPublishing(false)
+    setPublishTarget(null)
+
+    if (result === null) return
+    if ("error" in result) {
+      // Every refusal the action can return is already a sentence written for
+      // a reader (FAILURE_MESSAGES in publish-actions.ts) — the gate being
+      // shut, the connection being expired, LinkedIn refusing — so it is shown
+      // as-is rather than flattened into "couldn't publish that post".
+      showError(result.error)
+      // Only when the attempt actually reached LinkedIn: that is the case that
+      // wrote publish_error to the row, and mirroring it here is what turns the
+      // card's failed treatment on without a refetch. A refusal wrote nothing.
+      if (result.recorded) {
+        patchPost(post.id, { publishError: result.failure ?? "publish" })
+      }
+      return
+    }
+
+    const patch = {
+      status: "published" as const,
+      publishedAt: result.publishedAt,
+      providerPostId: result.postUrn,
+      publishError: null,
+    }
+    const commit = () => patchPost(post.id, patch)
+
+    // A published post leaves the Queued tab for Published, so it leaves this
+    // deck — by flying home into its chip, like every other departure here.
+    // Asked through the same predicate rather than assumed: a deck opened on
+    // the Published tab has nowhere to send it, and this stays correct if the
+    // tabs ever change.
+    if (keyForPost({ ...post, ...patch }) === dayKey) commit()
+    else leaveDeck(post.id, commit)
+
+    showSuccess("Published to LinkedIn")
+  }
+
   // Platform and isTryout move together: "Try out" is a cycle position rather
   // than a platform of its own, so a switch always writes both.
   const handleSocialChange = (post: Post, target: PostAccountTarget) => {
@@ -824,6 +898,12 @@ export function DayDeck({
                         }
                         onDateChange={(date) => handleDateChange(post, date)}
                         onDelete={() => handleDelete(post)}
+                        statusMarker={<PostStatusMarker post={post} />}
+                        onPublish={
+                          canAttemptPublish(post, accounts)
+                            ? () => setPublishTarget(post)
+                            : undefined
+                        }
                         onTurnToDraft={() => handleTurnToDraft(post)}
                         onOpen={() => closeThenOpen(post.id)}
                         onRegenerate={() => handleRegenerate(post)}
@@ -868,11 +948,35 @@ export function DayDeck({
         </Button>
       </div>
 
+      {/* The confirmation. Publishing is the only thing in this app that puts
+          something in front of other people, and it cannot be undone from
+          here — LinkedIn owns the post once it exists — so it asks, and the
+          question names where it is going rather than just "are you sure". */}
+      <ConfirmationModal
+        open={publishTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !publishing) setPublishTarget(null)
+        }}
+        icon={
+          <PaperPlaneTilt weight="fill" className="size-12 text-icon-success" />
+        }
+        title="Publish this post?"
+        description={
+          publishTarget
+            ? `This goes out publicly as ${resolvePostAccount(publishTarget, accounts).label} right now, and Presto can't take it back.`
+            : ""
+        }
+        actionLabel="Publish now"
+        actionVariant="success"
+        isPending={publishing}
+        onConfirm={() => void handlePublish()}
+      />
+
       <div className="pointer-events-none fixed inset-x-0 top-pad-2xl z-50 flex justify-center">
         <Toast
           open={toastOpen}
           onOpenChange={setToastOpen}
-          variant="danger"
+          variant={toastVariant}
           direction="top"
           extraInfo={toastExtraInfo}
         >

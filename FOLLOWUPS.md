@@ -84,9 +84,18 @@ Nothing here should be built speculatively.
 **Partly built as of 2026-08-31** (`feat/connection-expiry`, explicitly
 authorized): `lib/linkedin/publish.ts` + `publish-actions.ts` hold the share
 path behind a two-key gate that is refused-by-default, and nothing calls them.
-The scope flip below is still the un-taken step, and is still the destructive
-one. The author URN needed no migration after all — it has been stored as
+The author URN needed no migration after all — it has been stored as
 `social_accounts.provider_account_id` since this branch wrote it.
+
+**The scope flip is done as of 2026-09-02** (`feat/linkedin-publish`, explicitly
+green-lit): `w_member_social` is in `LINKEDIN_SCOPES` (now in
+`lib/linkedin/scopes.ts`), and every connection made before that date reports
+itself stale via `grantIsCurrent` and asks to reconnect on the Connections
+page. **`PRESTO_ENABLE_LIVE_PUBLISH` is still unset**, so the gate's first key
+still refuses everything — holding the permission is not using it. What is
+left of this entry is the actual publishing phase: a control that calls
+`publishPost`, and anything scheduled. Both still need asking first, every
+time.
 
 Two facts confirmed against LinkedIn's docs that will shape that work:
 
@@ -104,6 +113,41 @@ Two facts confirmed against LinkedIn's docs that will shape that work:
 Also unbuilt by design: **X (Twitter)**, which renders as "Coming soon" with no
 control, and has a `platform` value reserved in the `social_accounts` check
 constraint but no flow behind it.
+
+---
+
+## 5b. Decide: what a *published* post may still do
+
+**From:** `feat/linkedin-publish`, 2026-09-02. **This is an open question the
+user raised and deliberately parked**, not a bug.
+
+Publishing currently closes two doors on a post: once `published_at` is set,
+post-details disables Regenerate and Move-to-drafts, on the grounds that
+LinkedIn owns the copy people are reading and this screen would otherwise show
+text that isn't what went out. Delete stays, and says the live post survives.
+
+The user's own words: *"later we might need to push it back to being any post
+on a future date or not. i don't know."* So the question left open is whether a
+published post should be re-datable — scheduled again as a *new* post, or
+re-opened for editing — and if so, whether that is a copy or the same row.
+Nothing should change here until that is decided; the current behaviour is the
+conservative reading and is easy to loosen later.
+
+---
+
+## 5c. A published draft still reads "Draft" on its own page
+
+**From:** `feat/linkedin-publish`, 2026-09-03. Small, cosmetic, one line.
+
+post-details' heading is the scheduled date or the word "Draft". A post
+published straight from a draft never gets a date (`scheduled_for` stays null by
+design), so its own page now says **Draft** above a post that is live on
+LinkedIn. The Content page is right about it — it sits on the Published tab
+under the day it went out — so this is only the heading.
+
+Found by publishing one for real. Not fixed here because the obvious fix ("show
+the published date instead") overlaps the question parked in 5b about what a
+published post is allowed to be, and that should be decided once.
 
 ---
 
