@@ -75,44 +75,89 @@ protection is disabled on Supabase Auth. That's a dashboard toggle
 
 ---
 
-## 5. Prerequisites for the publishing phase
+## 5. Publishing is built and verified — what is left is deployment
 
-**From:** `feat/connections-page`, 2026-08-21. **Blocked on the user explicitly
-green-lighting publishing** — see AGENTS.md, "Hard constraint — publishing".
-Nothing here should be built speculatively.
+**From:** `feat/linkedin-publish`, 2026-09-03. This entry replaces the old
+"prerequisites" list, which is done: `w_member_social` is requested, the manual
+trigger and the scheduler exist, and **all three paths have been exercised
+against the live API** — a refusal with the gate shut, a manual send
+(`urn:li:share:7501150776556412931`), and a scheduled send the cron made on its
+own (`urn:li:share:7501154742442684416`). See EXECUTIONS.md, 2026-09-02/03.
 
-**Partly built as of 2026-08-31** (`feat/connection-expiry`, explicitly
-authorized): `lib/linkedin/publish.ts` + `publish-actions.ts` hold the share
-path behind a two-key gate that is refused-by-default, and nothing calls them.
-The author URN needed no migration after all — it has been stored as
-`social_accounts.provider_account_id` since this branch wrote it.
+`PRESTO_ENABLE_LIVE_PUBLISH` is **unset**, so everything is refused again. It is
+absent from `.env.local.example` on purpose: it is not configuration, it is a
+deliberate act. Note the restart tax — a running server keeps the old env until
+it restarts, so removing the line is not the same as the gate being shut.
 
-**The scope flip is done as of 2026-09-02** (`feat/linkedin-publish`, explicitly
-green-lit): `w_member_social` is in `LINKEDIN_SCOPES` (now in
-`lib/linkedin/scopes.ts`), and every connection made before that date reports
-itself stale via `grantIsCurrent` and asks to reconnect on the Connections
-page. **`PRESTO_ENABLE_LIVE_PUBLISH` is still unset**, so the gate's first key
-still refuses everything — holding the permission is not using it. What is
-left of this entry is the actual publishing phase: a control that calls
-`publishPost`, and anything scheduled. Both still need asking first, every
-time.
+### 5.1 Blocked on deployment (nothing here can be done from a laptop)
 
-Two facts confirmed against LinkedIn's docs that will shape that work:
+- **The pg_cron schedule.** Postgres cannot reach `localhost`, so the scheduler
+  only becomes real once there is a deployed origin. Locally it was ticked with
+  curl. The SQL, cadence already decided (one minute):
 
-- **Adding `w_member_social` invalidates every token already issued.** Per
-  LinkedIn: "if you request a different scope than the previously granted scope,
-  all the previous access tokens are invalidated." So switching publishing on is
-  a *migration*, not a scope-string edit: every connected account in the app
-  must reconnect, and the UI has to say so rather than silently 401. The
-  existing expired treatment is the obvious thing to reuse.
-- **Granted scopes come back comma-delimited** (`email,openid,profile`) even
-  though they're sent space-delimited. Anything checking whether a scope was
-  granted must split on both, or it will report a granted scope as missing.
-  Noted in `lib/linkedin/oauth.ts` where the value is stored.
+  ```sql
+  create extension if not exists pg_cron;
+  create extension if not exists pg_net;
+  select cron.schedule('presto-publish-due', '* * * * *', $$
+    select net.http_get(
+      url := '<deployed origin>/api/cron/publish',
+      headers := jsonb_build_object('Authorization', 'Bearer ' || '<CRON_SECRET>')
+    );
+  $$);
+  ```
 
-Also unbuilt by design: **X (Twitter)**, which renders as "Coming soon" with no
-control, and has a `platform` value reserved in the `social_accounts` check
-constraint but no flow behind it.
+  To stop it: `select cron.unschedule('presto-publish-due');`
+- **Production env**: `CRON_SECRET` (generate a fresh one, don't reuse the local
+  value), `SUPABASE_SERVICE_ROLE_KEY`, `MODEL_KEY_ENCRYPTION_KEY` (must match
+  whatever encrypted the stored tokens), `LINKEDIN_CLIENT_ID`/`SECRET`.
+- **Register the production callback URL** with the LinkedIn app —
+  `https://<origin>/api/connections/linkedin/callback`. Only
+  `http://localhost:3000/...` is registered today, which is why the OAuth leg
+  only works there.
+- **The gate itself.** Publishing stays off in production until it is set to
+  exactly `"true"`.
+
+### 5.2 Blocked on the schema lock (`feat/x-connect` holds it)
+
+- **A partial index on `scheduled_for`.** The scheduler queries once a minute;
+  `posts` has only `posts_pkey` and `posts_project_id_idx` today. Cheap now,
+  worth having before the table grows:
+
+  ```sql
+  create index posts_scheduled_for_idx on public.posts (scheduled_for)
+    where published_at is null;
+  ```
+
+  Fold it in with FOLLOWUPS #4, which already collects index work.
+
+### 5.3 Before anyone but the owner can connect
+
+- **The LinkedIn app is almost certainly still in development mode**, in which
+  LinkedIn only lets members who are admins or developers *of the app* complete
+  authorization. Users never create their own app — there is one app and they
+  authorize it — but until it is verified against a LinkedIn Company Page (and
+  both products are added), a stranger is refused at LinkedIn's own screen. The
+  cheapest test is to have one other person try Connect on a deployed build.
+- **Nothing tells a user their connection died.** Tokens last 60 days with no
+  refresh available to a standard app. The owner will notice the chip on
+  Connections; a stranger will not, and their scheduled posts will simply stop,
+  wearing "Didn't send". Needs an email or some out-of-app signal before this
+  has real users.
+- **LinkedIn's rate limits are per-app, shared across all users.** The
+  scheduler's cap of 5 posts per tick is a useful ceiling; a busy app may need
+  more thought.
+
+### 5.4 Left deliberately
+
+- **A failed post is never retried automatically.** It keeps its "Didn't send"
+  marker until a person opens it and publishes again — retrying blind is how one
+  dead connection becomes a stream of failures. If an automatic retry is ever
+  wanted, it needs a bounded count and a reason to believe the cause has passed.
+- **X (Twitter)** still has a `platform` value reserved and no flow behind it;
+  `publishBlockedReason` returns `platform_unsupported` for it by design.
+- **AGENTS.md's "Hard constraint — publishing" section still describes the old
+  world** and needs the user's own hand. INTERFACE.md §10a has been rewritten to
+  describe the gate that replaced it.
 
 ---
 
