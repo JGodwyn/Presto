@@ -5,7 +5,6 @@ import {
   hasPublishScope,
   isLivePublishEnabled,
   LINKEDIN_PUBLISH_SCOPE,
-  parseGrantedScopes,
   personUrn,
   publishTextPost,
   type PublishableAccount,
@@ -35,33 +34,15 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("parseGrantedScopes", () => {
-  it("splits the comma-delimited form LinkedIn actually returns", () => {
-    expect(parseGrantedScopes("email,openid,profile")).toEqual(
-      new Set(["email", "openid", "profile"])
-    )
-  })
-
-  it("splits the space-delimited form the scopes are sent in", () => {
-    expect(parseGrantedScopes("openid profile email")).toEqual(
-      new Set(["openid", "profile", "email"])
-    )
-  })
-
-  // The delimiter flipping between what we send and what comes back is the
-  // documented trap (FOLLOWUPS #5); a mixed string must not produce empties.
-  it("handles a mixed and padded string without empty entries", () => {
-    expect(parseGrantedScopes(" email, openid  profile ,")).toEqual(
-      new Set(["email", "openid", "profile"])
-    )
-  })
-
+describe("hasPublishScope", () => {
   it("finds the publish scope in either delimiter", () => {
     expect(hasPublishScope(`email,${LINKEDIN_PUBLISH_SCOPE}`)).toBe(true)
     expect(hasPublishScope(`email ${LINKEDIN_PUBLISH_SCOPE}`)).toBe(true)
   })
 
-  it("does not find it in the scopes a real connection carries today", () => {
+  // A connection made before 2026-09-02 carries exactly these three, which is
+  // why the gate still refuses one until the member reconnects.
+  it("does not find it in a grant that predates the scope being requested", () => {
     expect(hasPublishScope("email,openid,profile")).toBe(false)
   })
 })

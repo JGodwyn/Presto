@@ -20,13 +20,14 @@ import {
   formatExpiry,
   isConnectionDead,
 } from "@/lib/format-date"
+import { grantIsCurrent } from "@/lib/linkedin/scopes"
 import { cn } from "@/lib/utils"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 
 const GRADIENT_AVATAR = "/images/create-project/avatar.svg"
 
-// rad-md, for the "Renew now" chip's squircle path.
-const RENEW_CHIP_CORNER_RADIUS = 8
+// rad-md, for the countdown chip's squircle path.
+const RECONNECT_CHIP_CORNER_RADIUS = 8
 
 // The Figma "Connection-ConnectedState{Connected,ExpiringSoon,Expired}"
 // exports — one row with three treatments, driven by how much of the 60-day
@@ -43,6 +44,12 @@ const RENEW_CHIP_CORNER_RADIUS = 8
 //             member removed Presto's access at LinkedIn's end, so a token
 //             with weeks left on it simply stopped working. Reusing the dead
 //             treatment is deliberate: the cause differs, the remedy doesn't
+//
+// Crossing all four is a fifth thing, and it isn't a treatment: a live
+// connection whose *grant* predates a scope the app has since started asking
+// for (grantIsCurrent, lib/linkedin/scopes.ts). It keeps the green block — the
+// token still works for what it was granted — and swaps the countdown chip for
+// a Reconnect that says why.
 //
 // The white PlatformRow is flush to the block's top and shares its rad-lg in
 // every state, so their top corners coincide and the colour reads as something
@@ -80,6 +87,14 @@ function ConnectedAccountRow({
     now
   )
   const isDead = isConnectionDead(status)
+
+  // A fifth thing a live connection can be: granted under an older, smaller
+  // scope list than the app now asks for. Orthogonal to the four treatments
+  // above — the token still works for what it *was* granted, so this is not a
+  // dead row — which is why it's its own flag rather than another
+  // ConnectionStatus value with a precedence puzzle attached. Only ever true
+  // after a scope is added to LINKEDIN_SCOPES; before then every row matches.
+  const grantIsStale = !isDead && !grantIsCurrent(account.scope)
 
   return (
     <div className="flex flex-col gap-dist-md">
@@ -187,8 +202,27 @@ function ConnectedAccountRow({
             </span>
           </div>
 
-          {status === "expiring" && (
-            <RenewChip pending={pending} onRenew={onReconnect} />
+          {/* One chip, not two. A stale grant wins over the expiry warning:
+              both are asking for the same click, and the reason that survives
+              it is the one about a permission the connection doesn't have —
+              renewing a token that already works reads as optional, and this
+              isn't. */}
+          {grantIsStale ? (
+            <ReconnectChip
+              pending={pending}
+              onReconnect={onReconnect}
+              label="Reconnect"
+              tooltip="Reconnect to grant Presto permission to post"
+            />
+          ) : (
+            status === "expiring" && (
+              <ReconnectChip
+                pending={pending}
+                onReconnect={onReconnect}
+                label="Renew now"
+                tooltip="Renew now to avoid having to authorize all over again"
+              />
+            )
           )}
         </div>
       )}
@@ -201,15 +235,22 @@ function ConnectedAccountRow({
 // renders, and it deliberately reads quieter than the row's own action. Its
 // tooltip is the whole point of the state, so it carries the reason rather
 // than repeating the label.
-function RenewChip({
+//
+// Two states share it (expiring, and a grant that predates a scope), because
+// both are the same authorize redirect and differ only in why they're asking.
+function ReconnectChip({
   pending,
-  onRenew,
+  onReconnect,
+  label,
+  tooltip,
 }: {
   pending: boolean
-  onRenew: () => void
+  onReconnect: () => void
+  label: string
+  tooltip: string
 }) {
   const { ref, style } = useSquircleClipPath<HTMLButtonElement>({
-    cornerRadius: RENEW_CHIP_CORNER_RADIUS,
+    cornerRadius: RECONNECT_CHIP_CORNER_RADIUS,
   })
 
   return (
@@ -221,21 +262,19 @@ function RenewChip({
             style={style}
             type="button"
             disabled={pending}
-            onClick={onRenew}
-            aria-label="Renew connection"
+            onClick={onReconnect}
+            aria-label={`${label} connection`}
             className="flex shrink-0 items-center gap-dist-sm rounded-rad-md bg-surface-2 px-pad-sm py-pad-2xs text-body-lg-bold text-text-bold transition-[scale] duration-150 ease-out active:scale-[0.97] disabled:opacity-60"
           >
             {pending ? (
               <SpinnerGap weight="bold" className="size-5 animate-spin" />
             ) : (
-              "Renew now"
+              label
             )}
           </button>
         }
       />
-      <TooltipContent>
-        Renew now to avoid having to authorize all over again
-      </TooltipContent>
+      <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
   )
 }

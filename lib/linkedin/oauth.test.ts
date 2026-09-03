@@ -6,6 +6,7 @@ import {
   getLinkedInCredentials,
   LINKEDIN_CALLBACK_PATH,
 } from "@/lib/linkedin/oauth"
+import { LINKEDIN_SCOPES } from "@/lib/linkedin/scopes"
 
 const ORIGINAL_ENV = { ...process.env }
 
@@ -59,14 +60,20 @@ describe("buildAuthorizationUrl", () => {
     redirectUri: "http://localhost:3001/api/connections/linkedin/callback",
   }
 
-  it("asks for sign-in scopes only", () => {
+  it("asks for the scopes the app declares, publishing included", () => {
     const url = new URL(buildAuthorizationUrl(config, "state-value"))
 
-    // The guard on AGENTS.md's hard publishing constraint: w_member_social is
-    // what would let this app post to a live account, and it must not appear
-    // in an authorization request until publishing is explicitly green-lit.
-    expect(url.searchParams.get("scope")).toBe("openid profile email")
-    expect(url.searchParams.get("scope")).not.toContain("w_member_social")
+    // w_member_social was added 2026-09-02, explicitly green-lit. This test
+    // used to pin its *absence*; it now pins that the request matches the
+    // declared list exactly, so a scope can never reach an authorization URL
+    // without being declared in scopes.ts first.
+    //
+    // **The guard on AGENTS.md's hard publishing constraint moved, it did not
+    // go away**: holding the permission is not using it, and what stops a live
+    // post is checkPublishGate's PRESTO_ENABLE_LIVE_PUBLISH key. publish.test.ts
+    // is where that is pinned.
+    expect(url.searchParams.get("scope")).toBe(LINKEDIN_SCOPES.join(" "))
+    expect(url.searchParams.get("scope")).toContain("w_member_social")
   })
 
   it("carries the code flow's required params", () => {
