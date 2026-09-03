@@ -6,7 +6,7 @@ import { ClockCountdown, WarningDiamond } from "@phosphor-icons/react"
 import { getClock, getServerClock, subscribeToClock } from "@/lib/clock"
 import { hasFailed, isOverdue } from "@/lib/content-grouping"
 import {
-  PUBLISH_FAILED_LABEL,
+  publishFailedLabel,
   publishFailureMessage,
 } from "@/lib/publish-failure"
 import { cn } from "@/lib/utils"
@@ -77,7 +77,7 @@ export function PostStatusMarker({
     >
       <Icon weight="bold" className="size-4 shrink-0" />
       <span className={reason ? undefined : "shrink-0"}>
-        {failed ? PUBLISH_FAILED_LABEL : "Overdue"}
+        {failed ? publishFailedLabel(post.publishError) : "Overdue"}
         {reason ? <span className="font-normal"> — {reason}</span> : null}
       </span>
     </span>

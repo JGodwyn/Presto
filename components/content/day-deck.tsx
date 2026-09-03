@@ -38,6 +38,7 @@ import { generationFailureCopy } from "@/lib/ai/failure-copy"
 import { BUILTIN_MODEL_ID } from "@/lib/ai/model-constants"
 import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { publishErrorFor } from "@/lib/publish-failure"
 import { canAttemptPublish } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
@@ -721,7 +722,7 @@ export function DayDeck({
       // wrote publish_error to the row, and mirroring it here is what turns the
       // card's failed treatment on without a refetch. A refusal wrote nothing.
       if (result.recorded) {
-        patchPost(post.id, { publishError: result.failure ?? "publish" })
+        patchPost(post.id, { publishError: publishErrorFor(result) })
       }
       return
     }

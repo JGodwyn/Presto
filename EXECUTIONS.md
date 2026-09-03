@@ -5809,3 +5809,57 @@ its meaning moved with this diff. Real, low-likelihood (LinkedIn does return
 treated rather than being patched blind. Also unchanged: `lib/clock.ts:25`'s
 stale `now`, and the success toast that unmounts with the deck when publishing a
 day's last post.
+
+---
+
+## 2026-09-03 (third round) — the fix that silently killed publishing
+
+The review held the branch a third time, on a finding in my own previous commit,
+and it was the most serious one yet.
+
+**The `.not(… like …)` claim predicate excluded every post.** `NOT (col LIKE …)`
+is NULL, not true, for a NULL column, and `publish_error` is NULL on every post
+that has never failed. So the guard written to stop *one* post being re-claimed
+stopped *all* of them: publishing was entirely, silently dead through both the
+button and the cron, reporting "already being published" for every post. Verified
+two ways against the live database — raw SQL (0 of 311 rows pass the bare form,
+311 pass the null-safe one) and a probe through real supabase-js/PostgREST
+(baseline 311, bare `.not` **0**, null-safe `.or` **311**, and a marked row still
+correctly blocked at 0, so the block keeps its teeth).
+
+Now `.or("publish_error.is.null,publish_error.not.like.record_failed:*")`.
+Chained `.or()` calls AND together, so it composes with the stale-claim one.
+
+**Why 358 green tests said nothing.** The fake in publish-runner.test.ts
+re-implements predicates in JavaScript, where the NULL case reads as "not
+blocked" — the opposite of the database. A fake proves the code calls the query
+you meant; it cannot prove the query means what you think. Added **`the claim
+predicate is null-safe`**, which records the filter calls and asserts no negative
+filter on `publish_error` exists without an explicit `is.null` arm — verified to
+fail when the bare `.not` form is restored. That is the part a fake can speak to
+honestly.
+
+**And I nearly repeated the ai-models bundle bug in the same commit.** Putting
+`RECORD_FAILED_PREFIX` in publish-runner.ts and importing it from
+publish-failure.ts — which client components read — would have pulled the runner,
+Supabase and the share call into the browser. The constant now lives in
+publish-failure.ts (pure, already client-safe) and the runner imports and
+re-exports it. Verified against a real build: client chunks contain no
+`service_role` and no `api.linkedin.com`; the single `w_member_social` hit is
+lib/linkedin/scopes.ts, which is deliberately client-safe and present on `main`
+too. Chunks 3.4M, unchanged.
+
+**Also fixed, from the same review:** a `record_failed` post showed "Didn't send"
+over *"This post didn't go out. Try publishing it again."* — for a post live on
+the timeline, inviting exactly the re-publish the marker prevents. Now
+`publishFailedLabel()` returns "Sent, not recorded" and the message says the post
+published. `publishErrorFor()` makes the client's optimistic patch match the
+marker the server actually writes, URN included, so the card does not change its
+story on reload.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 — `main`'s baseline |
+| `npm run test` | 359 passed / 30 files, excluding `lib/ai/generate.test.ts` |
+| `npm run build` | clean, client bundle verified free of server modules |

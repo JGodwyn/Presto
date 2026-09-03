@@ -7,6 +7,7 @@ import {
   type PublishFailure,
 } from "@/lib/linkedin/publish"
 import { PUBLISH_GRACE_MINUTES } from "@/lib/publish-due"
+import { RECORD_FAILED_PREFIX } from "@/lib/publish-failure"
 
 // Publishing one post, once — the single implementation both callers share.
 //
@@ -41,10 +42,9 @@ import { PUBLISH_GRACE_MINUTES } from "@/lib/publish-due"
 // the last tick that can see a post is never the tick that can re-claim it.
 export const CLAIM_TIMEOUT_MS = (PUBLISH_GRACE_MINUTES + 1) * 60 * 1000
 
-// Marks a post that IS live at LinkedIn but whose row could not be updated to
-// say so. Stored in `publish_error` because that column is the only durable
-// thing left once the `published_at` write has failed, and it carries the URN
-// so the row can still be reconciled against the real timeline by hand.
+// The marker for "live at LinkedIn, unrecorded here" lives in
+// lib/publish-failure.ts — the pure module client components already read —
+// and is re-exported so this file stays the obvious place to look for it.
 //
 // **Holding the claim is not enough on its own, and assuming it was is how the
 // first version of this fix stayed broken.** The claim is a *lease* — the
@@ -53,7 +53,7 @@ export const CLAIM_TIMEOUT_MS = (PUBLISH_GRACE_MINUTES + 1) * 60 * 1000
 // because the post has left its due window by then, but the manual "Publish
 // now" path does not look at the date at all, so a person clicking it later
 // would have re-claimed and re-sent a post already on their timeline.
-export const RECORD_FAILED_PREFIX = "record_failed:"
+export { RECORD_FAILED_PREFIX }
 
 // Everything that can stop a publish, including the reasons that are about the
 // post rather than the provider. The `PublishFailure` half comes back from the
@@ -162,7 +162,16 @@ export async function publishOnePost(
     // Never re-claim a post already known to be live. Unlike the stale-claim
     // window above this has no expiry, which is the point: every other reason
     // a claim is held is recoverable by waiting, and this one is not.
-    .not("publish_error", "like", `${RECORD_FAILED_PREFIX}%`)
+    //
+    // **The `is.null` half is not belt-and-braces, it is the whole thing.**
+    // PostgREST renders `.not("publish_error", "like", …)` as a bare
+    // `NOT (col LIKE …)`, and in SQL that is NULL — not true — for a NULL
+    // column. `publish_error` is NULL on every post that has never failed,
+    // i.e. essentially all of them, so the bare form matched *zero* rows and
+    // silently killed publishing outright: every claim returned nothing and
+    // every post reported "already being published". Measured against the live
+    // database at 0 of 311 rows. The null-safe form passes 311.
+    .or(`publish_error.is.null,publish_error.not.like.${RECORD_FAILED_PREFIX}*`)
     .select("id")
     .maybeSingle()
 

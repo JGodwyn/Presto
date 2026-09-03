@@ -1362,3 +1362,39 @@ lease still covers the gap before that marker is attempted.
 is the default failure. Both publish handlers needed the same `try/finally`;
 both writes in the same function needed the same error check. After fixing an
 instance, grep for the shape rather than the symptom.
+
+### A PostgREST `not.like` on a nullable column excludes every NULL row
+
+**Symptom.** A one-line predicate added to stop a specific post being re-claimed
+instead stopped *every* post being claimed. Publishing died completely and
+silently, reporting "That post is already being published" for every post,
+through both the button and the scheduler. tsc, eslint, 358 tests and the build
+were all green.
+
+**Cause.** `.not("publish_error", "like", "record_failed:%")` renders as a bare
+`NOT (col LIKE …)`, and in SQL that evaluates to NULL — not true — when the
+column is NULL. `publish_error` is NULL on every post that has never failed,
+which is essentially all of them. Measured against the live database: the bare
+form matched **0 of 311** rows; the null-safe form matched all 311.
+
+It was also self-sealing. `publish_error` is only ever written from inside the
+same function whose claim now failed, so no post could ever reach a state that
+made it claimable again.
+
+**Rule.** Any negative filter on a nullable column must spell out the NULL case:
+
+```ts
+.or(`publish_error.is.null,publish_error.not.like.${PREFIX}*`)
+```
+
+Chained `.or()` calls AND together, so this composes with an existing one.
+
+**The deeper lesson, and the reason this shipped past a review.** The test suite
+could not catch it *by construction*: `lib/publish-runner.test.ts` uses a
+hand-rolled Supabase fake that re-implements predicates in JavaScript, where
+`String(null ?? "").startsWith(…)` is false and the claim is therefore granted —
+the opposite of what the database does. **A fake proves your code calls the
+query you meant; it can never prove the query means what you think.** Where the
+two can differ, either assert on the predicate as written (which is what the new
+`the claim predicate is null-safe` test does) or check it against a real
+database. This one was found by running both forms against live PostgREST.

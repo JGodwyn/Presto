@@ -36,15 +36,28 @@ function fakeSupabase({
   recordError?: { message: string } | null
 }) {
   const updates: Record<string, unknown>[] = []
+  const filters: { method: string; args: unknown[] }[] = []
 
   const client = {
     updates,
+    filters,
     from(table: string) {
       const builder: Record<string, unknown> = {}
       let payload: Record<string, unknown> | null = null
 
       const self = () => builder
-      for (const method of ["select", "eq", "is", "or", "not"]) builder[method] = self
+      for (const method of ["select", "eq"]) builder[method] = self
+      // Recorded rather than merely chained: this fake models predicates in
+      // JavaScript, which is exactly how it once passed a claim predicate that
+      // the real database matched zero rows against (see the null-safety test
+      // below). What the query *says* is testable here; what PostgREST does
+      // with it is not.
+      for (const method of ["is", "or", "not"]) {
+        builder[method] = (...args: unknown[]) => {
+          filters.push({ method, args })
+          return builder
+        }
+      }
 
       builder.update = (values: Record<string, unknown>) => {
         payload = values
@@ -57,6 +70,8 @@ function fakeSupabase({
           // The claim. Granted unless the row is already published, or is
           // marked live-but-unrecorded — the `.not(publish_error, like, …)`
           // predicate, which unlike the stale-claim window never expires.
+          // Mirrors the null-safe predicate: a NULL publish_error passes, a
+          // marked one does not.
           const blocked =
             post.published_at !== null ||
             String(post.publish_error ?? "").startsWith(RECORD_FAILED_PREFIX)
@@ -102,6 +117,47 @@ beforeEach(() => {
 describe("the claim outlives the due window", () => {
   it("holds a claim for longer than a post can stay due", () => {
     expect(CLAIM_TIMEOUT_MS).toBeGreaterThan(PUBLISH_GRACE_MINUTES * 60 * 1000)
+  })
+})
+
+// The bug this test exists for did not survive a code review, a full green
+// suite, or a hand-rolled fake — because the fake re-implemented the predicate
+// in JavaScript and got a different answer from the database.
+//
+// PostgREST renders `.not(col, "like", …)` as a bare `NOT (col LIKE …)`, which
+// is NULL rather than true for a NULL column, so it silently excludes every row
+// where the column is NULL. `publish_error` is NULL on every post that has
+// never failed. Measured against the live database: the bare form matched 0 of
+// 311 rows and the null-safe form matched all 311 — publishing was entirely,
+// silently dead, reporting "already being published" for every post.
+//
+// This asserts on the predicate as written, since that is the part a fake can
+// speak to honestly.
+describe("the claim predicate is null-safe", () => {
+  it("never filters publish_error without an explicit is.null arm", async () => {
+    const supabase = fakeSupabase({
+      post: {
+        id: POST.postId,
+        platform: "linkedin",
+        content: "Anything.",
+        is_tryout: false,
+        published_at: null,
+      },
+    }) as unknown as { filters: { method: string; args: unknown[] }[] }
+
+    await publishOnePost(supabase as never, POST, NOW)
+
+    const mentioningPublishError = supabase.filters.filter(({ args }) =>
+      args.some((arg) => String(arg).includes("publish_error"))
+    )
+
+    expect(mentioningPublishError).not.toHaveLength(0)
+    for (const filter of mentioningPublishError) {
+      // A bare `.not(...)` on this column cannot be null-safe, whatever the
+      // pattern; the null case has to be spelled out.
+      expect(filter.method).not.toBe("not")
+      expect(String(filter.args[0])).toContain("publish_error.is.null")
+    }
   })
 })
 

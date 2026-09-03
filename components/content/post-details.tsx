@@ -52,6 +52,7 @@ import {
 } from "@/lib/post-account"
 import { isNetworkError } from "@/lib/network-error"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { publishErrorFor } from "@/lib/publish-failure"
 import { canAttemptPublish } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
@@ -829,7 +830,7 @@ export function PostDetails({
       // Only an attempt that reached LinkedIn wrote publish_error to the row;
       // a refusal (the gate, an expired connection) left the post untouched,
       // and mirroring one here would show a failure the database doesn't have.
-      if (result.recorded) patchPost({ publishError: result.failure ?? "publish" })
+      if (result.recorded) patchPost({ publishError: publishErrorFor(result) })
       return
     }
 
