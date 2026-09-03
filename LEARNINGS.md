@@ -1262,3 +1262,40 @@ facts.
 Better still, do the baseline comparison without touching the working tree:
 `git show main:path/to/file > /tmp/x && npx eslint --no-ignore /tmp/x`, which is
 what should have been used here.
+
+## A function that returns a "bad" value on purpose needs a second name
+
+**Symptom:** a "Skip to …" button performed the exact account switch the dialog
+it lived in had just refused. Only reachable when *every* alternative position
+was refused.
+
+**Cause:** `nextPostAccount` returns the refused target in that case on purpose
+— the pill has to stay live and explain itself rather than silently do nothing —
+and its own comment says so. But every call site that needed "somewhere this
+post may actually go" used it anyway, and documented the opposite. One function
+was answering two different questions, and the dangerous answer was the
+non-obvious one.
+
+**Rule:** when a function deliberately returns something a caller must not act
+on, that is a second question, not a flag on the first. Give it its own name
+(`nextAllowedPostAccount`) so a call site cannot pick the wrong contract by
+accident, and pin the divergence with a test asserting the two disagree in
+exactly the case that matters. A comment on the returning side does not travel
+to the calling side — this one was correct, detailed, and still didn't stop the
+bug.
+
+## Release a lock in `finally`, not on every path out
+
+**Symptom:** one early return inside a claimed region skipped `releaseClaim`,
+which permanently wedged an X connection — every later refresh found a claim
+nothing would ever release and sat out its timeout.
+
+**Cause:** the claim was released by hand on each exit, under a comment saying
+"must be released on every path out". Three of four did. The missed one was an
+early return added later than the comment.
+
+**Rule:** a comment asking future code to remember something is a defect
+waiting to happen; make the structure do it. `try/finally` releases on paths
+that do not exist yet. Where an exit already writes the release as part of
+another update, a flag skipping the redundant round trip is fine — that is an
+optimisation on top of a guarantee, not a replacement for one.

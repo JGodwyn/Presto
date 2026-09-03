@@ -200,7 +200,16 @@ export async function getLiveXAccessToken(
     return waitForOtherRefresh(supabase, accountId)
   }
 
-  // From here the claim is held and must be released on every path out.
+  // From here the claim is held. **Released in `finally`, not by each exit**:
+  // an earlier version called releaseClaim on each path out and one of them —
+  // the undecryptable-refresh-token return below — was missed, which wedged the
+  // account permanently. Every later request found a claim nothing would ever
+  // release and sat in waitForOtherRefresh until it timed out, forever. A
+  // `finally` cannot be forgotten by the next early return added here.
+  //
+  // `claimWritten` is for the two paths that null the column as part of a write
+  // they were making anyway; releasing again would just be a second round trip.
+  let claimWritten = false
   try {
     const refreshToken = decryptOrNull(row.encrypted_refresh_token)
     if (!refreshToken) return { ok: false, failure: "unavailable" }
@@ -222,13 +231,14 @@ export async function getLiveXAccessToken(
             last_checked_at: new Date(now).toISOString(),
           })
           .eq("id", accountId)
+        claimWritten = true
 
         return { ok: false, failure: "revoked" }
       }
 
       // "unavailable" — X had a bad moment. The row is untouched apart from
-      // releasing the claim, so the next attempt tries the same token again.
-      await releaseClaim(supabase, accountId)
+      // the claim, which `finally` hands back, so the next attempt tries the
+      // same token again.
       return { ok: false, failure: "unavailable" }
     }
 
@@ -266,16 +276,15 @@ export async function getLiveXAccessToken(
       // The rotation happened at X but didn't land here. Say so rather than
       // handing back a token whose refresh counterpart is now unrecoverable —
       // the next attempt will find a dead refresh token and mark the row
-      // revoked, which is the honest end state. Release the claim so that
-      // attempt doesn't also have to wait out the timeout first.
-      await releaseClaim(supabase, accountId)
+      // revoked, which is the honest end state. The claim goes back in
+      // `finally`, so that attempt doesn't wait out the timeout first.
       return { ok: false, failure: "unavailable" }
     }
+    claimWritten = true
 
     return { ok: true, accessToken: token.accessToken }
-  } catch (error) {
-    await releaseClaim(supabase, accountId)
-    throw error
+  } finally {
+    if (!claimWritten) await releaseClaim(supabase, accountId)
   }
 }
 

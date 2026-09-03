@@ -12,7 +12,7 @@ import {
 } from "@/app/projects/[projectId]/generate/post-actions"
 import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import {
-  nextPostAccount,
+  nextAllowedPostAccount,  nextPostAccount,
   PLATFORM_LABELS,
   resolvePostAccount,
   type PostAccountTarget,
@@ -274,6 +274,12 @@ export function DayDeck({
     post: Post
     target: PostAccountTarget
   } | null>(null)
+  // A reroll started from that dialog rather than a card's own button. The card
+  // owns its placeholder and never sees this call go out, so without it the
+  // regenerate happens with no feedback at all.
+  const [dialogRegeneratingId, setDialogRegeneratingId] = React.useState<
+    string | null
+  >(null)
 
   // How long the whole put-away takes, last card included — what the scrim
   // waits for before it starts fading (see its own note below), and what the
@@ -881,6 +887,7 @@ export function DayDeck({
                         onTurnToDraft={() => handleTurnToDraft(post)}
                         onOpen={() => closeThenOpen(post.id)}
                         onRegenerate={() => handleRegenerate(post)}
+                        regenerating={dialogRegeneratingId === post.id}
                         account={resolvePostAccount(post, accounts)}
                         nextAccount={nextPostAccount(post, accounts)}
                         onSocialChange={(target) =>
@@ -941,8 +948,11 @@ export function DayDeck({
             // The position the cycle would have reached had the refused one
             // not been offered. Absent when there is none, leaving the corner
             // X as the only way out — which is correct.
-            const skip = nextPostAccount(blockedSwitch.post, accounts, (target) =>
-              refusesPost(blockedSwitch.post, target),
+            // nextAllowedPostAccount, not nextPostAccount — see post-details.
+            const skip = nextAllowedPostAccount(
+              blockedSwitch.post,
+              accounts,
+              (target) => refusesPost(blockedSwitch.post, target),
             )
             if (!skip) return undefined
             return {
@@ -959,7 +969,11 @@ export function DayDeck({
             setBlockedSwitch(null)
             // Unlike post-details, there is no second dialog to pass through —
             // this screen has no model picker, so the reroll starts here.
-            if (pending) void handleRegenerate(pending.post, pending.target)
+            if (!pending) return
+            setDialogRegeneratingId(pending.post.id)
+            void handleRegenerate(pending.post, pending.target).finally(() =>
+              setDialogRegeneratingId(null),
+            )
           }}
         />
 

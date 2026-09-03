@@ -30,7 +30,7 @@ import { GeneratingPostCard } from "@/components/generate/generating-post-card"
 import { SectionSpinner } from "@/components/shared/section-spinner"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
 import {
-  nextPostAccount,
+  nextAllowedPostAccount,  nextPostAccount,
   PLATFORM_LABELS,
   resolvePostAccount,
   type PostAccountTarget,
@@ -244,6 +244,11 @@ export function GeneratingView({
     post: GeneratedPost
     target: PostAccountTarget
   } | null>(null)
+  // See day-deck.tsx: a reroll from that dialog bypasses the card's own
+  // placeholder and its re-entrancy guard unless the card is told about it.
+  const [dialogRegeneratingId, setDialogRegeneratingId] = React.useState<
+    string | null
+  >(null)
   const [toastOpen, setToastOpen] = React.useState(false)
   const [toastMessage, setToastMessage] = React.useState("")
   // Split from the message so it can't blank out mid-exit-animation.
@@ -871,7 +876,8 @@ export function GeneratingView({
         actionVariant="brand"
         secondaryAction={(() => {
           if (!blockedSwitch) return undefined
-          const skip = nextPostAccount(
+          // nextAllowedPostAccount, not nextPostAccount — see post-details.
+          const skip = nextAllowedPostAccount(
             { platform: blockedSwitch.post.social, isTryout: blockedSwitch.post.isTryout },
             socialAccounts,
             (target) => refusesPost(blockedSwitch.post, target)
@@ -889,7 +895,11 @@ export function GeneratingView({
         onConfirm={() => {
           const pending = blockedSwitch
           setBlockedSwitch(null)
-          if (pending) void handleRegeneratePost(pending.post, pending.target)
+          if (!pending) return
+          setDialogRegeneratingId(pending.post.id)
+          void handleRegeneratePost(pending.post, pending.target).finally(() =>
+            setDialogRegeneratingId(null)
+          )
         }}
       />
 
@@ -1096,6 +1106,7 @@ export function GeneratingView({
                 onDelete={() => handleDeletePost(post)}
                 onTurnToDraft={() => handleTurnToDraft(post)}
                 onRegenerate={() => handleRegeneratePost(post)}
+                regenerating={dialogRegeneratingId === post.id}
                 account={resolvePostAccount(
                   { platform: post.social, isTryout: post.isTryout },
                   socialAccounts

@@ -150,5 +150,28 @@ export function nextPostAccount(
   // stays live and the caller can explain why — a control that silently does
   // nothing reads as broken, and this is the one case where the user has to be
   // told the post is too long.
+  //
+  // **So this can hand back a refused target, and a caller that needs a target
+  // the post may actually move to must not use it.** Use nextAllowedPostAccount
+  // for that; the distinction is the whole reason it exists.
   return firstRefused
+}
+
+/**
+ * The next position this post can actually be moved to, or null when there is
+ * none.
+ *
+ * The difference from nextPostAccount is the all-refused case, and it matters:
+ * that one deliberately hands back a *refused* target so the pill stays live
+ * and can explain itself, while this one returns null so a caller offering to
+ * perform the move has nothing to offer. Conflating them means a "Skip to …"
+ * button that performs the very switch its dialog opened to refuse.
+ */
+export function nextAllowedPostAccount(
+  post: Pick<Post, "platform" | "isTryout">,
+  accounts: ConnectedSocialAccount[],
+  isRefused: (target: PostAccountTarget) => boolean
+): PostAccountTarget | null {
+  const next = nextPostAccount(post, accounts, isRefused)
+  return next && !isRefused(next) ? next : null
 }

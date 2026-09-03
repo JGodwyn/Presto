@@ -5113,3 +5113,50 @@ this for X" rather than relying on the refused-switch modal to offer it.
     for. Verified in-browser on the 1,459-character X post: the dialog opened on
     "Gemini 3.6 Flash" instead of the persisted TasteTest, and TasteTest renders
     dimmed while the user's own BYOK models stay selectable.
+
+### Review fixes (held at /integrate, not merged)
+
+38. **BLOCKER: "Skip to …" performed the switch its dialog had just refused.**
+    `nextPostAccount` deliberately returns the *refused* target when every
+    position is refused, so the pill stays live and can explain itself. All
+    three call sites documented the opposite ("null when there is no such
+    position") and rendered the skip button off it — so in the one case the
+    button was supposed to be absent, it was present and committed the refused
+    switch. Reproduced with the reviewer's case (only X connected, over-length
+    Try-out post): the old call returned a target for which `refusesPost` is
+    true.
+
+    Fixed by splitting the contract rather than weakening either side, since
+    the step-over behaviour is right for the pill: `nextAllowedPostAccount`
+    (lib/post-account.ts) wraps `nextPostAccount` and returns null when the
+    result is refused. The three call sites now use it; the pill still uses
+    `nextPostAccount`. Both are pinned by tests, including one that asserts the
+    two disagree in exactly the all-refused case.
+
+39. **A claim leaked on the undecryptable-token path** (lib/x/token.ts). The
+    `if (!refreshToken)` early return sat inside the claimed region without
+    calling `releaseClaim`, three lines under a comment promising every path
+    released it — reachable via a rotated `MODEL_KEY_ENCRYPTION_KEY`, and it
+    wedged the account permanently: every later request found a claim nothing
+    would release and timed out in `waitForOtherRefresh`, forever.
+
+    Fixed with `try/finally` rather than a fourth `releaseClaim` call, per the
+    review — a `finally` cannot be forgotten by the next early return. A
+    `claimWritten` flag skips the release on the two paths that null the column
+    as part of a write they were already making. Three tests cover it: the
+    undecryptable token, an unreachable X, and a throw mid-refresh.
+
+40. **A reroll launched from the too-long dialog had no pending state.**
+    `GeneratedPostCard` owns its placeholder and its own re-entrancy guard, so a
+    parent calling `handleRegenerate` directly showed no feedback at all and
+    could run alongside a second reroll from the card's own button. The card
+    gained an optional `regenerating` prop that ORs into both; day-deck and
+    generating-view track the id they started and clear it in `.finally()`.
+    post-details already had `isRegenerating` driving the whole page.
+
+41. Gates: tsc clean, lint at main's 17-error baseline (16 in files this branch
+    never touched, one pre-existing in generating-view.tsx), build clean, **318
+    tests passing with `lib/ai/generate.test.ts` excluded** — it calls the live
+    Gemini API and is currently rate-limited, per FOLLOWUPS §12.
+
+    Scope was deliberately not widened, per the review.

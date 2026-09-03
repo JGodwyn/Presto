@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   connectedPlatforms,
+  nextAllowedPostAccount,
   nextPostAccount,
   postAccountCycle,
   PLATFORM_LABELS,
@@ -242,5 +243,45 @@ describe("nextPostAccount skipping refused positions", () => {
     )
 
     expect(next).toEqual({ platform: "x", isTryout: true })
+  })
+})
+
+describe("nextAllowedPostAccount", () => {
+  const accounts = [
+    account({ platform: "linkedin", accountName: "Godwin John" }),
+    account({ platform: "x", accountHandle: "gdwn__" }),
+  ]
+  const refusesX = (target: { platform: string; isTryout: boolean }) =>
+    !target.isTryout && target.platform === "x"
+
+  it("returns the position a post can actually move to", () => {
+    expect(
+      nextAllowedPostAccount(
+        { platform: "linkedin", isTryout: false },
+        accounts,
+        refusesX
+      )
+    ).toEqual({ platform: "linkedin", isTryout: true })
+  })
+
+  it("is null when every position is refused — unlike nextPostAccount", () => {
+    // The bug this exists to prevent: with only X connected and an over-length
+    // Try-out post, every non-Try-out position is refused. nextPostAccount
+    // hands back the refused one on purpose (so the pill stays live and can
+    // explain itself); a "Skip to …" button built on that performs the very
+    // switch its dialog opened to refuse.
+    const onlyX = [account({ platform: "x", accountHandle: "gdwn__" })]
+    const post = { platform: "x" as const, isTryout: true }
+
+    expect(nextPostAccount(post, onlyX, refusesX)).not.toBeNull()
+    expect(nextAllowedPostAccount(post, onlyX, refusesX)).toBeNull()
+  })
+
+  it("is null rather than refused when the only alternative is over the limit", () => {
+    const onlyX = [account({ platform: "x", accountHandle: "gdwn__" })]
+
+    expect(
+      nextAllowedPostAccount({ platform: "x", isTryout: true }, onlyX, () => true)
+    ).toBeNull()
   })
 })

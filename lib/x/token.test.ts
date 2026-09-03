@@ -415,3 +415,56 @@ describe("getLiveXAccessToken", () => {
     })
   })
 })
+
+describe("the refresh claim is always handed back", () => {
+  it("releases it when the stored refresh token cannot be decrypted", async () => {
+    // The path the review caught: an early return from inside the claimed
+    // region that skipped releaseClaim. A rotated MODEL_KEY_ENCRYPTION_KEY
+    // reaches it, and the account was then wedged forever — every later request
+    // found a claim nothing would release and timed out in waitForOtherRefresh.
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const supabase = makeSupabase(
+      activeRow({
+        expires_at: new Date(NOW - 1000).toISOString(),
+        encrypted_refresh_token: "v1.not.valid.ciphertext",
+      })
+    )
+
+    const result = await getLiveXAccessToken(supabase, "account", NOW)
+
+    expect(result).toEqual({ ok: false, failure: "unavailable" })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(supabase.state.row!.refresh_started_at).toBeNull()
+  })
+
+  it("releases it when X is unreachable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")))
+    const supabase = makeSupabase(
+      activeRow({ expires_at: new Date(NOW - 1000).toISOString() })
+    )
+
+    expect(await getLiveXAccessToken(supabase, "account", NOW)).toEqual({
+      ok: false,
+      failure: "unavailable",
+    })
+    expect(supabase.state.row!.refresh_started_at).toBeNull()
+  })
+
+  it("releases it even when something throws mid-refresh", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => {
+        throw new RangeError("something unexpected")
+      })
+    )
+    const supabase = makeSupabase(
+      activeRow({ expires_at: new Date(NOW - 1000).toISOString() })
+    )
+
+    // Whatever this does with the error, the claim must not survive it.
+    await getLiveXAccessToken(supabase, "account", NOW).catch(() => undefined)
+
+    expect(supabase.state.row!.refresh_started_at).toBeNull()
+  })
+})

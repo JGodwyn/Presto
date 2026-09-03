@@ -42,7 +42,7 @@ import { getCaretOffsetFromPoint } from "@/lib/caret"
 import { formatDate } from "@/lib/format-date"
 import { formatClockTime } from "@/lib/time-of-day"
 import {
-  nextPostAccount,
+  nextAllowedPostAccount,  nextPostAccount,
   PLATFORM_LABELS,
   resolvePostAccount,
   type PostAccountTarget,
@@ -243,11 +243,13 @@ export function PostDetails({
   const refusesPost = (target: PostAccountTarget) =>
     !target.isTryout && exceedsPlatformLimit(currentPost.content, target.platform)
 
-  // Where "Skip to …" goes: the next position this post can actually move to,
-  // which is what the cycle would have landed on had the refused one not been
-  // offered. Null when there is no such position, and the dialog then has no
-  // second button — closing it is the only way out, which is correct.
-  const skipTarget = nextPostAccount(currentPost, accounts, refusesPost)
+  // Where "Skip to …" goes: the next position this post can actually move to.
+  // **nextAllowedPostAccount, not nextPostAccount** — the latter deliberately
+  // hands back a *refused* target when every position is refused, so the pill
+  // stays live and can explain itself, and a button built on that would perform
+  // the very switch this dialog opened to refuse. Null here means no second
+  // button and closing is the only way out, which is correct.
+  const skipTarget = nextAllowedPostAccount(currentPost, accounts, refusesPost)
 
   const handleSocialChange = (target: PostAccountTarget) => {
     // **The switch is refused while the post cannot fit the platform**, rather
