@@ -5082,3 +5082,38 @@ still publish.
 it would have sent anything that came due in the previous 15 minutes, which was
 not what the user confirmed. The sandbox blocked that curl on its own, which was
 the right call.
+
+### The scheduler published a post on its own, 2026-09-03 05:50 UTC
+
+The last unobserved behaviour: a post going out *because its time arrived*
+rather than because someone clicked. Confirmed with the user on the specific
+content first, as with the manual send.
+
+Setup: a draft was given `scheduled_for = now() + 2 minutes` (SQL, so the moment
+was exact), the gate was armed, the dev server restarted to load it, and — since
+pg_cron cannot reach localhost — one tick was fired by hand with curl. Before
+firing, the window was checked: **1.2 minutes past due, and exactly one post
+inside the 15-minute window**, so the tick could not take anything else with it.
+
+The run summary, verbatim:
+
+```json
+{"ranAt":"2026-09-03T05:50:52.020Z","livePublishEnabled":true,
+ "window":{"from":"05:35:52Z","to":"05:50:52Z","graceMinutes":15},
+ "due":1,"published":1,"failed":0,
+ "results":[{"postId":"bf73f2f0…","ok":true,"postUrn":"urn:li:share:7501154742442684416"}]}
+```
+
+The row afterwards: `status` published, `published_at` 05:50:52, the URN stored,
+the claim released, no error, and `scheduled_for` **kept** — a scheduled post
+keeps the date it was scheduled for, unlike the manual draft send which stays
+dateless. The gate was removed from .env.local immediately after.
+
+**What this closes.** Every path through publishing has now been exercised
+against the live API: the refusal (gate shut), the manual send, and the
+scheduled send. The service-role client, the due window, the batch query and the
+claim all ran for real. What remains untested is only what cannot be tested from
+a laptop — pg_cron itself, which needs a deployed origin.
+
+Note the same restart tax applies as before: `.env.local` is clean, but a
+running server keeps the old env until it is restarted.
