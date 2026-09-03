@@ -1125,3 +1125,177 @@ first time either side changes. `totalsByState` now calls `belongsToTab` rather
 than restating it, and grouping and sorting inside a tab now read one shared
 `groupingTimestamp`; they had already drifted, so Published grouped by the day a
 post went out while ordering the cards inside that day by when it was due.
+
+## OAuth: "any 4xx means the token is dead" disconnects rate-limited users
+
+**Symptom:** a refresh that came back 429 marked the connection `revoked`,
+which in the UI is unrecoverable without the member reconnecting.
+
+**Cause:** the revoked/unavailable split was written as
+`status >= 400 && status < 500`. 429 sits inside that range and is not a verdict
+on the grant at all — it means "ask again later". The same reasoning catches 408.
+
+**Rule:** only **400 and 401** mean a grant is dead. Everything else — 429, any
+5xx, a dropped connection — is "couldn't tell", and must leave the row alone for
+the next attempt. This is the same fail-open principle as `verifyLinkedInToken`
+and `didFallBackOffByok`: killing a working connection on an ambiguous answer is
+worse than noticing a dead one late. It matters more on X than on LinkedIn,
+because the Free tier's rate budget is shared across every user of the app, so
+429 is an ordinary occurrence rather than an anomaly.
+
+**Also:** don't branch on the provider's error *string*. X answers a spent
+refresh token with `invalid_request` and "Value passed for the token was
+invalid", not the `invalid_grant` the OAuth spec would suggest — so matching on
+text is both wrong today and fragile tomorrow. Branch on the status.
+
+## X's refresh tokens are single-use, which makes concurrency a data-loss bug
+
+**Symptom (anticipated, guarded before it shipped):** two requests that both
+read the same stored refresh token each spend it. X invalidates the old token
+the moment it issues a replacement, so one request wins and the other gets a
+rejection indistinguishable from revocation — and whichever replacement lands
+second overwrites a live token with a dead one.
+
+**Rule:** anything that rotates a single-use credential needs (a) a claim so
+only one request rotates at a time — `social_accounts.refresh_started_at`, the
+same shape as `posts.publish_started_at` — and (b) the persist ordered *before*
+the new credential is handed to a caller, since a crash in that window leaves a
+row holding a token that can never be redeemed. The loser of the claim waits and
+re-reads rather than failing: the winner communicates its result through the row.
+
+A compare-and-swap on the stored value can't substitute for the claim here, for
+two reasons: it only detects the collision after both requests have already
+spent the token, and the values are AES-GCM ciphertexts with random IVs, so the
+same token never encrypts to the same bytes twice.
+
+## X's developer console rejects `localhost`, which forces 127.0.0.1 end to end
+
+**Symptom:** "Not a valid URL format" when registering the app.
+
+**Cause:** two different fields, two different rules. The **Website URL** field
+wants a real public URL and rejects localhost in any form (it plays no part in
+the OAuth flow — any valid URL does). The **callback** field rejects the
+hostname `localhost` specifically, and accepts the loopback IP.
+
+**Rule:** register callbacks as `http://127.0.0.1:<port>/...`, **and browse the
+dev app at 127.0.0.1 too**. Pinning `X_REDIRECT_URI` to the IP form while
+browsing on localhost looks like it should work and doesn't: `localhost` and
+`127.0.0.1` are distinct cookie origins, so the OAuth state cookie set when the
+flow started is not sent to the callback, and the flow dies at the state check
+with an error that says nothing about hostnames. Note the Supabase session
+cookie is per-origin too, so signing in again on 127.0.0.1 is expected.
+
+## `request.nextUrl.origin` lies in development — it is always `localhost`
+
+**Symptom:** an OAuth `redirect_uri` derived from `request.nextUrl.origin` came
+out as `http://localhost:3003` even when the browser had requested
+`http://127.0.0.1:3003`. X only accepts a redirect_uri that matches a registered
+one byte for byte, and its console cannot register the hostname `localhost` at
+all — so every connect attempt would have been rejected by X, with an error that
+says nothing about hostnames.
+
+**Cause:** in development Next pins `nextUrl.origin` to `http://localhost:<port>`
+regardless of the host requested. Verified with a probe route: a request to
+127.0.0.1:3003 reports `host: "127.0.0.1:3003"`,
+`x-forwarded-host: "127.0.0.1:3003"`, and `nextUrl.origin:
+"http://localhost:3003"`.
+
+**Rule:** when a URL has to match what the *browser* used — OAuth redirect URIs,
+anything paired with a cookie set on that origin — read the `Host` header, not
+`nextUrl.origin`. But the Host header is client-controlled, so building a
+redirect off an arbitrary one is an open-redirect vector: trust it **only when
+it names a loopback address** (`resolveRequestOrigin` in lib/x/oauth.ts), where
+a forged value can point the victim nowhere but their own machine. Everywhere
+else `nextUrl.origin` stands.
+
+Note LinkedIn's routes have the same latent issue and are unaffected only
+because `localhost` is what its app has registered. Left alone deliberately —
+see FOLLOWUPS.md.
+
+## Next blocks dev assets on 127.0.0.1, and the page *renders* — it just doesn't work
+
+**Symptom:** the app on `http://127.0.0.1:3003` looked broken in ways that
+resembled several separate bugs: the segmented control had no pill, clicking it
+did nothing (a click on "Login" fell through to the default and landed on
+"Create account"), and the branded gradient artwork, wordmark and dev toolbars
+were all missing. The same URL on `localhost:3003` — *the same server* — was
+perfect. No console errors at all, and React itself was loading.
+
+**Cause:** Next blocks cross-origin requests to dev-only assets and endpoints by
+default, allowing only the hostname the dev server was initialised with, which
+is `localhost`. `127.0.0.1` is a different origin by that rule, so its client
+chunks and images were refused — silently. The server HTML still rendered, which
+is what makes this so misleading: it looks like a styling or hydration bug rather
+than a transport one, and the absence of console errors argues against exactly
+the right answer.
+
+**Rule:** `allowedDevOrigins: ["127.0.0.1"]` in next.config.ts. It is needed here
+specifically because X's console will not register an OAuth callback on the
+hostname `localhost`, so the loopback IP is the only address the connect flow can
+be exercised at. Development only — no effect on a production build.
+
+**Diagnostic worth reusing:** load the same path on both spellings of loopback
+and compare. One origin rendering fully and the other not is conclusive, and it
+takes seconds; chasing the individual symptoms (a pill that doesn't draw, a
+click that does the wrong thing) leads away from the cause, since each looks like
+a plausible component bug on its own.
+
+## A stash round-trip poisons a running dev server's config
+
+**Symptom:** the app on 127.0.0.1 went dead again — no segmented-control pill,
+clicks doing nothing — with `next.config.ts` on disk still perfectly correct.
+
+**Cause:** stashing the branch to check whether a lint error was pre-existing
+reverted `next.config.ts` for a few seconds, which dropped
+`allowedDevOrigins: ["127.0.0.1"]`. The dev server was running throughout,
+re-read the config during that window, and **kept the reverted version in
+memory** after `git stash apply` restored the file. Reading the file proves
+nothing here; the running process is what matters.
+
+**Rule:** if a dev server is running, restart it after any operation that
+briefly rewrites config on disk — `git stash`, `git checkout`, a bisect, a
+worktree switch. And when a "it broke again" symptom exactly matches a bug you
+already fixed, check whether the *process* has the fix before re-debugging the
+code: the file having the line and the server having read it are different
+facts.
+
+Better still, do the baseline comparison without touching the working tree:
+`git show main:path/to/file > /tmp/x && npx eslint --no-ignore /tmp/x`, which is
+what should have been used here.
+
+## A function that returns a "bad" value on purpose needs a second name
+
+**Symptom:** a "Skip to …" button performed the exact account switch the dialog
+it lived in had just refused. Only reachable when *every* alternative position
+was refused.
+
+**Cause:** `nextPostAccount` returns the refused target in that case on purpose
+— the pill has to stay live and explain itself rather than silently do nothing —
+and its own comment says so. But every call site that needed "somewhere this
+post may actually go" used it anyway, and documented the opposite. One function
+was answering two different questions, and the dangerous answer was the
+non-obvious one.
+
+**Rule:** when a function deliberately returns something a caller must not act
+on, that is a second question, not a flag on the first. Give it its own name
+(`nextAllowedPostAccount`) so a call site cannot pick the wrong contract by
+accident, and pin the divergence with a test asserting the two disagree in
+exactly the case that matters. A comment on the returning side does not travel
+to the calling side — this one was correct, detailed, and still didn't stop the
+bug.
+
+## Release a lock in `finally`, not on every path out
+
+**Symptom:** one early return inside a claimed region skipped `releaseClaim`,
+which permanently wedged an X connection — every later refresh found a claim
+nothing would ever release and sat out its timeout.
+
+**Cause:** the claim was released by hand on each exit, under a comment saying
+"must be released on every path out". Three of four did. The missed one was an
+early return added later than the comment.
+
+**Rule:** a comment asking future code to remember something is a defect
+waiting to happen; make the structure do it. `try/finally` releases on paths
+that do not exist yet. Where an exit already writes the release as part of
+another update, a flag skipping the redundant round trip is fine — that is an
+optimisation on top of a guarantee, not a replacement for one.

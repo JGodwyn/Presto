@@ -57,10 +57,15 @@ export function resolvePostAccount(
 
   return {
     platform: post.platform,
-    // An account row with a blank name would otherwise render an empty pill;
-    // the platform label is a worse answer than the name but a much better
-    // one than nothing.
-    label: account?.accountName?.trim() || PLATFORM_LABELS[post.platform],
+    // On X the handle is the identity — it is what the account is actually
+    // called, it is unique, and it is what distinguishes two people sharing a
+    // display name. LinkedIn has no handle, so it keeps the name. Falling
+    // through name → platform label means an account row with a blank name
+    // still renders something rather than an empty pill.
+    label:
+      account?.accountHandle?.trim().replace(/^@/, "")
+        ? `@${account.accountHandle.trim().replace(/^@/, "")}`
+        : account?.accountName?.trim() || PLATFORM_LABELS[post.platform],
     isTryout: false,
     connected: Boolean(account),
     avatarUrl: account?.avatarUrl ?? null,
@@ -113,7 +118,14 @@ export function postAccountCycle(
 // that visibly invites a tap and does nothing.
 export function nextPostAccount(
   post: Pick<Post, "platform" | "isTryout">,
-  accounts: ConnectedSocialAccount[]
+  accounts: ConnectedSocialAccount[],
+  // Positions this post cannot move to — currently "too long for that
+  // platform". **A refused position is stepped over, not stopped at**, because
+  // the pill is a cycle: with [Try out, LinkedIn, X], the only route from
+  // LinkedIn to Try out runs through X, so refusing X without skipping it
+  // would strand an over-length post on LinkedIn with a control that does
+  // nothing. Skipping keeps every reachable position reachable.
+  isRefused?: (target: PostAccountTarget) => boolean
 ): PostAccountTarget | null {
   const cycle = postAccountCycle(accounts, post.platform)
   if (cycle.length < 2) return null
@@ -124,5 +136,42 @@ export function nextPostAccount(
   // A post on a platform that has since been disconnected isn't a position in
   // the cycle at all; the first one is where it enters.
   if (index === -1) return cycle[0]
-  return cycle[(index + 1) % cycle.length]
+
+  // Walks the whole cycle rather than looking at the next entry alone, so more
+  // than one refused position in a row is stepped over too.
+  let firstRefused: PostAccountTarget | null = null
+  for (let step = 1; step < cycle.length; step += 1) {
+    const candidate = cycle[(index + step) % cycle.length]
+    if (!isRefused?.(candidate)) return candidate
+    firstRefused ??= candidate
+  }
+
+  // Every other position is refused. Returned rather than null so the pill
+  // stays live and the caller can explain why — a control that silently does
+  // nothing reads as broken, and this is the one case where the user has to be
+  // told the post is too long.
+  //
+  // **So this can hand back a refused target, and a caller that needs a target
+  // the post may actually move to must not use it.** Use nextAllowedPostAccount
+  // for that; the distinction is the whole reason it exists.
+  return firstRefused
+}
+
+/**
+ * The next position this post can actually be moved to, or null when there is
+ * none.
+ *
+ * The difference from nextPostAccount is the all-refused case, and it matters:
+ * that one deliberately hands back a *refused* target so the pill stays live
+ * and can explain itself, while this one returns null so a caller offering to
+ * perform the move has nothing to offer. Conflating them means a "Skip to …"
+ * button that performs the very switch its dialog opened to refuse.
+ */
+export function nextAllowedPostAccount(
+  post: Pick<Post, "platform" | "isTryout">,
+  accounts: ConnectedSocialAccount[],
+  isRefused: (target: PostAccountTarget) => boolean
+): PostAccountTarget | null {
+  const next = nextPostAccount(post, accounts, isRefused)
+  return next && !isRefused(next) ? next : null
 }

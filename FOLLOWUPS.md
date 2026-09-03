@@ -451,3 +451,85 @@ therefore failure — actually possible, so the treatment can be designed agains
 real states rather than invented ones. Threading it also touches
 MonthBoard → KanbanColumn → KanbanPostCard and the shared `GeneratedPostCard`,
 which the Generate page also renders.
+
+## LinkedIn's OAuth routes derive their origin from `nextUrl.origin`
+
+`app/api/connections/linkedin/{authorize,callback}/route.ts` build their
+redirect URI from `request.nextUrl.origin`, which Next pins to `localhost` in
+development regardless of the host requested (see LEARNINGS.md). LinkedIn is
+unaffected today only because `localhost` is the spelling registered on its app
+— so it happens to be right by coincidence, not by design.
+
+`feat/x-connect` added `resolveRequestOrigin` (lib/x/oauth.ts) for this, and
+deliberately did not reach into LinkedIn's routes: publishing work was live in
+another worktree at the time, and LinkedIn's flow is not broken. Worth applying
+the same helper there when nothing is in flight — it would also let LinkedIn's
+connect leg be exercised from a worktree port, which LEARNINGS records as
+currently impossible.
+
+## The Connections page can hydrate with stale `last_checked_at`
+
+While wiring X into the liveness check, the client was observed rendering
+`social_accounts` rows whose `last_checked_at` was older than what the server
+had just fetched for the same navigation (server: the fresh value; client: one
+from a previous load, minutes stale). Because `useConnectionLivenessCheck` runs
+`isLivenessCheckDue` against that client copy, a connection that is genuinely
+due can be judged "checked recently" and skipped for that visit.
+
+Not X-specific — LinkedIn is affected identically, and it predates
+`feat/x-connect`. Note a real foreground browser did *not* reproduce it: the
+check fired correctly there on first load, so this may be specific to automated
+/ backgrounded tabs. Low impact by design: the check is a background nicety, the
+server re-runs the same predicate as the authority, and the next visit gets
+another go. Worth understanding properly rather than papering over with a
+cache-busting query param.
+
+## X: what `feat/x-connect` deliberately did not do
+
+Connecting is finished — OAuth/PKCE, rotating refresh tokens, disconnect with
+revocation, liveness, the 280-character constraint and the over-length guard.
+What is left:
+
+**Publishing.** There is no `lib/x/publish.ts` and there must not be one until
+the user green-lights it (AGENTS.md, "Hard constraint — publishing").
+`getLiveXAccessToken` (lib/x/token.ts) is the token source it will use, and is
+already exercised by the liveness path. Turning it on means: add `tweet.write`
+to `X_SCOPES`, flip the X app's own permission from Read to Read-and-write, and
+**plan a reconnect-everyone migration** — changing app permissions invalidates
+every existing token, exactly like LinkedIn's scope change. `lib/x/oauth.test.ts`
+pins the absence of a write scope and will fail loudly, which is the point.
+
+**The Free tier is a shared pool, not a per-user allowance.** 500 posts and ~100
+reads a *month* per Project, across every user of the app — so roughly 100 new
+connections a month in total, whatever the signup rate, and 500 posts a month
+shared between everyone once publishing exists. Basic is $200/mo. This is a
+product/pricing constraint before any public release, not a code change; a
+public app will likely also need per-user posting limits enforced in-app so one
+heavy user cannot spend everyone's budget.
+
+**280 is applied to everyone by decision, not detection.** X Premium allows
+25,000, but the API exposes no reliable tier signal and generating something a
+free account cannot publish is the worse failure. If this needs to change it
+belongs as a per-account setting (the project owner is on Premium themselves).
+See `PLATFORM_LENGTH_LIMITS` in lib/post-length.ts.
+
+**Character counting is approximate and knowingly wrong for links.** It is
+`String.length`; X weights by unicode range (most CJK counts double) and
+collapses every URL to 23 characters regardless of real length. It therefore
+*over*-counts a post containing links — the safe direction, since it nudges
+shorter rather than promising a fit that isn't there. Worth replacing with X's
+real rules when publishing lands and the number stops being advisory.
+
+**Threads were considered and declined** ("leave as single post, LinkedIn is the
+major thing this app"). If revisited: X has no thread endpoint, so a thread is N
+sequential `POST /2/tweets` each carrying `reply.in_reply_to_tweet_id`; every
+tweet counts separately against both caps; partial failure is the real design
+problem, since there is no transaction and a half-published thread is public
+with no clean undo; and `posts` has one `content` field and one
+`provider_post_id`, so it would need a schema shape it does not have.
+
+**A model that keeps overshooting has no auto-retry.** If a reroll aimed at X
+comes back over 280, the switch is refused and the user is told "Still too long
+for X" — they must regenerate again themselves. Deliberate for now (an automatic
+retry loop spends tokens without asking), but if it turns out to be common, a
+single silent retry before reporting would be the obvious fix.

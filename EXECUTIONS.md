@@ -5117,3 +5117,553 @@ a laptop — pg_cron itself, which needs a deployed origin.
 
 Note the same restart tax applies as before: `.env.local` is clean, but a
 running server keeps the old env until it is restarted.
+## 2026-09-02 — feat/x-connect: X (Twitter) OAuth, protocol + token layers
+
+Branch `feat/x-connect`, worktree port 3003, holds the schema lock. Building the
+X connect flow as a sibling of LinkedIn's, not a generalization of it.
+
+1. **Surveyed the overlap with `feat/linkedin-publish`** (live in the other
+   worktree) before starting, because the plan initially called for serializing
+   the two. It doesn't need to: publishing lives in
+   `generate/publish-actions.ts` + `lib/linkedin/publish.ts`, connecting lives in
+   `components/connections/*` + `app/api/connections/*`. The only shared file is
+   `lib/supabase/queries.ts`, and in different functions. Both branches run
+   concurrently.
+
+2. **Two migrations** (additive, nullable, so the other worktree's server and
+   every existing LinkedIn row are untouched):
+   - `add_social_accounts_refresh_columns` — `encrypted_refresh_token`,
+     `account_handle`, `refresh_expires_at`.
+   - `add_social_accounts_refresh_claim` — `refresh_started_at`.
+
+3. **`lib/x/oauth.ts`** — the protocol. PKCE pair generation (mandatory on X,
+   not defence in depth), authorization URL, token exchange, refresh, profile
+   read, revoke. Scopes are `users.read tweet.read offline.access`;
+   `tweet.write` is absent and a test pins that.
+
+4. **`lib/x/token.ts`** — the part LinkedIn has no equivalent of. X access
+   tokens last 2 hours and its refresh tokens are rotating and single-use, which
+   creates two ways to permanently break a connection: losing the replacement
+   after spending one, and two requests spending the same one concurrently.
+   Handled by ordering (persist before returning) and by a `refresh_started_at`
+   claim, the same shape as `posts.publish_started_at`.
+
+5. **A test caught a real bug in my own first cut.** The revoked/unavailable
+   split was written as "any 4xx means the grant is dead", which reads **429 as
+   revocation** — so a rate-limited refresh would disconnect the member. On a
+   Free tier whose budget is shared across every user of the app, that is not a
+   hypothetical. Narrowed to exactly 400/401. See LEARNINGS.md.
+
+6. Gates: tsc clean, eslint clean on `lib/x`, 37 new tests passing (291 total).
+   One pre-existing failure, `lib/ai/generate.test.ts`, which calls the live
+   Gemini API and timed out — untouched by this branch.
+
+**Blocked on**: `X_CLIENT_ID` / `X_CLIENT_SECRET` from the X developer console.
+Nothing can be verified end-to-end until those exist. Routes and UI are next and
+don't need them to be written.
+
+### Routes and UI (same branch, continued)
+
+7. **`app/api/connections/x/{authorize,callback}/route.ts`** — mirrors the
+   LinkedIn pair, plus PKCE: the authorize leg puts the verifier in the same
+   httpOnly state cookie as the CSRF state and project id, the callback presents
+   it at the exchange. The callback stores the handle and the refresh token, and
+   resets `status`/`refresh_started_at` explicitly so a reconnected row can't
+   inherit a dead state from its previous life.
+
+8. **UI**: X's row is connectable (`available: true`); `handleConnect` routes to
+   `/api/connections/<platform>/authorize`; failure copy is now a function of
+   the provider's label, with the X routes labelling their failures via
+   `connect_error_platform` (LinkedIn's routes untouched — an absent label reads
+   as LinkedIn). `disconnectSocialAccount` gained a two-arm switch that revokes
+   X's *refresh* token, that being the one that ends the connection.
+
+9. **The liveness probe is fenced off from X**, in the hook and again in the
+   server action. X's liveness is a free by-product of its token refresh;
+   probing it would spend from the Free tier's ~100 monthly reads — a pool
+   shared by every user of the app — on every check of every account.
+
+10. **`fetchSocialAccounts` now resolves the connection horizon**:
+    `refresh_expires_at ?? expires_at`. An X access token expires in two hours,
+    so a row rendering its own `expires_at` would tell every X user their
+    connection expired today, forever. Resolving it in the query means none of
+    the three consumers (connections panel, connected row, dashboard) branch on
+    platform.
+
+11. **Second real bug, caught by verifying rather than by a test.** The routes
+    derived their redirect URI from `request.nextUrl.origin`, which Next pins to
+    `localhost` in development whatever host was requested — and X cannot
+    register `localhost` at all, so every connect attempt would have been
+    rejected by X. Added `resolveRequestOrigin`, which prefers the `Host` header
+    but only for loopback addresses (a client-controlled Host is otherwise an
+    open-redirect vector). Verified live: the same route now redirects to
+    127.0.0.1 or localhost according to which was actually requested.
+
+12. Verified without a session (curl against :3003): bad project id, missing
+    state cookie, and a denied consent all redirect back with the right code and
+    the X label. **The signed-in half is not yet verified** — 127.0.0.1 is a
+    different cookie origin from localhost, so the existing session doesn't carry
+    over and only the user can sign in.
+
+13. **Three reported symptoms on 127.0.0.1, one cause.** No segmented-control
+    pill, clicks falling through to the wrong tab, and missing artwork were all
+    Next refusing cross-origin dev assets to any hostname but the one it booted
+    on. Added `allowedDevOrigins: ["127.0.0.1"]`. Verified in-browser after a
+    restart: artwork, wordmark and toolbars render, the pill draws on a fresh
+    load of `?view=login`, and clicking between the two tabs moves it correctly.
+    See LEARNINGS.md — this presented with an empty console, which argues
+    against the actual answer.
+
+### End-to-end verification against the real X API
+
+14. **The connect flow works.** Authorize redirect carried exactly the right
+    params (redirect_uri on 127.0.0.1, `users.read tweet.read offline.access`,
+    S256 challenge, state); consent granted; the callback stored the row and the
+    page renders "Connected as @gdwn__" with avatar and "Expires in 180 days" —
+    the refresh horizon, not the 2-hour access token, confirming the
+    `refresh_expires_at ?? expires_at` resolution. DB row: access token 1.98h,
+    refresh 180d, scope with no write, claim released.
+
+15. **`next/image` throws on an unlisted host — it does not merely fail to draw
+    the image.** The first successful connection rendered the app's
+    "We couldn't load this page" error boundary while the row sat perfectly in
+    the database, because X's avatar is on `pbs.twimg.com` and next.config.ts
+    listed only LinkedIn's hosts. Added `pbs.twimg.com` and `abs.twimg.com`
+    (the latter serves the default avatar for accounts that never set one).
+
+16. **Live-tested the refresh, and broke the connection doing it.** The probe
+    called `refreshAccessToken` against the real endpoint. The rotation
+    succeeded — but vitest buffered the run's stdout, so the replacement token
+    was never captured, and X had already invalidated the old one. That is
+    precisely the failure mode lib/x/token.ts is built to prevent (persist
+    before use); the probe had no such ordering because it wrote nothing.
+    Row set to `status = 'revoked'` with the dead token cleared, matching what
+    `getLiveXAccessToken` writes on the same discovery, and the UI correctly
+    showed "Connection revoked" + Reconnect. Reconnecting restores it.
+
+    Two things confirmed live regardless: X's refresh tokens really are
+    single-use, and re-presenting a spent one returns a status our code
+    classifies as `revoked` rather than `unavailable` — the exact distinction
+    the 400/401-only narrowing exists for.
+
+    **If this is probed again, write the rotated token back in the same step
+    that fetches it, or drive it through `getLiveXAccessToken` (which does),
+    rather than printing it.**
+
+### getLiveXAccessToken gets its caller
+
+17. **The liveness check is the legitimate in-branch caller.** The obvious one
+    is publishing, which is out of scope (AGENTS.md's hard constraint, and it
+    belongs to feat/linkedin-publish). But X's liveness *is* its refresh result,
+    so `checkSocialAccountLiveness` now dispatches per platform: LinkedIn spends
+    a request via `verifyLinkedInToken`, X calls `getLiveXAccessToken`, which
+    renews the token it needs to renew anyway and reports `revoked` only when X
+    rejects the grant. The returned access token is deliberately discarded —
+    a server action's return value goes to the browser.
+
+    The throttle (`isLivenessCheckDue`) moved above the platform split, where it
+    governs both; for X it is what stops a page visit rotating a token that
+    still has hours on it. `hooks/use-connection-liveness.ts` is platform-blind
+    again — the earlier X filter there pushed a server-side policy into the
+    client and left X connections never checked at all once they had a real
+    answer to give.
+
+18. **Not verified end-to-end, and worth being precise about why.** The server
+    render fetches the right rows (logged: both accounts due after forcing
+    `last_checked_at` back three hours), but the client effect that calls the
+    action never fired in the automated browser tab, so no request was made and
+    the row is unchanged. Instrumentation confirmed the hook body and effect run
+    in a *foreground* tab and — separately — that the client there was hydrating
+    from a stale RSC payload whose `last_checked_at` was recent enough for the
+    throttle to say "not due", while the server had the fresh value. Both
+    platforms behave identically here, so this is not X-specific.
+
+    What *is* verified: `getLiveXAccessToken` by 14 unit tests, and
+    `refreshAccessToken` against the real X endpoint (step 16). What is not: the
+    hook → action → getLiveXAccessToken wiring, in a browser.
+
+19. **Verified end-to-end in a real browser**, closing the gap in step 18.
+    Opening the Connections page with both accounts forced past the throttle:
+    X's stored refresh token changed (`v1.yzQ/…` → `v1.5VLviye…`, i.e. rotated
+    *and* persisted), its access token went from expired to a fresh 1.99h,
+    `refresh_expires_at` restamped to 179.999 days, `refresh_started_at` back to
+    null, and `last_checked_at` moved — while LinkedIn was checked in the same
+    pass down its own `verifyLinkedInToken` path. The whole chain (hook → server
+    action → platform dispatch → getLiveXAccessToken → real X refresh → persist
+    → claim release) is confirmed against the live API.
+
+    The automated-browser tab never fired this; the user's own foreground tab
+    did on the first load. Worth remembering for future verification of anything
+    driven by a client effect — see the existing automation note in AGENTS.md
+    about evals backgrounding the tab.
+
+### X post length, and handle-first labels
+
+20. **X posts are constrained to 280 characters.** `build-prompt.ts` named the
+    platform but stated no ceiling, so every X post generated was
+    LinkedIn-shaped and unpostable. `PLATFORM_LENGTH_LIMITS` now carries it, and
+    the constraint is stated **twice** — once in the opening line, once
+    immediately after "write one complete post". The repetition is deliberate:
+    a limit mentioned only at the top competes with the instructions, style
+    examples and reference material that follow it, and models drift long. Same
+    recency reasoning `buildRegenerateSection` already relies on.
+
+    Applied to the **single-prompt branch too**. `singlePromptText` overrides
+    the tone/rules/structure/avoid fields — a voice decision — but a platform's
+    ceiling is a fact about the destination, not a preference being overridden.
+
+    LinkedIn is deliberately left unconstrained: its own limit is 3,000, high
+    enough that nothing generated here approaches it, so stating it would spend
+    prompt budget narrowing a target that never binds.
+
+    **280 is the free-tier number and is applied to every user by decision, not
+    by detection** (confirmed with the user, who is on Premium themselves). X
+    Premium allows 25,000, but the API offers no reliable tier signal, and
+    generating something a free account cannot publish is a worse failure than a
+    Premium user getting a shorter post. If that changes, it should be a
+    per-account setting.
+
+21. **Post cards label an X post with its handle** (`@gdwn__`), not the display
+    name — the handle is the identity on X, and it is what separates two people
+    sharing a display name. LinkedIn keeps the name, having no handle. Falls
+    through handle → name → platform label, so a blank name still renders
+    something. Guards against a stored value that already carries an "@".
+
+22. Gates: tsc clean, eslint clean across every file this branch touched, 301
+    tests passing. The one failure is the pre-existing `lib/ai/generate.test.ts`,
+    which calls the live Gemini API and is now returning an explicit free-tier
+    quota error — untouched by this branch.
+
+**Threads were considered and declined** (user: "leave as single post, LinkedIn
+is the major thing this app"). Notes if it ever comes back: X has no thread
+endpoint, so a thread is N sequential `POST /2/tweets` each carrying
+`reply.in_reply_to_tweet_id`; every tweet counts separately against both the
+500/month app-wide cap and the 17/24h per-user cap; and partial failure is the
+real design problem, since there is no transaction and a half-published thread
+is public with no clean undo. It would also need a schema shape `posts` does not
+have — one `content` field and one `provider_post_id`.
+
+### Over-length posts switched to X
+
+23. **The problem:** the account pill lets a post move from LinkedIn to X, and a
+    LinkedIn post is typically several times X's 280-character limit. Nothing
+    said so, so the switch silently produced an unpostable post.
+
+    Useful thing found first: `regeneratePost` builds its prompt from
+    `row.platform`, so a post switched to X and then rerolled *already* comes
+    back under 280 with no extra work. The fix was never about generation — the
+    escape hatch existed and was invisible.
+
+24. **Chosen (with the user, over "counter only" and "block the switch"):
+    counter + a nudge at the moment of the switch, never blocking.** Blocking
+    was rejected because moving a post and *then* shortening it is a legitimate
+    order of operations.
+
+    - `lib/post-length.ts` — the limit and `postLengthStatus`/
+      `exceedsPlatformLimit`. **Its own module on purpose**: the number is
+      needed by the prompt builder (server) and post cards (client), and a card
+      importing it from `lib/ai/build-prompt.ts` would drag the prompt builder
+      into the browser bundle — the trap AGENTS.md documents and
+      `lib/ai/no-client-sdk.test.ts` catches. build-prompt.ts now imports from
+      here.
+    - `components/shared/post-length-counter.tsx` — "1,513 / 280", danger
+      coloured with a warning glyph once over. **Renders nothing below 80% of
+      the limit**, and nothing ever for a platform without one, so it does not
+      appear on LinkedIn posts or short X ones. A permanently visible counter
+      would be noise on every card in the app for the sake of the rare post that
+      needs it.
+    - The nudge fires in `post-details.tsx` and `day-deck.tsx`, both carrying a
+      Regenerate action. Details opens the regenerate *dialog* (model and topic
+      are choices the user already makes there); the deck regenerates directly,
+      matching its own Regenerate button. Both replace the nudge with the error
+      toast if the switch itself then fails, so a warning can't outlive the
+      change it was warning about.
+    - `day-deck.tsx`'s toast state gained an `action`, held in state beside the
+      message for the same reason the message is — so the button doesn't vanish
+      mid-exit-animation.
+
+    **Counting is deliberately approximate.** `String.length`, not X's own
+    weighting (CJK counts double; every URL collapses to 23 characters
+    regardless of length). Reproducing that means shipping their counting rules
+    for a number that is advisory here — nothing publishes yet, and X enforces
+    the real ceiling whatever we display. It over-counts posts containing links,
+    which is the safe direction: it nudges shorter rather than promising a fit
+    that isn't there. Revisit when publishing lands.
+
+25. Verified in-browser on a real 1,513-character LinkedIn post: switching to X
+    raised "TOO LONG FOR X (1,513 / 280)" with a Regenerate button, the pill
+    became `𝕏 @gdwn__`, and the counter rendered "⚠ 1,513 / 280" in danger
+    beside it. The post was switched back to LinkedIn afterwards — it is real
+    user data, not a fixture. tsc and eslint clean, 309 tests passing.
+
+### Reworked, per direct feedback: refuse the switch instead of warning about it
+
+26. **Bug fixed: Try out was inheriting X's limit.** `postAccountCycle` gives a
+    Try out position the *post's own* platform (so switching to it and back is
+    lossless), so an X post switching to Try out arrived at the guard with
+    `target.platform === "x"` and tripped it. Nothing is ever published from a
+    try-out post, so the check is now skipped whenever `target.isTryout` — an
+    exemption that is load-bearing rather than cosmetic, and commented as such
+    at both call sites.
+
+27. **The counter is gone** (`components/shared/post-length-counter.tsx`
+    deleted, both usages removed), along with the toast nudges. Superseded by:
+
+28. **The switch to an over-limit platform is now refused, not warned about.**
+    A `ConfirmationModal` (reused, no new UI component) says "Too long for X —
+    This post is 1,513 characters and X allows 280. Regenerate it to fit, or
+    shorten it yourself first," with a Regenerate action. The post does not move.
+
+    **The ordering problem this created, and how it is solved.** Regeneration
+    builds its prompt from the row's platform, so a post refused entry to X is
+    still on LinkedIn and would reroll long again — the fix would never
+    converge. Both regeneration paths (`/api/regenerate-post` for post-details,
+    `regeneratePost` for the deck) therefore take an optional `targetPlatform`,
+    used **only** to build the prompt; neither writes `platform`. The client
+    applies the switch itself, last, and only on a clean finish — so a post
+    whose reroll failed is never left sitting on a platform it does not fit.
+
+    post-details hands the pending switch through its regenerate *dialog* (model
+    and topic are choices made there), held in a ref because the modal closes in
+    the same tick the dialog opens. The ref is consumed at the top of
+    `handleRegenerate` and cleared if the dialog is dismissed, so no failure path
+    can leave a stale switch to be applied by a later, unrelated reroll. The deck
+    has no model picker, so its modal starts the reroll directly.
+
+29. Verified in-browser: a 1,513-character LinkedIn post refuses the switch and
+    shows the modal while the pill stays on "Godwin John"; the 1,459-character
+    X post from the report switches to Try out with no modal at all. Both posts
+    were restored to their original platform/tryout state afterwards — real user
+    data, not fixtures. tsc, eslint and 309 tests clean.
+
+**Known consequence, not yet resolved:** the account pill cycles
+[Try out, LinkedIn, X], so from LinkedIn the only way to reach Try out is
+*through* X. With an over-length post, X is refused — which means Try out
+becomes unreachable from LinkedIn until the post fits. Raised with the user
+rather than silently worked around; the fix is either skipping a refused
+position in the cycle or replacing the cycling pill with a menu.
+
+30. **The cycle skips a refused position** (per direct choice, over a menu).
+    `nextPostAccount` takes an optional `isRefused` predicate and walks the
+    whole cycle rather than looking only at the next entry, so more than one
+    refused position in a row is stepped over too. When *every* other position
+    is refused it returns the first refused one rather than null — a pill that
+    silently does nothing reads as broken, and that is the one case where the
+    user has to be told the post is too long. Both call sites share one
+    `refusesPost` predicate with the guard in their switch handler, so the pill
+    and the guard cannot disagree.
+
+    Modal icon brought in line with the app's other confirmation modals:
+    `weight="bold"`, `size-12`, `text-icon-minimal` (was an unsized `fill`).
+
+    Verified in-browser: the 1,513-character LinkedIn post now cycles straight
+    to Try out, stepping over X, with no modal — confirmed in the database
+    (`platform: linkedin, is_tryout: true`) rather than from the screen, since
+    clicks that land before hydration silently do nothing and made this look
+    broken twice. Post restored afterwards.
+
+**Consequence of the skip, raised with the user:** with LinkedIn and X both
+connected, Try out is always an allowed position, so an over-length post now
+skips X *every* time and the modal is effectively unreachable — taking its
+"Regenerate to fit X" button with it. The remaining route to X is shortening the
+post by hand. If that matters, the fix is a separate affordance for "rewrite
+this for X" rather than relying on the refused-switch modal to offer it.
+
+31. **The silent skip is reverted; the dialog does the skipping instead**
+    (per direct request, superseding item 30's cycle behaviour). The pill offers
+    X like any other position again — a position that quietly stops being
+    offered reads as "X isn't connected", and the user never learns the post is
+    simply too long. So the refusal happens in the handler, and the dialog is
+    where both the reason and the ways out live:
+
+    - **Regenerate** — rerolls for X via the `targetPlatform` plumbing, then
+      applies the switch once text that fits exists.
+    - **Skip to Try out** — the position the cycle would have reached had the
+      refused one not been offered, so the pill is never a dead control.
+    - **Closing it changes nothing**, which is why the skip has to be an
+      explicit button rather than something dismissal does.
+
+    `nextPostAccount`'s `isRefused` predicate survives from item 30 and is what
+    computes that skip target; it is simply no longer applied to the pill
+    itself. The button's label is derived from the target's own resolved
+    account label rather than hardcoded, so it stays correct if the skip lands
+    somewhere other than Try out.
+
+    `ConfirmationModal` gained an optional `secondaryAction` — an addition to
+    the Figma export, which draws one button. `brand-secondary` keeps it
+    subordinate to the primary action.
+
+32. Verified in-browser: the pill now stops at X and shows the dialog (bold
+    48px warning icon, "Too long for X — This post is 1,513 characters and X
+    allows 280", Regenerate over Skip to Try out); "Skip to Try out" moved the
+    post to `is_tryout: true` while leaving `platform` on linkedin. Post
+    restored afterwards. tsc, eslint and 313 tests clean.
+
+33. Three follow-ups, per direct feedback:
+    - **Modal actions sit `dist-md` apart**, in their own `flex-col` stack
+      rather than inheriting DialogContent's `dist-lg` rhythm — two buttons
+      offering alternatives read as one control group, not two more sections.
+    - **The icon is gone from the too-long dialog** (a look the user wanted to
+      see). `ConfirmationModal`'s `icon` is now optional; the delete and
+      disconnect dialogs keep theirs.
+    - **The pill shows the account a reroll is writing *for*** while it is in
+      flight, instead of the one the post is still on. Display only — the post
+      genuinely stays put until the new text lands, which is the whole point of
+      refusing the switch — but showing the old account while the user watches
+      a post being written for the new one is a lie about what is happening.
+      Gated on `isRegenerating` rather than cleared on every exit path, because
+      `releaseRegenerate` deliberately does no setState (it runs on unmount
+      too), so a stale `regeneratingFor` simply never renders. The pill is also
+      inert mid-reroll, so it can't be cycled into a third state.
+
+34. **Found while verifying, and fixed: the switch was committing on the
+    strength of the reroll alone.** Regenerating with TasteTest — which ignores
+    the prompt and returns fixed text — moved a post to X at 1,513 characters,
+    the exact state the refusal exists to prevent. "It has been regenerated" is
+    not "it fits": a real model can overshoot too. Both paths now re-check the
+    new content against the limit and only commit the switch if it passes,
+    reporting "Still too long for X" otherwise and leaving the post where it
+    was.
+
+    Verified on a throwaway post created and deleted for the purpose, so no
+    real post's content was destroyed — regeneration is not reversible, unlike
+    the platform switches used in earlier rounds.
+
+35. **The Generating page had no guard at all** — reported by the user. Its
+    `handleSocialChange` (components/generate/generating-view.tsx) predates the
+    Content-side work and switched to X with no check, which is the screen where
+    a fresh batch is *most* likely to be reassigned. Now carries the same three
+    pieces as post-details and day-deck: the `refusesPost` predicate shared
+    between pill and guard, the refusal dialog with Regenerate / Skip, and the
+    post-reroll re-check that only commits the switch if the new text actually
+    fits. `handleRegeneratePost` gained the same optional `switchTo`.
+
+    Lint note: `generating-view.tsx` reports one `react-hooks/set-state-in-effect`
+    error, confirmed pre-existing by stashing this branch's changes and
+    re-running (same error, line 677 rather than 725 — it only moved because
+    lines were added above it).
+
+36. Self-inflicted: the stash round-trip in step 35 briefly reverted
+    next.config.ts, and the running dev server kept the reverted
+    `allowedDevOrigins` in memory — reproducing the dead-page symptom from step
+    13 with the file on disk still correct. Restarting the server fixed it;
+    verified the pill renders and moves (Queued → Draft, with the drafts info
+    line appearing). See LEARNINGS.md — compare a lint baseline via
+    `git show main:<file>` rather than stashing while a server is up.
+
+37. **TasteTest is greyed out in the regenerate dialog when the reroll targets a
+    length-limited platform** (per direct request). `SelectPillOption` already
+    had a `disabled` flag rendering the export's dimmed unselectable row, so
+    this is a filter, not new UI. `RegenerateModal` takes a `targetPlatform` —
+    the platform a refused switch is waiting on, or the post's own.
+
+    **The selection also falls back, which is the half that matters.** The model
+    preference is persisted per project, so anyone whose last Generate run used
+    TasteTest arrives with it already selected; without a fallback the pill
+    would sit on a greyed-out model and confirm a reroll that cannot succeed.
+    `selectedModel` now rejects a disabled option as well as a missing one, and
+    `onConfirm` passes `selectedModel.value` rather than the raw state.
+
+    post-details' pending switch moved from a ref to state for this — the
+    dialog renders from it, since it is what says which platform the reroll is
+    for. Verified in-browser on the 1,459-character X post: the dialog opened on
+    "Gemini 3.6 Flash" instead of the persisted TasteTest, and TasteTest renders
+    dimmed while the user's own BYOK models stay selectable.
+
+### Review fixes (held at /integrate, not merged)
+
+38. **BLOCKER: "Skip to …" performed the switch its dialog had just refused.**
+    `nextPostAccount` deliberately returns the *refused* target when every
+    position is refused, so the pill stays live and can explain itself. All
+    three call sites documented the opposite ("null when there is no such
+    position") and rendered the skip button off it — so in the one case the
+    button was supposed to be absent, it was present and committed the refused
+    switch. Reproduced with the reviewer's case (only X connected, over-length
+    Try-out post): the old call returned a target for which `refusesPost` is
+    true.
+
+    Fixed by splitting the contract rather than weakening either side, since
+    the step-over behaviour is right for the pill: `nextAllowedPostAccount`
+    (lib/post-account.ts) wraps `nextPostAccount` and returns null when the
+    result is refused. The three call sites now use it; the pill still uses
+    `nextPostAccount`. Both are pinned by tests, including one that asserts the
+    two disagree in exactly the all-refused case.
+
+39. **A claim leaked on the undecryptable-token path** (lib/x/token.ts). The
+    `if (!refreshToken)` early return sat inside the claimed region without
+    calling `releaseClaim`, three lines under a comment promising every path
+    released it — reachable via a rotated `MODEL_KEY_ENCRYPTION_KEY`, and it
+    wedged the account permanently: every later request found a claim nothing
+    would release and timed out in `waitForOtherRefresh`, forever.
+
+    Fixed with `try/finally` rather than a fourth `releaseClaim` call, per the
+    review — a `finally` cannot be forgotten by the next early return. A
+    `claimWritten` flag skips the release on the two paths that null the column
+    as part of a write they were already making. Three tests cover it: the
+    undecryptable token, an unreachable X, and a throw mid-refresh.
+
+40. **A reroll launched from the too-long dialog had no pending state.**
+    `GeneratedPostCard` owns its placeholder and its own re-entrancy guard, so a
+    parent calling `handleRegenerate` directly showed no feedback at all and
+    could run alongside a second reroll from the card's own button. The card
+    gained an optional `regenerating` prop that ORs into both; day-deck and
+    generating-view track the id they started and clear it in `.finally()`.
+    post-details already had `isRegenerating` driving the whole page.
+
+41. Gates: tsc clean, lint at main's 17-error baseline (16 in files this branch
+    never touched, one pre-existing in generating-view.tsx), build clean, **318
+    tests passing with `lib/ai/generate.test.ts` excluded** — it calls the live
+    Gemini API and is currently rate-limited, per FOLLOWUPS §12.
+
+    Scope was deliberately not widened, per the review.
+
+### Merged `main` after `feat/x-connect` landed, 2026-09-03
+
+Second in the merge order, as instructed. Three conflicts, exactly as predicted:
+
+- **`.env.local.example`** — two tail appends. X's credentials now sit beside
+  LinkedIn's; `CRON_SECRET` and the note on `PRESTO_ENABLE_LIVE_PUBLISH` follow
+  both.
+- **`lib/supabase/queries.ts`** — both sides added columns to
+  `fetchSocialAccounts`. Kept both: the select carries `account_handle`,
+  `refresh_expires_at` *and* `scope`, and the mapping keeps x-connect's
+  `refresh_expires_at ?? expires_at` resolution (X's access token lapses in two
+  hours; the refresh horizon is the real one) alongside `scope`.
+- **`components/content/day-deck.tsx`** — the only real work, and smaller than
+  it looked: git auto-merged both sides' state, handlers and dialogs, leaving a
+  single conflicted import. What needed a human eye was everything it merged
+  *without* conflict, which was checked rather than trusted — `handlePublish`
+  sits before x-connect's `refusesPost`/`handleSocialChange`, the card carries
+  both sides' props (`statusMarker`/`onPublish` and
+  `regenerating`/`onSocialChange`), and the publish confirmation and the
+  blocked-switch dialog coexist.
+
+Two comment artifacts fixed, both from the auto-merge rather than either
+branch: the "Platform and isTryout move together" note had been orphaned onto
+x-connect's `refusesPost` helper and was folded back into
+`commitSocialChange`'s own comment, and an import list came through as
+`nextAllowedPostAccount,  nextPostAccount,` on one line.
+
+`lib/post-publish.test.ts`'s account factory needed `accountHandle: null` —
+x-connect widened `ConnectedSocialAccount`, and tsc caught it.
+
+**The seam between the two branches, checked deliberately.** X posts now exist,
+and publishing must not touch them: `publishBlockedReason` returns
+`platform_unsupported` for an X post **even when an X account is connected**
+(that check runs before `not_connected`), and the cron's own selection query
+filters `platform = linkedin`. Both were already pinned —
+lib/post-publish.test.ts covers the first, the query the second — so no new test
+was needed. Length limits can't reach publishing either: `PLATFORM_LENGTH_LIMITS`
+defines only X, and X can't be published.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 errors — `main`'s own baseline, all in files this branch never touched (switch.tsx, generate-calendar-column.tsx, create-project-modal.tsx, onboarding-context.tsx, project-sidebar.tsx, generating-view.tsx) |
+| `npx vitest run --exclude lib/ai/generate.test.ts` | 346 passed / 29 files (excluded per FOLLOWUPS §12 — live Gemini quota, ~90s) |
+| `npm run build` | clean, `/api/cron/publish` present as a dynamic route |
+
+**Still undefined: "the interleaving test."** It matches nothing in the repo
+before or after x-connect landed, and x-connect added no test by that name
+(build-prompt, post-length, x/oauth, x/token, post-account). The mixed-platform
+seam it most plausibly refers to is covered above. Flagged rather than invented.

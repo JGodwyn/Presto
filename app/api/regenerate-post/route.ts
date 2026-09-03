@@ -32,6 +32,13 @@ const requestSchema = z.object({
   // means "keep whatever this post was already on". Same 80-char ceiling the
   // instructions action puts on a topic.
   topic: z.string().trim().min(1).max(80).optional(),
+  // The platform to write *for*, when it differs from the one the post is
+  // currently on. Set only by the too-long-to-switch flow: the post is still
+  // on LinkedIn at this point and must stay there until the new text exists,
+  // so the row cannot be the source of truth for which limits apply. It is a
+  // prompt input and nothing else — this route never writes `platform`, and
+  // the client applies the switch itself once the stream has landed.
+  targetPlatform: z.enum(["linkedin", "x"]).optional(),
 })
 
 // Without this the ceiling is whatever the deployment platform defaults to
@@ -138,7 +145,7 @@ export async function POST(request: Request) {
   )
 
   const prompt = buildPostPrompt(instructions, {
-    platform: row.platform,
+    platform: parsed.data.targetPlatform ?? row.platform,
     topic,
     writingStyles: context.writingStyles,
     references: context.references,

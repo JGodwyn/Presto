@@ -10,6 +10,8 @@ import {
   verifyLinkedInToken,
 } from "@/lib/linkedin/oauth"
 import { isLivenessCheckDue } from "@/lib/linkedin/liveness"
+import { getXCredentials, revokeXToken } from "@/lib/x/oauth"
+import { getLiveXAccessToken } from "@/lib/x/token"
 import { createClient } from "@/lib/supabase/server"
 
 const disconnectSchema = z.object({
@@ -46,7 +48,7 @@ export async function disconnectSocialAccount(
   // allowed to select this column.
   const { data: existing } = await supabase
     .from("social_accounts")
-    .select("encrypted_access_token")
+    .select("platform, encrypted_access_token, encrypted_refresh_token")
     .eq("id", parsed.data.id)
     .eq("project_id", parsed.data.projectId)
     .maybeSingle()
@@ -60,18 +62,37 @@ export async function disconnectSocialAccount(
     return { error: "Couldn't disconnect that account. Please try again." }
   }
 
-  const credentials = getLinkedInCredentials()
-  if (existing?.encrypted_access_token && credentials) {
-    try {
-      await revokeLinkedInToken(
-        credentials,
-        decryptApiKey(existing.encrypted_access_token)
-      )
-    } catch {
-      // A token stored under a rotated or wrong encryption key throws at
-      // decrypt (GCM fails loudly by design). The row is already gone, which
-      // is what the user asked for; the unrevoked token expires on its own.
+  // Which provider to tell, and which token is worth telling it about. A
+  // two-arm switch rather than a registry on purpose: it is the only place in
+  // this file that branches, and leaving the shape uncommitted keeps whatever
+  // the publish path eventually needs free to pick its own (see AGENTS.md on
+  // parallel branches).
+  try {
+    if (existing?.platform === "x") {
+      const credentials = getXCredentials()
+      // The refresh token is the connection — revoking it ends access, while
+      // the access token beside it lapses within two hours regardless. A row
+      // with none left (already revoked, or never granted offline.access) has
+      // nothing to revoke.
+      if (credentials && existing.encrypted_refresh_token) {
+        await revokeXToken(
+          credentials,
+          decryptApiKey(existing.encrypted_refresh_token)
+        )
+      }
+    } else if (existing?.encrypted_access_token) {
+      const credentials = getLinkedInCredentials()
+      if (credentials) {
+        await revokeLinkedInToken(
+          credentials,
+          decryptApiKey(existing.encrypted_access_token)
+        )
+      }
     }
+  } catch {
+    // A token stored under a rotated or wrong encryption key throws at decrypt
+    // (GCM fails loudly by design). The row is already gone, which is what the
+    // user asked for; the unrevoked token expires on its own.
   }
 
   revalidatePath(`/projects/${parsed.data.projectId}/connections`)
@@ -84,9 +105,19 @@ const checkLivenessSchema = z.object({
   id: z.string().uuid(),
 })
 
-// Ask LinkedIn whether a stored token is still good, and mark the row if it
+// Ask the provider whether a stored token is still good, and mark the row if it
 // isn't. Called in the background by the Connections page (see
 // useConnectionLivenessCheck) — never blocking a render.
+//
+// **The two platforms answer this question in completely different ways, and
+// that is the point of the split below.** LinkedIn has no refresh token, so the
+// only way to learn that a member revoked access is to spend a request using
+// the token — `verifyLinkedInToken`, throttled because it costs one. X renews
+// its 2-hour token constantly anyway, and a refresh that comes back rejected
+// *is* the revocation notice: `getLiveXAccessToken` therefore answers this for
+// free, as a by-product of work worth doing regardless. Probing X the LinkedIn
+// way would spend from a ~100-reads-a-month budget shared by every user of the
+// app (see fetchXProfile).
 //
 // "skipped" is the common answer and not a failure: the row was checked
 // recently, or is already known dead. The caller only has to do something
@@ -111,24 +142,51 @@ export async function checkSocialAccountLiveness(
 
   const { data: account } = await supabase
     .from("social_accounts")
-    .select("encrypted_access_token, last_checked_at, status")
+    .select("platform, encrypted_access_token, last_checked_at, status")
     .eq("id", parsed.data.id)
     .eq("project_id", parsed.data.projectId)
     .maybeSingle()
 
   if (!account) return { error: "That connection no longer exists." }
 
-  // The authority on whether this is worth asking LinkedIn — the page runs the
+  // The authority on whether this is worth asking at all — the page runs the
   // same predicate first to avoid a pointless round trip, but a client with a
-  // stale copy of it can only ever reach this line, never LinkedIn.
-  const due = isLivenessCheckDue(
-    {
-      status: account.status,
-      lastCheckedAt: account.last_checked_at,
-    },
-    new Date()
-  )
-  if (!due) return { ok: true, result: "skipped" }
+  // stale copy of it can only ever reach this line, never the provider.
+  //
+  // Checked before the platform split because it governs both, and for X it is
+  // what stops a page visit rotating a token that has hours left on it.
+  if (
+    !isLivenessCheckDue(
+      { status: account.status, lastCheckedAt: account.last_checked_at },
+      new Date()
+    )
+  ) {
+    return { ok: true, result: "skipped" }
+  }
+
+  if (account.platform === "x") {
+    // Renewing and checking are the same act here. getLiveXAccessToken writes
+    // the outcome itself — the rotated tokens on success, `status = 'revoked'`
+    // and a cleared refresh token when X rejects the grant — so there is
+    // nothing to patch afterwards.
+    //
+    // **The access token it returns is deliberately dropped.** Nothing on this
+    // page needs it, and a server action's return value goes to the browser.
+    const live = await getLiveXAccessToken(supabase, parsed.data.id)
+
+    if (!live.ok && live.failure === "revoked") {
+      revalidatePath(`/projects/${parsed.data.projectId}/connections`)
+      return { ok: true, result: "revoked" }
+    }
+
+    // "unavailable", "config" and "not_connected" all mean the check didn't
+    // happen, not that the connection is dead — same fail-open reasoning as
+    // refreshAccessToken's own. Reported as skipped so nothing on the page
+    // changes on an answer that isn't one.
+    return { ok: true, result: live.ok ? "alive" : "skipped" }
+  }
+
+  if (account.platform !== "linkedin") return { ok: true, result: "skipped" }
 
   let accessToken: string
   try {

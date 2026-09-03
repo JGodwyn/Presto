@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { PillTextarea } from "@/components/ui/pill-textarea"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/model-constants"
+import { PLATFORM_LENGTH_LIMITS } from "@/lib/post-length"
+import type { PostPlatform } from "@/types/post"
 import { readPreferredModel } from "@/lib/generate-settings"
 import { withNetworkStatus } from "@/lib/network-status"
 import { createClient } from "@/lib/supabase/client"
@@ -25,6 +27,23 @@ const BUILTIN_MODEL_OPTIONS: SelectPillOption[] = [
   { value: TASTE_TEST_MODEL_ID, label: "TasteTest" },
 ]
 
+// TasteTest returns one of a handful of fixed canned posts and never reads the
+// prompt at all, so a platform length limit has no effect on it — every one of
+// its posts is over a thousand characters. Offering it for a reroll aimed at X
+// is offering a button that cannot succeed: the result is always refused by the
+// post-reroll length check, however many times it is pressed.
+function builtinModelOptions(targetPlatform?: PostPlatform): SelectPillOption[] {
+  const limited = targetPlatform
+    ? PLATFORM_LENGTH_LIMITS[targetPlatform] !== undefined
+    : false
+
+  return BUILTIN_MODEL_OPTIONS.map((option) =>
+    limited && option.value === TASTE_TEST_MODEL_ID
+      ? { ...option, disabled: true }
+      : option
+  )
+}
+
 // design-sync/regeneratemodal — a title, an optional free-text note on what
 // the new version should do differently, a model picker ("Using X"), a
 // single primary action (its label switches on whether that note is empty),
@@ -39,6 +58,7 @@ export function RegenerateModal({
   currentTopic,
   onConfirm,
   isPending = false,
+  targetPlatform,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -55,6 +75,10 @@ export function RegenerateModal({
   // moment you regenerated it.
   topics: string[]
   currentTopic?: string
+  // The platform this reroll will be written for — the post's own, or the one
+  // a refused switch is waiting on. Only used to rule out models that cannot
+  // meet that platform's length limit; see disabledModelReason below.
+  targetPlatform?: PostPlatform
   // The trimmed guidance text ("" when left blank), the chosen model id
   // (either a BUILTIN_MODEL_OPTIONS value or a user_ai_models row id), and
   // the topic to write about — undefined only when this project has no
@@ -110,14 +134,19 @@ export function RegenerateModal({
   }, [])
 
   const modelOptions = React.useMemo(
-    () => [...BUILTIN_MODEL_OPTIONS, ...userModelOptions],
-    [userModelOptions]
+    () => [...builtinModelOptions(targetPlatform), ...userModelOptions],
+    [userModelOptions, targetPlatform]
   )
   // Falls back to the first built-in rather than a non-null assertion: the
   // restored `model` above could in principle name a since-deleted
   // Connections model before this list finishes loading.
+  const found = modelOptions.find((option) => option.value === model)
+  // A disabled option falls back too, not just a missing one: the persisted
+  // preference is per project, so arriving here with TasteTest already
+  // selected is the common case for anyone who last generated with it — and
+  // confirming a greyed-out model would start a reroll that cannot succeed.
   const selectedModel =
-    modelOptions.find((option) => option.value === model) ?? BUILTIN_MODEL_OPTIONS[0]
+    found && !found.disabled ? found : modelOptions[0] ?? BUILTIN_MODEL_OPTIONS[0]
 
   // The post's own topic leads, then the project's, deduped — so the pill
   // opens on what this post is already about and the rest are alternatives.
@@ -200,7 +229,8 @@ export function RegenerateModal({
           className="w-full"
           disabled={isPending}
           onClick={() => {
-            onConfirm(guidance.trim(), model, topic)
+            // selectedModel, not `model` — see its fallback above.
+            onConfirm(guidance.trim(), selectedModel.value, topic)
             setGuidance("")
             // Both revert to their defaults next time this opens, rather than
             // staying stuck on a one-off pick from just now.

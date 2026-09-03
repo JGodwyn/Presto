@@ -1,6 +1,7 @@
 import type { ResolvedAttachment } from "@/lib/ai/attachments"
 import type { Instructions } from "@/types/instructions"
 import type { PostPlatform } from "@/types/post"
+import { PLATFORM_LENGTH_LIMITS } from "@/lib/post-length"
 
 const PLATFORM_LABELS: Record<PostPlatform, string> = {
   linkedin: "LinkedIn",
@@ -115,6 +116,29 @@ function buildRegenerateSection(previousContent: string, guidance?: string): str
   ].join("\n")
 }
 
+// X rejects anything over 280 characters, so a post generated without that
+// constraint is not merely long — it is unpostable. The number itself lives in
+// lib/post-length.ts, which post cards also read: a client component importing
+// it from here would drag the whole prompt builder into the browser bundle
+// (AGENTS.md's lib/ai import rule, pinned by lib/ai/no-client-sdk.test.ts).
+//
+// LinkedIn is deliberately absent from that map — its own ceiling is 3,000,
+// high enough that nothing this app generates approaches it, so saying so would
+// only spend prompt budget narrowing a target that never binds.
+
+// Stated twice on purpose, and the second one is the load-bearing copy. A limit
+// mentioned only in an opening line competes with everything after it —
+// instructions, style examples, reference material — and models reliably drift
+// long. Repeating it immediately after "write one post" makes it the most
+// recent thing read, the same recency reasoning buildRegenerateSection relies
+// on for its rejected-draft note.
+function lengthConstraint(platform: PostPlatform): string | null {
+  const limit = PLATFORM_LENGTH_LIMITS[platform]
+  if (!limit) return null
+
+  return `Hard limit: at most ${limit} characters, including spaces and punctuation. This is not a style preference — ${PLATFORM_LABELS[platform]} rejects anything longer. Count as you write and stay under it; say less rather than running over.`
+}
+
 export function buildPostPrompt(instructions: Instructions, options: BuildPostPromptOptions): string {
   const { platform, topic, batchContext, writingStyles, references, previousContent, guidance } =
     options
@@ -148,10 +172,22 @@ export function buildPostPrompt(instructions: Instructions, options: BuildPostPr
       lines.push(buildGuidanceSection(guidance))
     }
 
+    // Applied to the single-prompt branch too. singlePromptText replaces the
+    // tone/rules/structure/avoid fields — a voice decision — but the platform's
+    // own ceiling is a fact about where the post is going, not a preference the
+    // user is overriding, and a post over it simply cannot be published.
+    const singlePromptLimit = lengthConstraint(platform)
+    if (singlePromptLimit) lines.push(singlePromptLimit)
+
     return lines.join("\n\n")
   }
 
-  const sections = [`You are writing a social media post for ${platformLabel}.`]
+  const limit = PLATFORM_LENGTH_LIMITS[platform]
+  const sections = [
+    limit
+      ? `You are writing a social media post for ${platformLabel}. It must be at most ${limit} characters.`
+      : `You are writing a social media post for ${platformLabel}.`,
+  ]
 
   if (instructions.tone.trim()) sections.push(`Tone: ${instructions.tone.trim()}`)
   if (instructions.contentRules.trim()) sections.push(`Content rules: ${instructions.contentRules.trim()}`)
@@ -162,6 +198,9 @@ export function buildPostPrompt(instructions: Instructions, options: BuildPostPr
   if (topic) sections.push(`Topic: ${topic}`)
 
   sections.push("Write one complete, ready-to-publish post following the above.")
+
+  const structuredLimit = lengthConstraint(platform)
+  if (structuredLimit) sections.push(structuredLimit)
 
   if (previousContent?.trim()) {
     sections.push(buildRegenerateSection(previousContent, guidance))

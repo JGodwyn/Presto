@@ -173,7 +173,15 @@ function ConnectedAccountRow({
               ? "Connection revoked"
               : status === "expired"
                 ? "Connection expired"
-                : `Connected as ${account.accountName}`}
+                : // The handle is the more recognisable identity on X, and the
+                  // one that disambiguates two accounts under the same display
+                  // name. LinkedIn has none, so it falls back to the name
+                  // alone rather than the row needing to know the platform.
+                  `Connected as ${
+                    account.accountHandle
+                      ? `@${account.accountHandle}`
+                      : account.accountName
+                  }`}
           </span>
         </div>
       </div>

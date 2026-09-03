@@ -29,6 +29,7 @@ function account(
     id: "account-1",
     platform: "linkedin",
     accountName: "Godwin John",
+    accountHandle: null,
     accountEmail: null,
     avatarUrl: null,
     connectedAt: new Date("2026-09-02T15:30:00Z").toISOString(),

@@ -280,7 +280,7 @@ export async function fetchSocialAccounts(
   const { data, error } = await supabase
     .from("social_accounts")
     .select(
-      "id, platform, account_name, account_email, avatar_url, connected_at, expires_at, scope, status, last_checked_at"
+      "id, platform, account_name, account_handle, account_email, avatar_url, connected_at, expires_at, refresh_expires_at, scope, status, last_checked_at"
     )
     .eq("project_id", projectId)
     .order("connected_at", { ascending: true })
@@ -291,10 +291,16 @@ export async function fetchSocialAccounts(
     id: row.id,
     platform: row.platform,
     accountName: row.account_name,
+    accountHandle: row.account_handle,
     accountEmail: row.account_email,
     avatarUrl: row.avatar_url,
     connectedAt: row.connected_at,
-    expiresAt: row.expires_at,
+    // When the *connection* dies, which is not always when the access token
+    // does. On X the access token lapses in two hours and refresh_expires_at
+    // carries the real ~6-month horizon; on LinkedIn there is no refresh token
+    // and the column is null, so expires_at is already the answer. Resolving it
+    // here means no consumer has to know which platform it is looking at.
+    expiresAt: row.refresh_expires_at ?? row.expires_at,
     scope: row.scope,
     status: row.status,
     lastCheckedAt: row.last_checked_at,
