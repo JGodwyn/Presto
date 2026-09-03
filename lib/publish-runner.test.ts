@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { CLAIM_TIMEOUT_MS, publishOnePost } from "@/lib/publish-runner"
+import {
+  CLAIM_TIMEOUT_MS,
+  publishOnePost,
+  RECORD_FAILED_PREFIX,
+} from "@/lib/publish-runner"
 import { PUBLISH_GRACE_MINUTES } from "@/lib/publish-due"
 
 // The share call is the one thing a test must never actually make.
@@ -40,7 +44,7 @@ function fakeSupabase({
       let payload: Record<string, unknown> | null = null
 
       const self = () => builder
-      for (const method of ["select", "eq", "is", "or"]) builder[method] = self
+      for (const method of ["select", "eq", "is", "or", "not"]) builder[method] = self
 
       builder.update = (values: Record<string, unknown>) => {
         payload = values
@@ -50,10 +54,15 @@ function fakeSupabase({
 
       builder.maybeSingle = async () => {
         if (payload !== null) {
-          // The claim: granted unless the row is already published.
-          return post.published_at === null
-            ? { data: { id: POST.postId }, error: null }
-            : { data: null, error: null }
+          // The claim. Granted unless the row is already published, or is
+          // marked live-but-unrecorded — the `.not(publish_error, like, …)`
+          // predicate, which unlike the stale-claim window never expires.
+          const blocked =
+            post.published_at !== null ||
+            String(post.publish_error ?? "").startsWith(RECORD_FAILED_PREFIX)
+          return blocked
+            ? { data: null, error: null }
+            : { data: { id: POST.postId }, error: null }
         }
         return table === "posts"
           ? { data: post, error: null }
@@ -141,14 +150,75 @@ describe("publishOnePost when the record write fails", () => {
 
     await publishOnePost(supabase as never, POST, NOW)
 
-    // Exactly two writes are attempted: the claim, then the record write that
-    // fails. The failed write's own payload nulls publish_started_at, but it
-    // never lands — what matters is that no *further* update is issued to
-    // release the claim, which is what would offer the post back to the next
-    // tick.
+    // Three writes are attempted: the claim, the record write that fails, and
+    // the marker. The failed write's own payload nulls publish_started_at, but
+    // it never lands — what matters is that no write *after* it releases the
+    // claim, which is what would offer the post back to a later attempt.
     const postUpdates = supabase.updates.filter((update) => update.table === "posts")
-    expect(postUpdates).toHaveLength(2)
     expect(postUpdates[0].publish_started_at).toBe(NOW.toISOString())
+
+    const afterTheFailedWrite = postUpdates.slice(2)
+    expect(afterTheFailedWrite).not.toHaveLength(0)
+    for (const update of afterTheFailedWrite) {
+      expect(update).not.toHaveProperty("publish_started_at", null)
+    }
+  })
+
+  // The hole in the first version of this fix. "Leave the claim held" is not a
+  // permanent block: the claim predicate re-grants a claim older than
+  // CLAIM_TIMEOUT_MS, so holding it only bought sixteen minutes. The cron never
+  // noticed — the post has left its due window by then — but the manual
+  // "Publish now" path does not look at the date at all, so a person clicking
+  // it later re-sent a post already on their timeline.
+  it("marks the row so no later attempt can ever re-claim it", async () => {
+    const supabase = fakeSupabase({
+      post: livePost,
+      recordError: { message: "write failed" },
+    }) as unknown as { updates: Record<string, unknown>[] }
+
+    await publishOnePost(supabase as never, POST, NOW)
+
+    const marker = supabase.updates.find((update) =>
+      String(update.publish_error ?? "").startsWith(RECORD_FAILED_PREFIX)
+    )
+    expect(marker).toBeDefined()
+    // The URN travels inside the marker: once the published_at write has
+    // failed, this is the only durable record that the post is live.
+    expect(marker?.publish_error).toBe(`${RECORD_FAILED_PREFIX}urn:li:share:1`)
+  })
+
+  it("refuses a marked post outright, however long has passed", async () => {
+    const supabase = fakeSupabase({
+      post: {
+        ...livePost,
+        publish_error: `${RECORD_FAILED_PREFIX}urn:li:share:1`,
+      },
+    })
+
+    // Well past the claim lease, which is exactly when the old fix let go.
+    const later = new Date(NOW.getTime() + CLAIM_TIMEOUT_MS * 10)
+    const outcome = await publishOnePost(supabase, POST, later)
+
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.failure).toBe("claimed")
+    expect(publishTextPost).not.toHaveBeenCalled()
+  })
+
+  it("reports the release write's own failure rather than claiming it recorded", async () => {
+    publishTextPost.mockResolvedValue({ ok: false, failure: "publish" })
+    const supabase = fakeSupabase({
+      post: livePost,
+      recordError: { message: "write failed" },
+    })
+
+    const outcome = await publishOnePost(supabase, POST, NOW)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.failure).toBe("publish")
+    // The write that would have recorded the failure failed too, so the row
+    // never got the marker and a caller must not pretend otherwise.
+    expect(outcome.recorded).toBe(false)
   })
 
   it("still reports success when the record write lands", async () => {

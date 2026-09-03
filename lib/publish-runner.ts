@@ -41,6 +41,20 @@ import { PUBLISH_GRACE_MINUTES } from "@/lib/publish-due"
 // the last tick that can see a post is never the tick that can re-claim it.
 export const CLAIM_TIMEOUT_MS = (PUBLISH_GRACE_MINUTES + 1) * 60 * 1000
 
+// Marks a post that IS live at LinkedIn but whose row could not be updated to
+// say so. Stored in `publish_error` because that column is the only durable
+// thing left once the `published_at` write has failed, and it carries the URN
+// so the row can still be reconciled against the real timeline by hand.
+//
+// **Holding the claim is not enough on its own, and assuming it was is how the
+// first version of this fix stayed broken.** The claim is a *lease* — the
+// claim predicate re-grants it after CLAIM_TIMEOUT_MS — so "leave it held"
+// only delays a second publish by sixteen minutes. The cron never notices
+// because the post has left its due window by then, but the manual "Publish
+// now" path does not look at the date at all, so a person clicking it later
+// would have re-claimed and re-sent a post already on their timeline.
+export const RECORD_FAILED_PREFIX = "record_failed:"
+
 // Everything that can stop a publish, including the reasons that are about the
 // post rather than the provider. The `PublishFailure` half comes back from the
 // gate or the share call itself.
@@ -145,6 +159,10 @@ export async function publishOnePost(
     .eq("project_id", input.projectId)
     .is("published_at", null)
     .or(`publish_started_at.is.null,publish_started_at.lt.${staleBefore}`)
+    // Never re-claim a post already known to be live. Unlike the stale-claim
+    // window above this has no expiry, which is the point: every other reason
+    // a claim is held is recoverable by waiting, and this one is not.
+    .not("publish_error", "like", `${RECORD_FAILED_PREFIX}%`)
     .select("id")
     .maybeSingle()
 
@@ -162,13 +180,20 @@ export async function publishOnePost(
     // Release the claim and record why, so the post reads as failed rather than
     // sitting in the queue looking untouched (see hasFailed in
     // lib/content-grouping.ts, and the card's own marker).
-    await supabase
+    //
+    // Error-checked like the success write below. Nothing was published on this
+    // path, so a failed write here cannot duplicate anything — but it would
+    // leave the post wearing "Overdue" with no "Didn't send" marker and no
+    // reason, which is precisely the silent state the publish_error column
+    // exists to prevent. `recorded` reports what actually happened so the
+    // caller does not mirror a failure the row never received.
+    const { error: releaseError } = await supabase
       .from("posts")
       .update({ publish_started_at: null, publish_error: result.failure })
       .eq("id", input.postId)
       .eq("project_id", input.projectId)
 
-    return { ok: false, failure: result.failure, recorded: true }
+    return { ok: false, failure: result.failure, recorded: !releaseError }
   }
 
   // The one place published-ness is recorded. Every tab, chip and dashboard
@@ -206,10 +231,27 @@ export async function publishOnePost(
   // that this post is live, and losing it means nobody can reconcile the row
   // against the real timeline by hand.
   if (recordError) {
+    // Last durable act available: mark the row so no path can ever claim it
+    // again, and keep the URN inside that marker. This is a smaller write than
+    // the one that just failed — no `published_at`, so it cannot trip the
+    // published-needs-a-provider-id constraint — which gives it a real chance
+    // of landing when the larger one did not.
+    //
+    // The claim is left set as well. Belt and braces: the marker is what makes
+    // the block permanent, the held claim is what covers the sixteen minutes
+    // before this write is even attempted again.
+    const { error: markError } = await supabase
+      .from("posts")
+      .update({ publish_error: `${RECORD_FAILED_PREFIX}${result.postUrn}` })
+      .eq("id", input.postId)
+      .eq("project_id", input.projectId)
+
     return {
       ok: false,
       failure: "record_failed",
-      recorded: false,
+      // True only if the marker landed. False means nothing durable records
+      // that this post is live, and the URN below is the only copy anywhere.
+      recorded: !markError,
       publishedUrn: result.postUrn,
     }
   }

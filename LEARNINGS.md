@@ -1337,3 +1337,28 @@ Prefer the failure you can undo.
 separately and confirming the new tests fail — 2 failures for the unchecked
 write, 1 for the shortened claim. A test written against a fix, never run
 against the bug, is a test that proves nothing.
+
+### A lease is not a lock
+
+**Symptom.** A fix for a double-publish bug reintroduced the same bug, one code
+path over, while its own tests passed.
+
+**Cause.** The fix left a claim held on a post that was live but unrecorded, and
+its comment said the claim was "deliberately left held". It was not held — it
+was *leased*. The claim predicate re-grants any claim older than
+`CLAIM_TIMEOUT_MS`, so the block expired after sixteen minutes. The scheduler
+never noticed, because a post that old has left its due window; the manual
+"Publish now" button has no such window and would happily re-send.
+
+**Rule.** Before relying on a mechanism to block something, check what *lifts*
+it. A stale-claim window exists precisely so a crashed publish does not strand a
+post forever — which means it is designed to expire, and cannot also be the
+thing that makes a block permanent. Those are opposite requirements and one
+value cannot serve both. The durable block is a written marker with no expiry
+(`publish_error: "record_failed:<urn>"`, excluded by the claim predicate); the
+lease still covers the gap before that marker is attempted.
+
+**Corollary.** When a guard exists on two paths, fixing one and calling it done
+is the default failure. Both publish handlers needed the same `try/finally`;
+both writes in the same function needed the same error check. After fixing an
+instance, grep for the shape rather than the symptom.

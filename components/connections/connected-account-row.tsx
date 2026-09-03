@@ -20,7 +20,7 @@ import {
   formatExpiry,
   isConnectionDead,
 } from "@/lib/format-date"
-import { grantIsCurrent } from "@/lib/linkedin/scopes"
+import { isGrantStale } from "@/lib/linkedin/scopes"
 import { cn } from "@/lib/utils"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 
@@ -94,7 +94,14 @@ function ConnectedAccountRow({
   // dead row — which is why it's its own flag rather than another
   // ConnectionStatus value with a precedence puzzle attached. Only ever true
   // after a scope is added to LINKEDIN_SCOPES; before then every row matches.
-  const grantIsStale = !isDead && !grantIsCurrent(account.scope)
+  //
+  // Platform-gated inside isGrantStale, and that is load-bearing rather than
+  // tidiness: these are LinkedIn's scope strings, so an X row (users.read /
+  // tweet.read / offline.access) can never satisfy a list containing
+  // w_member_social. Ungated, every connected X account wore a permanent
+  // "Reconnect to grant Presto permission to post" chip — for a permission X is
+  // never asked for, and which reconnecting could not clear.
+  const grantIsStale = !isDead && isGrantStale(account.platform, account.scope)
 
   return (
     <div className="flex flex-col gap-dist-md">

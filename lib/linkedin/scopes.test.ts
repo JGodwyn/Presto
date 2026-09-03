@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { grantIsCurrent, LINKEDIN_SCOPES, parseGrantedScopes } from "./scopes"
+import {
+  grantIsCurrent,
+  isGrantStale,
+  LINKEDIN_SCOPES,
+  parseGrantedScopes,
+} from "./scopes"
 
 describe("parseGrantedScopes", () => {
   it("splits the comma-delimited form LinkedIn actually returns", () => {
@@ -68,5 +73,29 @@ describe("grantIsCurrent", () => {
 
   it("rejects an empty grant", () => {
     expect(grantIsCurrent("")).toBe(false)
+  })
+})
+
+// The bug this exists to prevent: grantIsCurrent asks a LinkedIn question, and
+// asking it of an X row compares X's scopes against a list containing
+// w_member_social. Every connected X account then wore a permanent "Reconnect"
+// chip, for a permission X is never asked for and that reconnecting could not
+// clear — X went live on main while this branch was open, so the two only met
+// at the merge.
+describe("isGrantStale", () => {
+  const X_GRANT = "users.read tweet.read offline.access"
+
+  it("never calls a non-LinkedIn grant stale", () => {
+    expect(isGrantStale("x", X_GRANT)).toBe(false)
+    // Even an empty scope: LINKEDIN_SCOPES has nothing to say about it.
+    expect(isGrantStale("x", "")).toBe(false)
+  })
+
+  it("still catches a LinkedIn grant made before the scope was added", () => {
+    expect(isGrantStale("linkedin", "openid,profile,email")).toBe(true)
+  })
+
+  it("passes a current LinkedIn grant", () => {
+    expect(isGrantStale("linkedin", LINKEDIN_SCOPES.join(" "))).toBe(false)
   })
 })

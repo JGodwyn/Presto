@@ -800,11 +800,21 @@ export function PostDetails({
   // optimistic — there is nothing true to show until LinkedIn has confirmed
   // the post exists — and the only thing here that asks before it runs.
   const handleConfirmPublish = async () => {
+    // try/finally, because the dialog's dismiss guard is
+    // `if (!open && !isPublishing)` (below) — a throw that left isPublishing
+    // true made the modal permanently unclosable, with no way out but a
+    // reload. A server action throws on a redirect as well as on a real fault,
+    // so this is a reachable path rather than a defensive flourish. The same
+    // fix applies to the day deck's copy of this handler.
     setIsPublishing(true)
-    const result = await withNetworkStatus(
-      publishPost({ projectId: currentPost.projectId, id: currentPost.id })
-    )
-    setIsPublishing(false)
+    let result: Awaited<ReturnType<typeof publishPost>> | null
+    try {
+      result = await withNetworkStatus(
+        publishPost({ projectId: currentPost.projectId, id: currentPost.id })
+      )
+    } finally {
+      setIsPublishing(false)
+    }
 
     if (result === null) {
       setPublishOpen(false)

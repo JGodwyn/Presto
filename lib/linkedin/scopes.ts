@@ -52,7 +52,16 @@ export function parseGrantedScopes(raw: string): Set<string> {
   )
 }
 
-// Whether a stored grant still covers everything this app now requests.
+// Whether a stored **LinkedIn** grant still covers everything this app now
+// requests of LinkedIn.
+//
+// The platform check is the caller's job and is not optional: these are
+// LinkedIn's scope strings, so asking this of an X row compares
+// `users.read tweet.read offline.access` against a list containing
+// `w_member_social` and is false for every X account that will ever exist —
+// a permanent "Reconnect" prompt for a permission X is never asked for, and
+// which reconnecting cannot clear. See isGrantStale below, which is what call
+// sites should use.
 //
 // False means the connection predates a scope being added: the token is not
 // dead — it keeps working for whatever it *was* granted — but it can't do the
@@ -64,4 +73,14 @@ export function parseGrantedScopes(raw: string): Set<string> {
 export function grantIsCurrent(raw: string): boolean {
   const granted = parseGrantedScopes(raw)
   return LINKEDIN_SCOPES.every((scope) => granted.has(scope))
+}
+
+// The question a connections row actually wants to ask, platform included.
+//
+// Non-LinkedIn platforms are never stale: LINKEDIN_SCOPES has nothing to say
+// about them, and each platform's own scope list is granted in full or the
+// connection would not exist. Adding a scope to another platform later means
+// giving it the same treatment here rather than widening this one.
+export function isGrantStale(platform: string, scope: string): boolean {
+  return platform === "linkedin" && !grantIsCurrent(scope)
 }

@@ -5738,3 +5738,74 @@ Neither is reachable while the gate is shut.
 **Unchanged and re-confirmed:** `PRESTO_ENABLE_LIVE_PUBLISH` still absent from
 `.env.local` and `.env.local.example`, `checkPublishGate` still refuses on it
 first, no migration, no `vercel.json`, no cron registration.
+
+---
+
+## 2026-09-03 (later) — second review round: three holes in the fix above
+
+The `/integrate` review held the branch again. Two of the three findings were in
+the fix commit itself (`d222c83`), and both were right.
+
+**1. `record_failed` did not actually block anything.** The comment claimed the
+claim was "deliberately left held", but a claim is a *lease*: the claim
+predicate re-grants any claim older than `CLAIM_TIMEOUT_MS`, so holding it only
+delayed a second publish by sixteen minutes. The cron never noticed — the post
+has left its due window by then — but **the manual "Publish now" path does not
+look at the date at all** (verified: no `scheduled_for`, `isDueNow` or
+`dueWindow` anywhere in publish-actions.ts), so a person clicking it later would
+have re-sent a post already on their timeline. The first fix reproduced the
+exact bug it was written to close, one path over.
+
+Now durable rather than time-based: a `record_failed:<urn>` marker is written to
+`publish_error` (a smaller write than the one that just failed — no
+`published_at`, so it cannot trip the published-needs-a-provider-id constraint)
+and the claim predicate gains `.not("publish_error", "like", "record_failed:%")`,
+which never expires. The URN lives inside the marker, so the only durable record
+that the post is live is also the thing preventing it being sent twice. The claim
+is still held as well, covering the window before the marker write is attempted.
+
+**2. The failure branch's release write was still unchecked** — the identical
+omission the fix had just repaired on the success write two blocks below, in the
+same function. It cannot duplicate anything (nothing was published on that path)
+but it would leave the post wearing "Overdue" with no "Didn't send" marker and no
+reason. Checked now, and `recorded` reports what actually happened.
+
+**3. `try/finally` was added to one of two publish handlers.** `day-deck.tsx` got
+it; `post-details.tsx:802` has the same `if (!open && !isPublishing)` dismiss
+guard and the same permanently-unclosable-modal failure. Fixed.
+
+**And one that was nobody's fix but the merge's:**
+`connected-account-row.tsx` called `grantIsCurrent(account.scope)` for **every**
+account, but that asks a LinkedIn question — `LINKEDIN_SCOPES.every(...)`, now
+including `w_member_social`. An X row stores `users.read tweet.read
+offline.access` and can never satisfy it, and reconnecting X grants X's scopes
+again. So every connected X account would have worn a permanent "Reconnect to
+grant Presto permission to post" chip, for a permission X is not asked for and
+that no user action could clear. X shipped on `main` while this branch was open,
+so the two only met at the merge — the one finding here that misfires with the
+publish gate shut and no cron armed. New `isGrantStale(platform, scope)` in
+scopes.ts is now what call sites use.
+
+**Tests: 358 passing (was 352).** Three new in publish-runner.test.ts (the
+permanent marker, refusal long after the lease would have lapsed, the release
+write's own failure) and three in scopes.test.ts for `isGrantStale`. Each was
+verified against its regression, not just the fix: restoring the lease-only
+version fails 2, unchecking the release write fails 1. The fake's chain needed
+`.not` added — it broke loudly rather than passing against the new predicate,
+which is the behaviour a fake has to have.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 errors — `main`'s baseline |
+| `npm run test` | 358 passed / 30 files, excluding `lib/ai/generate.test.ts` |
+| `npm run build` | clean |
+
+**Lower-severity, left alone deliberately:** `lib/linkedin/oauth.ts:176`'s
+`scope: body.scope ?? LINKEDIN_SCOPES.join(" ")` fallback now asserts a
+`w_member_social` grant that may not have been made — textually unchanged, but
+its meaning moved with this diff. Real, low-likelihood (LinkedIn does return
+`scope`), and it belongs with the §17 decision about how a stale grant should be
+treated rather than being patched blind. Also unchanged: `lib/clock.ts:25`'s
+stale `now`, and the success toast that unmounts with the deck when publishing a
+day's last post.
