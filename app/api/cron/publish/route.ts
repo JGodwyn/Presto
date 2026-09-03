@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto"
+
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
@@ -44,6 +46,7 @@ interface RunSummary {
     ok: boolean
     failure?: PublishOutcomeFailure
     postUrn?: string
+    publishedUrn?: string
   }[]
 }
 
@@ -61,11 +64,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // "nobody may run this" — never "everybody may".
   if (!secret) return unauthorized()
 
-  // pg_net sends it as a header; a manual curl can do the same. Compared with
-  // a length check first so the comparison itself can't be used to measure.
+  // pg_net sends it as a header; a manual curl can do the same.
+  //
+  // `timingSafeEqual`, not `!==`: string comparison short-circuits at the first
+  // differing byte, which is exactly the measurement a length check ahead of it
+  // was wrongly claimed to prevent. It throws on a length mismatch, so that is
+  // checked separately — and a length difference is not worth hiding, since it
+  // is observable from the header the caller already sent.
   const provided =
     request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? ""
-  if (provided.length !== secret.length || provided !== secret) {
+  const providedBytes = Buffer.from(provided)
+  const secretBytes = Buffer.from(secret)
+  if (
+    providedBytes.length !== secretBytes.length ||
+    !timingSafeEqual(providedBytes, secretBytes)
+  ) {
     return unauthorized()
   }
 
@@ -121,10 +134,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // makes each one safe on its own — running them together buys a second or two
   // and gives up the ordering the query just established.
   for (const post of duePosts) {
-    const outcome = await publishOnePost(supabase, {
-      projectId: post.project_id,
-      postId: post.id,
-    })
+    // Wrapped per post, not around the loop. `decryptApiKey` throws on a
+    // corrupt or re-keyed token, and it throws *after* the claim is taken — so
+    // an unguarded loop let one undecryptable token both strand its own post
+    // and 500 the whole route, stopping publishing for every other project on
+    // every tick until someone noticed. One post's problem stays one post's.
+    let outcome: Awaited<ReturnType<typeof publishOnePost>>
+    try {
+      outcome = await publishOnePost(supabase, {
+        projectId: post.project_id,
+        postId: post.id,
+      })
+    } catch (error) {
+      console.error(`[publish] post ${post.id} threw`, error)
+      outcome = { ok: false, failure: "publish", recorded: false }
+    }
 
     if (outcome.ok) {
       summary.published += 1
@@ -135,7 +159,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         postId: post.id,
         ok: false,
         failure: outcome.failure,
+        // Carried through only for `record_failed`, where the post is live and
+        // the row does not know it. The response is the last place this URN
+        // exists, so it is also logged: a cron response nobody reads is not a
+        // record of something that cannot be undone.
+        ...(outcome.publishedUrn ? { publishedUrn: outcome.publishedUrn } : {}),
       })
+
+      if (outcome.publishedUrn) {
+        console.error(
+          `[publish] post ${post.id} is live at ${outcome.publishedUrn} but its row could not be updated — reconcile by hand`
+        )
+      }
     }
   }
 

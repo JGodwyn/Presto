@@ -1299,3 +1299,41 @@ waiting to happen; make the structure do it. `try/finally` releases on paths
 that do not exist yet. Where an exit already writes the release as part of
 another update, a flag skipping the redundant round trip is fine — that is an
 optimisation on top of a guarantee, not a replacement for one.
+
+### Two constants that must be ordered, set independently
+
+**Symptom.** The scheduler could publish the same post twice to a real
+LinkedIn timeline. Every gate was green and the claim-inside-the-update — the
+thing built specifically to prevent double-posting — was correct.
+
+**Cause.** Two constants in different files: `CLAIM_TIMEOUT_MS` (5 minutes,
+`lib/publish-runner.ts`) and `PUBLISH_GRACE_MINUTES` (15, `lib/publish-due.ts`).
+A claim went stale ten minutes *before* its post aged out of the due window, so
+there was a ten-minute band where a post was both re-claimable and still
+selectable. Add an unchecked write — the success `update` had no `const { error }`
+— and the row could keep `published_at: null` after LinkedIn had accepted,
+which is indistinguishable from never having been sent.
+
+Neither half is a bug alone. A stale-claim window is correct (a crash must not
+strand a post forever); an unchecked write is merely sloppy. Together they are a
+duplicate post on someone's real timeline.
+
+**Rule.** When two constants must hold an ordering, derive one from the other
+rather than setting both and trusting a comment. `CLAIM_TIMEOUT_MS` is now
+`(PUBLISH_GRACE_MINUTES + 1) * 60 * 1000` — the `+ 1` makes the ordering strict,
+so the last tick that can *see* a post is never the tick that can *re-claim* it.
+Two independent numbers can drift back into overlap silently; a derived one
+cannot.
+
+**Corollary, and the more general lesson.** Ask what happens when a write fails
+*after* an irreversible side effect has already succeeded. That is not an error
+path, it is a distinct state — "it happened and we failed to write it down" —
+and it needs its own outcome (`record_failed`), its own message, and above all
+must never be retried. The claim is deliberately *left held* there: an
+unreleased claim delays one post, while a released one publishes it twice.
+Prefer the failure you can undo.
+
+**Testing note.** Both halves were verified by reintroducing each regression
+separately and confirming the new tests fail — 2 failures for the unchecked
+write, 1 for the shortened claim. A test written against a fix, never run
+against the bug, is a test that proves nothing.

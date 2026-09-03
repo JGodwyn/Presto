@@ -40,6 +40,11 @@ const OUTCOME_MESSAGES: Partial<Record<PublishOutcomeFailure, string>> = {
   already_published: "That post has already been published.",
   claimed: "That post is already being published.",
   read_failed: PUBLISH_FAILURE_MESSAGES.publish,
+  // The post went out and the row does not say so. Deliberately not phrased as
+  // a failure to publish — telling someone their post failed when it is live on
+  // their timeline is the one wrong answer here.
+  record_failed:
+    "That post published, but we couldn't record it. Check LinkedIn before trying again.",
 }
 
 function messageFor(failure: PublishOutcomeFailure): string {

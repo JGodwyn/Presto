@@ -6,6 +6,7 @@ import {
   publishTextPost,
   type PublishFailure,
 } from "@/lib/linkedin/publish"
+import { PUBLISH_GRACE_MINUTES } from "@/lib/publish-due"
 
 // Publishing one post, once — the single implementation both callers share.
 //
@@ -25,9 +26,20 @@ import {
 // why the cron's own selection query is the thing to read carefully.
 
 // How long a claim (publish_started_at) is honoured before another attempt may
-// take it. Longer than any LinkedIn round trip, short enough that a crash does
-// not strand a post.
-const CLAIM_TIMEOUT_MS = 5 * 60 * 1000
+// take it.
+//
+// **Derived from the grace window rather than set beside it, and that is the
+// whole point.** It was five minutes against a fifteen-minute window, which
+// meant a claim went stale ten minutes *before* its post aged out of the due
+// window — so a post whose send succeeded but whose record write did not was
+// picked up by a later tick and published a second time to a real timeline.
+// Two independent constants could drift back into that overlap silently; one
+// derived from the other cannot.
+//
+// The `+ 1` is what guarantees the ordering rather than merely matching it: a
+// claim must still be held at the instant its post falls out of the window, so
+// the last tick that can see a post is never the tick that can re-claim it.
+export const CLAIM_TIMEOUT_MS = (PUBLISH_GRACE_MINUTES + 1) * 60 * 1000
 
 // Everything that can stop a publish, including the reasons that are about the
 // post rather than the provider. The `PublishFailure` half comes back from the
@@ -40,6 +52,9 @@ export type PublishOutcomeFailure =
   | "already_published"
   | "claimed"
   | "read_failed"
+  // Published for real, but the row could not be updated to say so. Never
+  // retryable — see the write itself for why the claim is held, not released.
+  | "record_failed"
 
 export type PublishOutcome =
   | { ok: true; postUrn: string; publishedAt: string }
@@ -50,6 +65,10 @@ export type PublishOutcome =
       // actually reached LinkedIn sets it — a refusal leaves the row untouched,
       // and a caller mirroring the failure locally must not invent one.
       recorded: boolean
+      // Set only on `record_failed`: the post IS live at LinkedIn under this
+      // URN even though the row does not say so. The only surviving record of
+      // that, so a caller must surface or log it rather than swallow it.
+      publishedUrn?: string
     }
 
 export async function publishOnePost(
@@ -159,7 +178,7 @@ export async function publishOnePost(
   // became is exactly the state that makes the column untrustworthy.
   const publishedAt = now.toISOString()
 
-  await supabase
+  const { error: recordError } = await supabase
     .from("posts")
     .update({
       status: "published",
@@ -170,6 +189,30 @@ export async function publishOnePost(
     })
     .eq("id", input.postId)
     .eq("project_id", input.projectId)
+
+  // **The post is live and we failed to write that down.** This is the one
+  // failure that must never be retried: the share call already succeeded, so
+  // trying again publishes the same post twice. It used to be unchecked, which
+  // left the row reading `published_at: null` — indistinguishable from a post
+  // that never went out, and therefore re-claimable by the next tick.
+  //
+  // The claim is deliberately *left in place* rather than released: a held
+  // claim is the only thing standing between this row and a second send, and
+  // an unreleased one merely delays this post rather than duplicating it. It
+  // does mean a row can sit claimed until someone looks, which is the right
+  // way round for a failure nobody can undo.
+  //
+  // The URN goes into the error text because it is the only surviving record
+  // that this post is live, and losing it means nobody can reconcile the row
+  // against the real timeline by hand.
+  if (recordError) {
+    return {
+      ok: false,
+      failure: "record_failed",
+      recorded: false,
+      publishedUrn: result.postUrn,
+    }
+  }
 
   return { ok: true, postUrn: result.postUrn, publishedAt }
 }

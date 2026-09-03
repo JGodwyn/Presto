@@ -533,3 +533,48 @@ comes back over 280, the switch is refused and the user is told "Still too long
 for X" — they must regenerate again themselves. Deliberate for now (an automatic
 retry loop spends tokens without asking), but if it turns out to be common, a
 single silent retry before reporting would be the obvious fix.
+
+---
+
+## 17. A refusal that records nothing re-selects on every tick
+
+**From:** `feat/linkedin-publish`, 2026-09-03. **This is a decision, not a bug.**
+
+The cron's due query excludes `publish_error is not null`, so a *recorded*
+failure is skipped. But the gate refusals — `publishing_disabled`,
+`scope_not_granted`, `token_expired` — return `recorded: false` and leave the row
+untouched, so they come back every tick. Being oldest, they occupy the entire
+`PUBLISH_BATCH_LIMIT` of 5 and starve newer posts behind them.
+
+That is currently *every* connection, since adding `w_member_social` invalidated
+every token issued before it.
+
+**The decision:** should a scope refusal mark the post as failed (it wears the
+"Didn't send" marker, and a person must act), or should the *account* be excluded
+from the due query while its grant is stale (posts wait quietly for a reconnect)?
+The first is visible but blames the post for the connection's problem; the second
+is quieter but can hide a broken connection indefinitely.
+
+**Why it waited:** not reachable while `PRESTO_ENABLE_LIVE_PUBLISH` is unset —
+every post refuses identically, so nothing is starved. Inventing a policy here
+without the decision would have been the wrong kind of initiative.
+
+---
+
+## 18. A published post is still editable
+
+**From:** `feat/linkedin-publish`, 2026-09-03. **Product decision.**
+
+A post that has gone out still offers the inline editor, the date pencil and the
+account pill, and Regenerate is exposed on the Published tab in the day deck.
+Rewriting a post that is already public does not change what is public — the row
+and the timeline simply drift apart.
+
+**Do:** decide per control. Plausibly: content and account become read-only once
+`publishedAt` is set; the date becomes a display of when it went out; Regenerate
+disappears or becomes "draft a follow-up". `isOverdue`/`hasFailed` already exist
+to distinguish the states.
+
+**Why it waited:** four controls across `GeneratedPostCard`, the day deck and
+post-details, and each wants a different answer. Not reachable while the gate is
+shut, since nothing can be published in the first place.

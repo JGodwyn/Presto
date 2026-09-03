@@ -5667,3 +5667,74 @@ defines only X, and X can't be published.
 before or after x-connect landed, and x-connect added no test by that name
 (build-prompt, post-length, x/oauth, x/token, post-account). The mixed-platform
 seam it most plausibly refers to is covered above. Flagged rather than invented.
+
+---
+
+## 2026-09-03 — `feat/linkedin-publish`: close the review blocker
+
+Picked up after `main` was merged in (`8150b8c`) but the blocker itself was
+still open — verified directly rather than assumed: both halves were byte-for-
+byte as the reviewer left them, with no uncommitted work and no stash.
+
+**The blocker — the scheduler could double-post to a real timeline.** Two facts
+combined: `CLAIM_TIMEOUT_MS` (5 min) was shorter than `PUBLISH_GRACE_MINUTES`
+(15), so a claim went stale ten minutes before its post left the due window; and
+the success write was awaited with no error check, so a failed write left
+`published_at: null` — indistinguishable from a post that never went out. A
+later tick would re-claim and re-send it.
+
+Fixed both halves, because either alone still leaves a live double-post path:
+
+- `CLAIM_TIMEOUT_MS` is now **derived**: `(PUBLISH_GRACE_MINUTES + 1) * 60_000`.
+  The `+ 1` makes the ordering strict rather than merely equal, so the last tick
+  that can see a post is never the tick that can re-claim it. Two independent
+  constants could drift back into overlap; a derived one cannot.
+- The success write's error is checked, and produces a new **`record_failed`**
+  outcome. The post is live and the row does not say so, which is a distinct
+  state, not a publish failure. It is never retryable, the claim is deliberately
+  **left held** (an unreleased claim delays one post; a released one publishes it
+  twice), the URN is carried out on the outcome, surfaced in the cron summary and
+  `console.error`'d — it is the only surviving record that the post is live.
+  Its user-facing message says the post *published* rather than that it failed:
+  telling someone their post failed while it sits on their timeline is the one
+  wrong answer.
+
+**New `lib/publish-runner.test.ts`** (6 tests) with a Supabase stand-in shaped to
+the four chains the runner builds. **Both halves were verified against the bug,
+not just the fix**: reintroducing the unchecked write fails 2 tests,
+reintroducing the 5-minute claim fails 1.
+
+**Also fixed, from the same review:**
+
+- **One bad token no longer halts publishing for everyone.** `decryptApiKey`
+  throws *after* the claim is taken, and the cron loop had no `try`. Now wrapped
+  per post, so one corrupt token strands its own post rather than 500ing the
+  route and stopping every other project on every tick.
+- **`CRON_SECRET` is compared with `timingSafeEqual`.** It was `!==`, which
+  short-circuits at the first differing byte — exactly the measurement the
+  comment claimed the length pre-check prevented. The misleading comment is gone.
+- **The publish modal can no longer become permanently unclosable.** Its dismiss
+  guard is `if (!open && !publishing)`, so a throw that left `publishing` true
+  locked it with no way out but a reload. Now `try/finally`.
+- **`no-client-sdk.test.ts` now guards the new server-only modules** —
+  `lib/linkedin/publish`, `lib/linkedin/oauth`, `lib/supabase/service` and
+  `lib/publish-runner`. `lib/linkedin/scopes` is deliberately dependency-free so
+  the Connections page can import *it* instead; nothing enforced that until now.
+
+**Deliberately not done — both need a decision, not a fix.** Logged as
+FOLLOWUPS §17 and §18: refusals that record nothing re-select every tick and
+occupy the whole `limit(5)` (fixing it means choosing whether a scope refusal
+marks a post failed), and a published post is still editable, regenerable and
+re-datable (what those controls *should* do on a live post is a product call).
+Neither is reachable while the gate is shut.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 errors — compared against `main`'s own run, identical |
+| `npm run test` | 352 passed / 30 files, excluding `lib/ai/generate.test.ts` (FOLLOWUPS §12) |
+| `npm run build` | clean |
+
+**Unchanged and re-confirmed:** `PRESTO_ENABLE_LIVE_PUBLISH` still absent from
+`.env.local` and `.env.local.example`, `checkPublishGate` still refuses on it
+first, no migration, no `vercel.json`, no cron registration.

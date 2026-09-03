@@ -696,12 +696,19 @@ export function DayDeck({
     const post = publishTarget
     if (!post) return
 
+    // try/finally, because the dialog's own dismiss guard is
+    // `if (!open && !publishing)` — so a throw that left `publishing` true made
+    // the modal permanently unclosable, with no way out but a reload. A server
+    // action throws on a redirect as well as on a real fault, so this is not a
+    // hypothetical path.
     setPublishing(true)
-    const result = await withNetworkStatus(
-      publishPost({ projectId, id: post.id }),
-    )
-    setPublishing(false)
-    setPublishTarget(null)
+    let result: Awaited<ReturnType<typeof publishPost>> | null
+    try {
+      result = await withNetworkStatus(publishPost({ projectId, id: post.id }))
+    } finally {
+      setPublishing(false)
+      setPublishTarget(null)
+    }
 
     if (result === null) return
     if ("error" in result) {
