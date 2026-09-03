@@ -297,6 +297,11 @@ const regeneratePostSchema = z.object({
   // RegenerateModal's own optional note (design-sync/regeneratemodal) — on
   // top of, not instead of, the project's Instructions (see buildPostPrompt).
   guidance: z.string().trim().max(500).optional(),
+  // See the identical field on /api/regenerate-post: the platform to write
+  // *for* when it differs from the one the row is on, used only by the
+  // too-long-to-switch flow. Prompt input only — this action never writes
+  // `platform`.
+  targetPlatform: z.enum(["linkedin", "x"]).optional(),
 })
 
 // The Regenerate button on a generated card: same prompt builder, same
@@ -375,7 +380,7 @@ export async function regeneratePost(
     batchContextId = context.batchContextId
 
     const prompt = buildPostPrompt(instructions, {
-      platform: row.platform,
+      platform: parsed.data.targetPlatform ?? row.platform,
       // Whatever topic this post was generated under (posts store at most
       // one) — so a reroll stays on the same subject rather than drifting to
       // whatever the round-robin would have picked next.

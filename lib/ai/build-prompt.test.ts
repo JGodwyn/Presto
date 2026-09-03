@@ -234,3 +234,55 @@ describe("buildPostPrompts", () => {
     }
   })
 })
+
+describe("platform length limits", () => {
+  it("constrains an X post to 280 characters, twice", () => {
+    const prompt = buildPostPrompt(makeInstructions(), { platform: "x" })
+
+    expect(prompt).toContain("at most 280 characters")
+    // Once in the opening line and once after "write one post" — a limit
+    // mentioned only at the top competes with everything after it, and models
+    // drift long. The second mention is the one that has to survive edits.
+    expect(prompt.match(/280 characters/g)?.length).toBe(2)
+    expect(prompt).toMatch(
+      /Write one complete, ready-to-publish post[\s\S]*280 characters/
+    )
+  })
+
+  it("leaves LinkedIn unconstrained", () => {
+    const prompt = buildPostPrompt(makeInstructions(), { platform: "linkedin" })
+
+    // LinkedIn's own ceiling is 3,000 — high enough that nothing generated here
+    // approaches it, so stating it would only narrow the target for nothing.
+    expect(prompt).not.toContain("characters")
+    expect(prompt).not.toContain("Hard limit")
+  })
+
+  it("applies the limit in single-prompt mode too", () => {
+    const instructions = makeInstructions({
+      singlePrompt: true,
+      singlePromptText: "Write something punchy about shipping software.",
+    })
+
+    // singlePromptText overrides the *voice* fields, but the platform's ceiling
+    // is a fact about the destination, not a preference being overridden.
+    expect(buildPostPrompt(instructions, { platform: "x" })).toContain(
+      "at most 280 characters"
+    )
+    expect(buildPostPrompt(instructions, { platform: "linkedin" })).not.toContain(
+      "280"
+    )
+  })
+
+  it("keeps the limit last, after a regeneration's rejected draft", () => {
+    const prompt = buildPostPrompt(makeInstructions(), {
+      platform: "x",
+      previousContent: "An old draft that was rejected.",
+    })
+
+    // The rejected-draft note relies on recency too, so the two must not fight:
+    // the limit is pushed before it, leaving the regeneration instruction last.
+    expect(prompt).toContain("at most 280 characters")
+    expect(prompt).toContain("An old draft that was rejected.")
+  })
+})

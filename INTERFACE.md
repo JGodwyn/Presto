@@ -1145,3 +1145,65 @@ a revoked connection stops counting as active everywhere at once. The Generate
 page's account pill deliberately does **not**: generation never touches the
 access token, so greying out a dead account there would block a choice that
 still works (see the note in components/generate/account-options.tsx).
+
+## 9i. X connections, and the platform a post cannot fit
+
+**The connected row names an X account by its handle**, `@gdwn__`, not its
+display name. On X the handle *is* the identity — unique, and the only thing
+separating two people with the same display name. LinkedIn has none, so it keeps
+the name; `resolvePostAccount` (lib/post-account.ts) falls through handle → name
+→ platform label, so a blank name still renders something. Post cards follow the
+same rule, so the pill on a card and the row on Connections always agree.
+
+**An X row's expiry is its refresh token's horizon, not its access token's.**
+The access token lasts two hours and is renewed silently; showing that would tell
+every X user their connection expired today, forever. `fetchSocialAccounts`
+resolves `refresh_expires_at ?? expires_at` into one `expiresAt`, so no component
+branches on platform to render a countdown ("Expires in 180 days" on X, 60 on
+LinkedIn).
+
+### Moving a post to a platform it does not fit
+
+X rejects anything over 280 characters, and a LinkedIn post is typically several
+times that. The settled shape, after trying two others:
+
+- **The switch is refused, not warned about.** A post sitting on X that X would
+  reject is not a state worth being able to reach. A first pass allowed it with a
+  character counter and a toast; both were removed — a counter that is only ever
+  right at the boundary is noise on every card in the app.
+- **The refused position is still offered by the pill.** It was briefly skipped
+  in the cycle instead, which kept the control alive but made X quietly stop
+  appearing — indistinguishable from "X isn't connected". Discovering *why* is
+  the point, so the pill lands on it and the dialog explains.
+- **The dialog carries both ways out**: Regenerate (rerolls for the target
+  platform, then applies the switch) and "Skip to …" (the position the cycle
+  would have reached anyway, so the pill is never a dead control). Closing it
+  changes nothing, which is why the skip has to be a button rather than something
+  dismissal does.
+- **The switch lands only once the new text actually fits.** "It has been
+  regenerated" is not "it fits" — a model can overshoot, and TasteTest ignores
+  the prompt entirely. Failing that check reports "Still too long for X" and
+  leaves the post where it was.
+- **Try out is never refused.** `postAccountCycle` gives that position the post's
+  own platform, so an X post's Try out entry carries `platform: "x"` — a naive
+  limit check refuses it, which was a real bug. Nothing is published from a
+  try-out post, so no limit applies.
+
+All three surfaces that can reassign a post — post-details, the day deck, and the
+Generating page — share the same `refusesPost` predicate between pill and guard,
+so the two can never disagree about what is allowed.
+
+`ConfirmationModal` gained an optional **`secondaryAction`** for this: a second
+full-width button under the primary, `brand-secondary` so it stays subordinate,
+with the actions in their own `dist-md` stack rather than the dialog's `dist-lg`
+rhythm — two buttons offering alternatives read as one control group. The Figma
+export draws a single button, so this is an addition. Its `icon` is optional too;
+the too-long dialog omits it, the delete and disconnect dialogs keep theirs.
+
+**A model that cannot meet a limit is greyed out rather than left to fail.** The
+regenerate dialog takes the platform the reroll is *for* and disables TasteTest
+when that platform has a length limit — it returns fixed canned posts of
+1,274-1,513 characters and never reads the prompt, so it can never produce a
+tweet. The selection falls back as well as the row greying out: the model
+preference is persisted per project, so arriving with TasteTest already selected
+is the common case, and confirming it would start a reroll that cannot succeed.

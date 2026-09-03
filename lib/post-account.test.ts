@@ -17,6 +17,7 @@ function account(
     id: crypto.randomUUID(),
     platform: "linkedin",
     accountName: "Godwin John",
+    accountHandle: null,
     accountEmail: null,
     avatarUrl: null,
     connectedAt: new Date().toISOString(),
@@ -156,5 +157,90 @@ describe("postAccountCycle", () => {
       { platform: "x", isTryout: true },
       { platform: "linkedin", isTryout: false },
     ])
+  })
+})
+
+describe("handle-first labels", () => {
+  it("labels an X post with the handle, not the display name", () => {
+    const x = account({
+      platform: "x",
+      accountName: "Godwin",
+      accountHandle: "gdwn__",
+    })
+
+    expect(
+      resolvePostAccount({ platform: "x", isTryout: false }, [x]).label
+    ).toBe("@gdwn__")
+  })
+
+  it("does not double the @ if one was ever stored", () => {
+    const x = account({ platform: "x", accountHandle: "@gdwn__" })
+
+    expect(
+      resolvePostAccount({ platform: "x", isTryout: false }, [x]).label
+    ).toBe("@gdwn__")
+  })
+
+  it("falls back to the display name when there is no handle", () => {
+    const linkedin = account({
+      platform: "linkedin",
+      accountName: "Godwin John",
+      accountHandle: null,
+    })
+
+    expect(
+      resolvePostAccount({ platform: "linkedin", isTryout: false }, [linkedin])
+        .label
+    ).toBe("Godwin John")
+  })
+})
+
+describe("nextPostAccount skipping refused positions", () => {
+  const accounts = [
+    account({ platform: "linkedin", accountName: "Godwin John" }),
+    account({ platform: "x", accountHandle: "gdwn__" }),
+  ]
+  // The cycle is [Try out, LinkedIn, X], so from LinkedIn the only route to
+  // Try out runs through X.
+  const refusesX = (target: { platform: string; isTryout: boolean }) =>
+    !target.isTryout && target.platform === "x"
+
+  it("steps over a refused position instead of stopping at it", () => {
+    const next = nextPostAccount(
+      { platform: "linkedin", isTryout: false },
+      accounts,
+      refusesX
+    )
+
+    // Without the skip this returns X and the pill is a dead control: the
+    // switch is refused and Try out becomes unreachable from LinkedIn.
+    expect(next).toEqual({ platform: "linkedin", isTryout: true })
+  })
+
+  it("still offers a refused position when it is the only one left", () => {
+    // From Try out the cycle's remaining entries are LinkedIn and X; refuse
+    // both and there is nowhere to go, so the pill must stay live and say why
+    // rather than silently doing nothing.
+    const next = nextPostAccount({ platform: "x", isTryout: true }, accounts, () => true)
+
+    expect(next).not.toBeNull()
+  })
+
+  it("is unchanged when nothing is refused", () => {
+    expect(
+      nextPostAccount({ platform: "linkedin", isTryout: false }, accounts)
+    ).toEqual({ platform: "x", isTryout: false })
+  })
+
+  it("never refuses the Try out position", () => {
+    // postAccountCycle gives Try out the post's own platform, so an X post's
+    // Try out entry carries platform "x" — a naive limit check would refuse it.
+    const next = nextPostAccount(
+      { platform: "x", isTryout: false },
+      accounts,
+      (target) => !target.isTryout && target.platform === "x"
+    )
+
+    expect(next).toEqual({ platform: "x", isTryout: true })
   })
 })

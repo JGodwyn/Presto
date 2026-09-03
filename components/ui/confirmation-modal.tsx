@@ -34,16 +34,25 @@ export function ConfirmationModal({
   onConfirm,
   isPending = false,
   actionVariant = "danger",
+  secondaryAction,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  icon: React.ReactNode
+  // Optional: some dialogs read better without one.
+  icon?: React.ReactNode
   title: string
   description: string
   actionLabel: string
   onConfirm: () => void
   isPending?: boolean
   actionVariant?: VariantProps<typeof buttonVariants>["variant"]
+  // An optional second way out, under the main action. The Figma export draws
+  // only one button — this is an addition, for the case where refusing
+  // something leaves the user with a real alternative worth offering by name
+  // rather than a bare dismiss. `brand-secondary` keeps it visibly subordinate
+  // to the primary action; closing the dialog (the corner X) still means
+  // "neither", so this must never be the only way to decline.
+  secondaryAction?: { label: string; onClick: () => void }
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -56,19 +65,37 @@ export function ConfirmationModal({
         <DialogDescription className="text-center text-body-lg text-text-bold">
           {description}
         </DialogDescription>
-        <Button
-          variant={actionVariant}
-          size="xl"
-          className="w-full"
-          disabled={isPending}
-          onClick={onConfirm}
-        >
-          {isPending ? (
-            <SpinnerGap weight="bold" className="animate-spin" />
-          ) : (
-            actionLabel
+      {/* The actions are their own stack so they sit dist-md apart, tighter
+          than DialogContent's dist-lg rhythm between the icon, title and
+          copy — two buttons offering alternatives read as one control group,
+          not as two more sections of the dialog. The wrapper is w-full so the
+          buttons keep their full-width shape inside the centered column. */}
+        <div className="flex w-full flex-col gap-dist-md">
+          <Button
+            variant={actionVariant}
+            size="xl"
+            className="w-full"
+            disabled={isPending}
+            onClick={onConfirm}
+          >
+            {isPending ? (
+              <SpinnerGap weight="bold" className="animate-spin" />
+            ) : (
+              actionLabel
+            )}
+          </Button>
+          {secondaryAction && (
+            <Button
+              variant="brand-secondary"
+              size="xl"
+              className="w-full"
+              disabled={isPending}
+              onClick={secondaryAction.onClick}
+            >
+              {secondaryAction.label}
+            </Button>
           )}
-        </Button>
+        </div>
       </DialogContent>
     </Dialog>
   )

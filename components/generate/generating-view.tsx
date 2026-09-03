@@ -23,6 +23,7 @@ import {
 import { AnimateText } from "@/components/ui/animated-text"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { ConfirmationModal } from "@/components/ui/confirmation-modal"
 import { Toast } from "@/components/ui/toast"
 import { GeneratedPostCard } from "@/components/generate/generated-post-card"
 import { GeneratingPostCard } from "@/components/generate/generating-post-card"
@@ -30,9 +31,11 @@ import { SectionSpinner } from "@/components/shared/section-spinner"
 import type { SocialPlatform } from "@/components/generate/social-platform-options"
 import {
   nextPostAccount,
+  PLATFORM_LABELS,
   resolvePostAccount,
   type PostAccountTarget,
 } from "@/lib/post-account"
+import { exceedsPlatformLimit, PLATFORM_LENGTH_LIMITS } from "@/lib/post-length"
 import { fetchSocialAccounts } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/client"
 import type { ConnectedSocialAccount } from "@/types/social-account"
@@ -236,6 +239,11 @@ export function GeneratingView({
   // effect below and generationErrorMessage), rather than a per-card error
   // state (none exists yet).
   const [failedCount, setFailedCount] = React.useState(0)
+  // The account switch refused for being too long, with the post it was for.
+  const [blockedSwitch, setBlockedSwitch] = React.useState<{
+    post: GeneratedPost
+    target: PostAccountTarget
+  } | null>(null)
   const [toastOpen, setToastOpen] = React.useState(false)
   const [toastMessage, setToastMessage] = React.useState("")
   // Split from the message so it can't blank out mid-exit-animation.
@@ -466,7 +474,28 @@ export function GeneratingView({
     })
   }
 
+  // The one rule the pill and the guard share, matching post-details.tsx and
+  // day-deck.tsx. Try out is never refused: postAccountCycle gives it the
+  // post's own platform, and nothing is published from a try-out post.
+  const refusesPost = (post: GeneratedPost, target: PostAccountTarget) =>
+    !target.isTryout && exceedsPlatformLimit(post.content, target.platform)
+
   const handleSocialChange = (post: GeneratedPost, target: PostAccountTarget) => {
+    // Refused here too — a post generated for LinkedIn on this page is exactly
+    // as unpostable on X as one opened from Content, and this is the screen
+    // where a fresh batch is most likely to be reassigned.
+    if (refusesPost(post, target)) {
+      setBlockedSwitch({ post, target })
+      return
+    }
+
+    commitSocialChange(post, target)
+  }
+
+  const commitSocialChange = (
+    post: GeneratedPost,
+    target: PostAccountTarget
+  ) => {
     const previous = { social: post.social, isTryout: post.isTryout }
     const next = { social: target.platform, isTryout: target.isTryout }
     setPosts((prev) =>
@@ -494,13 +523,19 @@ export function GeneratingView({
   // holds its placeholder up for exactly as long as this takes. The batch's
   // cached writing-style/reference context is passed and refreshed the same
   // way the generation loop does it.
-  const handleRegeneratePost = async (post: GeneratedPost) => {
+  const handleRegeneratePost = async (
+    post: GeneratedPost,
+    switchTo?: PostAccountTarget
+  ) => {
     const result = await withNetworkStatus(
       regeneratePost({
         projectId,
         id: post.id,
         model,
         batchContextId: batchContextIdRef.current,
+        // The post is still on its old platform until this succeeds, so the
+        // prompt has to be told what it is writing for.
+        targetPlatform: switchTo?.platform,
       })
     )
 
@@ -526,6 +561,19 @@ export function GeneratingView({
     setPosts((prev) =>
       prev.map((p) => (p.id === post.id ? { ...p, content: result.post.content } : p))
     )
+
+    // Re-checked against the new text rather than assumed — a reroll having
+    // happened is not the same as the result fitting. See post-details.tsx.
+    if (switchTo) {
+      if (exceedsPlatformLimit(result.post.content, switchTo.platform)) {
+        showError(
+          `Still too long for ${PLATFORM_LABELS[switchTo.platform]}`,
+          "The post was rewritten but stayed over the limit"
+        )
+      } else {
+        commitSocialChange({ ...post, content: result.post.content }, switchTo)
+      }
+    }
   }
 
   const handleContentChange = (post: GeneratedPost, content: string) => {
@@ -805,6 +853,45 @@ export function GeneratingView({
           {toastMessage}
         </Toast>
       </div>
+
+      {/* The refused switch — same dialog and same two ways out as the Content
+          surfaces (components/content/post-details.tsx). */}
+      <ConfirmationModal
+        open={blockedSwitch !== null}
+        onOpenChange={(open) => {
+          if (!open) setBlockedSwitch(null)
+        }}
+        title={`Too long for ${blockedSwitch ? PLATFORM_LABELS[blockedSwitch.target.platform] : ""}`}
+        description={
+          blockedSwitch
+            ? `This post is ${blockedSwitch.post.content.trim().length.toLocaleString()} characters and ${PLATFORM_LABELS[blockedSwitch.target.platform]} allows ${(PLATFORM_LENGTH_LIMITS[blockedSwitch.target.platform] ?? 0).toLocaleString()}. Regenerate it to fit, or shorten it yourself first.`
+            : ""
+        }
+        actionLabel="Regenerate"
+        actionVariant="brand"
+        secondaryAction={(() => {
+          if (!blockedSwitch) return undefined
+          const skip = nextPostAccount(
+            { platform: blockedSwitch.post.social, isTryout: blockedSwitch.post.isTryout },
+            socialAccounts,
+            (target) => refusesPost(blockedSwitch.post, target)
+          )
+          if (!skip) return undefined
+          return {
+            label: `Skip to ${resolvePostAccount({ platform: skip.platform, isTryout: skip.isTryout }, socialAccounts).label}`,
+            onClick: () => {
+              const { post } = blockedSwitch
+              setBlockedSwitch(null)
+              commitSocialChange(post, skip)
+            },
+          }
+        })()}
+        onConfirm={() => {
+          const pending = blockedSwitch
+          setBlockedSwitch(null)
+          if (pending) void handleRegeneratePost(pending.post, pending.target)
+        }}
+      />
 
       {/* design-sync/model-variant-2 — the outer DialogContent card (320px,
         bg-surface-4, rounded-rad-lg, px-pad-lg py-pad-xl, gap-dist-lg between
