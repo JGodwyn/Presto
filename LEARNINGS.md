@@ -1460,3 +1460,37 @@ this is a dev-workflow trap rather than a product bug. Do not "fix" it by
 teaching LinkedIn to follow the Host header: that would make the two agree, but
 LinkedIn's registered callback is `localhost`, so agreeing on `127.0.0.1` would
 break LinkedIn instead.
+
+## A `backdrop-filter` seam lands wherever its own box ends, and a scroll container won't let it leave
+
+**Symptom.** During the onboarding tour the blurred section reads as blurred
+*and* razor-sharp along its own boundary at the same time: content near the
+edge is mushy, then stops dead on a perfectly straight line.
+
+**Cause.** `backdrop-filter` is clipped to the element's box. The onboarding
+blur layer was `absolute inset-0` on a wrapper whose rect was byte-identical to
+the content's (measured: both `536,120 1264×1034`), so the seam sat exactly on
+the panel's edge — the one place a blur can't hide it, because the halo the
+blur spreads outward has nowhere to land.
+
+**The obvious fix fails silently in a scroll container.** Bleeding the layer
+outward (`inset: -16px`) measured correctly — the box really did grow to
+`520–1816` — and changed nothing on screen. The layer lived inside `<main>`,
+and **`overflow-y: auto` forces `overflow-x` to `auto` as well** (an axis can't
+stay `visible` once the other is a scrolling value), so the bleed was clipped
+straight back to the box it existed to escape. Measuring the element's rect is
+*not* evidence the bleed is visible; screenshot it.
+
+**Rule.** A bled `backdrop-filter` layer has to be a sibling of the scroll
+container, not a child of it. And bleeding alone isn't enough if the layer also
+carries a tint: the tint then ends on a hard rectangle out on the flat canvas
+(~1/255 here, still visible as a straight line — caught only by zooming a patch
+of empty canvas). Mask the outer band over exactly the bled distance
+(`mask-composite: intersect` for two axes) so the wash and the last of the blur
+fall off together. Drive both the negative inset and the mask stops from one
+constant.
+
+**Corollary worth remembering:** the bleed distance is a layout budget, not a
+free parameter — it's capped by the smallest gutter between the blurred region
+and anything that must stay sharp. Here `dist-xl` (24px) to the sidebar allowed
+`dist-lg` (16px), leaving 8px of clearance.

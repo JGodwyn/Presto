@@ -9,38 +9,51 @@ import { useOnboarding } from "./onboarding-context"
 
 const CARD_CORNER_RADIUS = 16 // rad-lg
 
-// The card's vertical offset mirrors ProjectSidebar's own rhythm — pad-md
-// container padding, 2.5rem/40px-tall SideBarItems, dist-md gaps between
-// them — so it lines up with whichever nav item it's explaining without
-// measuring the DOM. <main> no longer has padding of its own (content and
-// sidebar top-align since the scroll-container change), so this card's
-// wrapper starts at the same row edge the sidebar's rhythm is measured
-// from. Keep both in sync if that spacing ever changes.
+// How far the blur layer bleeds past the section on every side.
 //
-// Expressed as a `translate` (not `top`) so moving between steps animates on
-// the compositor instead of triggering layout — per the animation standards'
-// "only animate transform and opacity" rule.
-function calloutOffset(index: number) {
-  return `0 calc(var(--pad-md) + ${index} * (2.5rem + var(--dist-md)))`
-}
+// `backdrop-filter` is clipped to its own box, so a blur region whose edge
+// lands exactly on the content's edge cuts off the halo the blur spreads
+// outward — the section ends up looking blurred *and* razor-sharp along its
+// own boundary at the same time, which is the artifact this fixes. Bleeding
+// the layer outward puts that boundary over empty canvas, where blurring a
+// flat colour is a no-op and there is nothing left to cut.
+//
+// dist-lg is as far as it can go: only dist-xl separates the section from the
+// sidebar, which stays sharp throughout the tour.
+const BLUR_BLEED = "var(--dist-lg)"
 
-// Wraps the main content area during the tour (Figma "Onboarding 1-5"):
-// whatever page is actually rendered gets dimmed and blurred behind a
-// purple callout card explaining one nav section — the tour narrates in
-// place rather than forcing navigation. Outside the tour this is a
-// transparent pass-through.
-export function OnboardingCallout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+// The bleed alone still leaves the layer's own `bg-white/10` wash ending on a
+// hard rectangle out on the canvas (faint, but a straight line on a flat field
+// reads). Fading the outer band takes the wash *and* the last of the blur down
+// to nothing across exactly the bled distance, so the whole overlay dissolves
+// into the canvas. Two gradients intersected rather than one, since the fade
+// has to run on both axes.
+const BLUR_EDGE_FADE = (["right", "bottom"] as const)
+  .map(
+    (direction) =>
+      `linear-gradient(to ${direction}, transparent, #000 ${BLUR_BLEED}, #000 calc(100% - ${BLUR_BLEED}), transparent)`
+  )
+  .join(", ")
+
+// The tour's chrome for steps 1-5 (Figma "Onboarding 1-5"): whatever page is
+// actually rendered gets dimmed and blurred behind a purple callout card
+// explaining one nav section — the tour narrates in place rather than forcing
+// navigation. Outside the tour it renders nothing.
+//
+// It is passed to SectionScrollArea as an overlay so both layers land as
+// siblings of <main> rather than inside it. That placement is load-bearing:
+// <main> is the scroll container, and `overflow-y: auto` forces `overflow-x`
+// to `auto` as well, so a blur layer bled outward in there is clipped straight
+// back to the box the bleed exists to escape. As siblings they also stop
+// scrolling away with the page, which the card should never have done.
+export function OnboardingCallout() {
   const { step, next, end } = useOnboarding()
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({
     cornerRadius: CARD_CORNER_RADIUS,
     cornerSmoothing: 1,
   })
 
-  if (typeof step !== "number") return <>{children}</>
+  if (typeof step !== "number") return null
 
   const index = step - 1
   const current = ONBOARDING_STEPS[index]
@@ -48,18 +61,19 @@ export function OnboardingCallout({
   const isLastStep = step === 5
 
   return (
-    // flex flex-col (not just flex-1): the wrapped page relies on being a
-    // flex child of something to make its own `flex-1 justify-center` work
-    // (that's how it centers vertically outside the tour, as a direct child
-    // of <main>). Without `flex` here too, `children` was just a block box
-    // sized to its content, so it rendered top-aligned instead.
-    <div className="relative flex flex-1 flex-col">
-      {children}
-
+    <>
       {/* Mounts once per tour (this whole branch appears the moment the
           cover hands off to step 1), so the starting-style entrance only
           plays that first time — not on every step change. */}
-      <div className="absolute inset-0 rounded-rad-lg bg-white/10 backdrop-blur transition-opacity duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0" />
+      <div
+        aria-hidden
+        style={{
+          inset: `calc(-1 * ${BLUR_BLEED})`,
+          maskImage: BLUR_EDGE_FADE,
+          maskComposite: "intersect",
+        }}
+        className="pointer-events-none absolute bg-white/10 backdrop-blur transition-opacity duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0"
+      />
 
       {/* The card itself never remounts across steps (same ref, same
           squircle instance) — only its position (`translate`) changes, so
@@ -118,6 +132,20 @@ export function OnboardingCallout({
           )}
         </div>
       </div>
-    </div>
+    </>
   )
+}
+
+// The card's vertical offset mirrors ProjectSidebar's own rhythm — pad-md
+// container padding, 2.5rem/40px-tall SideBarItems, dist-md gaps between
+// them — so it lines up with whichever nav item it's explaining without
+// measuring the DOM. Its containing block (SectionScrollArea's wrapper)
+// starts on the same row edge the sidebar's rhythm is measured from, so
+// `top-0` and that rhythm agree. Keep both in sync if the spacing changes.
+//
+// Expressed as a `translate` (not `top`) so moving between steps animates on
+// the compositor instead of triggering layout — per the animation standards'
+// "only animate transform and opacity" rule.
+function calloutOffset(index: number) {
+  return `0 calc(var(--pad-md) + ${index} * (2.5rem + var(--dist-md)))`
 }

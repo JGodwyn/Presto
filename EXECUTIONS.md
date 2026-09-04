@@ -5992,3 +5992,69 @@ the X branch ran on 127.0.0.1. Dev-only; production is one hostname.
 
 Publishing remains gated shut throughout: `PRESTO_ENABLE_LIVE_PUBLISH` unset, no
 cron registered, `pg_cron`/`pg_net` absent from the live project.
+
+## 2026-09-04 — Onboarding blur: soft edges instead of a razor-sharp cut
+
+**Symptom (reported):** during the tour, the blurred page reads as blurred
+*and* razor-sharp along the section's own boundary at once — blurred content
+"expands" but is chopped off dead on a straight line.
+
+**Diagnosis, in the browser.** Measured the blur layer against the page: the
+`absolute inset-0` backdrop-blur div in `onboarding-callout.tsx` sat at
+`536,120 1264×1034` — byte-identical to the GlowPanel's own rect. `backdrop-
+filter` is clipped to its own box, so the seam was landing exactly on the
+content edge, which is the worst possible place for it.
+
+**First attempt, and why it failed.** Bled the layer outward with
+`inset: -16px`. Measured it correctly growing to `520–1816`, screenshotted, and
+the hard cut was *still* there at 536/1800. Cause: the layer lives inside
+`<main>`, the section scroll container, and `overflow-y: auto` forces
+`overflow-x` to `auto` too — so the bleed was clipped straight back to the box
+it was trying to escape. (Same CSS Overflow rule the skip-dates carousel hit
+from the other side, where it clipped drop-shadows.)
+
+**Second attempt.** Reparented the layer to be a sibling of `<main>` inside
+SectionScrollArea's wrapper (measured: that wrapper's rect is *identical* to
+`<main>`'s — `536,120 1264×1026`, bottom flush with `innerHeight` — so the
+bleed reaches the same box and the bottom bleed simply runs off-screen, no
+special-casing needed for the `-mb`/`pb` bleed). Right edge now falls off
+softly; verified by zoom against the same region as the before shot.
+
+**Residual, caught by zooming the flat canvas.** The layer's own `bg-white/10`
+wash now ended on a hard rectangle 16px out on the canvas — a ~1/255 step, but
+a straight line on a flat field reads, and it was visible in a zoom of
+`1250,350–1330,500`. Added a two-gradient edge mask (`mask-composite:
+intersect`) ramping over exactly the bled distance: line gone, blur falloff
+unchanged. Tested the mask *before* adding the tint back too — over flat canvas
+it made no visible difference on its own, which is why it's there for the wash
+rather than for the blur.
+
+**Bleed distance is capped by the left gutter:** only `dist-xl` (24px)
+separates the section from the sidebar, which stays sharp throughout the tour.
+`dist-lg` (16px) leaves 8px of clearance; measured sidebar right 512 vs blur
+left 520. Top clearance to the topbar is also 16px (topbar bottom 88, blur top
+104).
+
+**Shape of the change.**
+- `components/onboarding/onboarding-callout.tsx` — no longer a wrapper around
+  the page. Takes no children, returns `null` outside a numbered step, and
+  renders the blur + callout card as a fragment. `BLUR_BLEED` is a single
+  `var(--dist-lg)` driving both the negative inset and the mask stops, so the
+  two can't drift.
+- `components/shared/section-scroll-area.tsx` — new optional `overlay` prop,
+  rendered after `<main>` and after the top-fade strip so the callout card
+  paints above both.
+- `app/projects/[projectId]/layout.tsx` — `<SectionScrollArea overlay={<OnboardingCallout />}>`
+  instead of nesting the callout inside it.
+
+**Two things that fell out of the move, both improvements.** The callout card
+no longer scrolls away with the page (it never should have). And the
+wrapper-only-during-the-tour `flex flex-col` div is gone, so the page's box is
+now identical in and out of the tour — `SectionContent` already supplies the
+`relative flex flex-1 flex-col` its children need.
+
+**Verified in-browser on :3000** — Content (Calendar + Kanban) and Instructions,
+steps 1→2: panel/card edges dissolve into the canvas on all sides, sidebar's
+pixel-gradient stays crisp with no bleed into the gutter, callout card sharp
+and correctly aligned to its nav item after the step change. Gates: tsc,
+eslint, vitest (372), `next build` all clean.

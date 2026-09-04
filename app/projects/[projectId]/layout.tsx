@@ -79,10 +79,8 @@ export default async function ProjectLayout({
           {/* <main> and its top fade — see section-scroll-area.tsx for why
               that fade is an overlay strip rather than the CSS mask every
               other scroller in this app uses. */}
-          <SectionScrollArea>
-            <OnboardingCallout>
-              <SectionContent>{children}</SectionContent>
-            </OnboardingCallout>
+          <SectionScrollArea overlay={<OnboardingCallout />}>
+            <SectionContent>{children}</SectionContent>
           </SectionScrollArea>
         </div>
       </div>

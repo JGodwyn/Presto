@@ -32,7 +32,17 @@ const TOP_FADE_PX = 24
 // its scroll area bleed through the page's bottom padding to the real screen
 // edge, so content there runs off the display rather than clipping at a line.
 // Nothing to soften.
-export function SectionScrollArea({ children }: { children: React.ReactNode }) {
+export function SectionScrollArea({
+  children,
+  overlay,
+}: {
+  children: React.ReactNode
+  // Rendered as a sibling of <main>, on top of both the page and the fade —
+  // the onboarding tour's blur/callout. It has to sit out here rather than
+  // inside <main> because `overflow-y: auto` forces `overflow-x` to `auto`
+  // too, which clips anything an overlay bleeds past the section's own box.
+  overlay?: React.ReactNode
+}) {
   const fadeRef = React.useRef<HTMLDivElement | null>(null)
 
   // Writes opacity straight to the strip rather than going through state:
@@ -99,6 +109,8 @@ export function SectionScrollArea({ children }: { children: React.ReactNode }) {
         style={{ opacity: 0 }}
         className="pointer-events-none absolute inset-x-0 top-0 h-[var(--dist-xl)] bg-linear-to-b from-surface-3 to-transparent"
       />
+
+      {overlay}
     </div>
   )
 }
