@@ -1,12 +1,17 @@
 "use client"
 
 import * as React from "react"
-import { CaretDown, PlugCharging, SpinnerGap } from "@phosphor-icons/react"
+import { CaretDown, Info, PlugCharging, SpinnerGap } from "@phosphor-icons/react"
 
 import { SelectPill, type SelectPillOption } from "@/components/generate/select-pill"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { PillTextarea } from "@/components/ui/pill-textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/model-constants"
 import { PLATFORM_LENGTH_LIMITS } from "@/lib/post-length"
@@ -20,23 +25,26 @@ const BADGE_CORNER_RADIUS = 8 // rad-md
 
 export type RegenerateMode = "regenerate" | "follow-up"
 
-// The only thing the two modes disagree about. Kept as one table so the pair
-// can be read side by side rather than chased through three ternaries.
+// The only thing the two modes disagree about — and it is deliberately very
+// little. The title and both button labels are shared: this is Regenerate in
+// both cases, and a published post's version of it should not read as a
+// different feature (per direct request). The whole difference is the note
+// below the title, which says what actually happens, and the tooltip on it,
+// which says why.
 const MODE_COPY: Record<
   RegenerateMode,
-  { title: string; placeholder: string; confirm: string; confirmPlain: string }
+  { placeholder: string; note: string | null; noteTooltip: string | null }
 > = {
   regenerate: {
-    title: "Regenerate post",
     placeholder: "Anything you’d like to see in the new version? (Optional)",
-    confirm: "Regenerate",
-    confirmPlain: "Just regenerate",
+    note: null,
+    noteTooltip: null,
   },
   "follow-up": {
-    title: "Draft a follow-up",
-    placeholder: "Anything you’d like the follow-up to do differently? (Optional)",
-    confirm: "Draft it",
-    confirmPlain: "Just draft it",
+    placeholder: "Anything you’d like the new draft to do differently? (Optional)",
+    note: "This will create another post in your drafts",
+    noteTooltip:
+      "A published post can’t be edited here — it’s already live. Regenerating writes a new draft instead.",
   },
 }
 
@@ -206,7 +214,38 @@ export function RegenerateModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent popupClassName="w-90">
-        <DialogTitle>{copy.title}</DialogTitle>
+        <DialogTitle>Regenerate post</DialogTitle>
+        {/* Sits with the title rather than floating between it and the field:
+            the dialog's own gap-dist-lg is 16px, and this is a caption on the
+            heading, so -mt-dist-md cancels half of it. The icon goes to its
+            right, per direct request — the other info lines in the app lead
+            with it, but here the sentence is the thing being read and the icon
+            is the offer of more. */}
+        {copy.note ? (
+          <p className="-mt-dist-md flex items-center gap-dist-sm text-body-md text-text-subtle">
+            {copy.note}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Why this creates a draft"
+                    className="flex cursor-pointer items-center text-icon-subtle transition-colors duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50"
+                  >
+                    <Info className="size-4" />
+                  </button>
+                }
+              />
+              {/* Capped and wrapping: a sentence this long renders as one
+                  ~440px line by default, which reaches past the dialog and
+                  sits on its close button. Every other tooltip in the app is
+                  a couple of words, so this is the one that needs a width. */}
+              <TooltipContent className="max-w-64 text-balance whitespace-normal">
+                {copy.noteTooltip}
+              </TooltipContent>
+            </Tooltip>
+          </p>
+        ) : null}
         <PillTextarea
           name="guidance"
           placeholder={copy.placeholder}
@@ -272,9 +311,9 @@ export function RegenerateModal({
           {isPending ? (
             <SpinnerGap weight="bold" className="animate-spin" />
           ) : hasGuidance ? (
-            copy.confirm
+            "Regenerate"
           ) : (
-            copy.confirmPlain
+            "Just regenerate"
           )}
         </Button>
         {/* Always on — this app's Instructions are never optional, so this is

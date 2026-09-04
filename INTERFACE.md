@@ -1320,7 +1320,7 @@ one every surface used to miss.
 | The date | The heading *is* the moment it went out; the pencil is removed, and the card's "Change date" button with it |
 | Account pill | `nextAccount={null}` → a plain span. It still names the account, it just stops offering to change it |
 | Turn to draft | Row left out of the actions menu; the button on post details stays disabled |
-| Regenerate | **Stays, and drafts a follow-up** |
+| Regenerate | **Stays, keeps its name, and writes a new draft** |
 
 Nothing is *disabled and left sitting there* except the middle post-details
 action, which keeps its place in a fixed row of four. Everywhere the layout can
@@ -1330,13 +1330,31 @@ do anything.
 **Delete stays,** unchanged. It removes this app's record and its own copy says
 the live post survives.
 
-**Regenerate → "Draft a follow-up".** Rewriting a published post would only make
-the screen and the timeline disagree, so it writes a *new draft* instead
-(`draftFollowUpPost`) — a piece that landed well is exactly the one worth
-another angle on. Same modal (`RegenerateModal` gained a `mode`, changing only
-the title, the placeholder and the button label), same brief, with the published
-text as `previousContent`. The new post inherits platform, try-out flag and
-topics and nothing else: no date, no publish state, a fresh id.
+**Regenerate writes a new draft, and is still called Regenerate.** Rewriting a
+published post would only make the screen and the timeline disagree, so it
+writes a *new draft* instead (`draftFollowUpPost`) — a piece that landed well is
+exactly the one worth another angle on. Same brief, with the published text as
+`previousContent`. The new post inherits platform, try-out flag and topics and
+nothing else: no date, no publish state, a fresh id.
+
+**The control is not renamed** (per direct request, after the first pass called
+it "Draft a follow-up" on the card, the tooltip and the modal title). Same
+label, same ArrowClockwise icon, same modal title, same button labels — a
+published post's Regenerate should not read as a different feature.
+`RegenerateModal`'s `mode` therefore changes only two things: the placeholder,
+and a `body-md`/`text-subtle` note under the title reading **"This will create
+another post in your drafts"**, with an Info button to its *right* (the app's
+other info lines lead with the icon; here the sentence is the thing being read
+and the icon is the offer of more). Its tooltip carries the why: "A published
+post can't be edited here — it's already live. Regenerating writes a new draft
+instead." The note is pulled up with `-mt-dist-md`, cancelling half the dialog's
+`gap-dist-lg` so it sits with the heading rather than between heading and field,
+and the tooltip is capped (`max-w-64`) because at its default this sentence is
+one ~440px line that lands on the dialog's close button.
+
+**The publish confirmation carries no icon.** "Published to LinkedIn" with a
+tick beside it is the toast saying the same thing twice. Scoped to that one
+toast, not to success toasts generally.
 
 It is **awaited, not streamed** — post details streams a reroll into its own
 body, and here it must not, because the body still has to show what actually

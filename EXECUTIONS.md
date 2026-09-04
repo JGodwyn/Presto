@@ -6257,3 +6257,46 @@ FOLLOWUPS §5b, §5c, §16, §17, §18 and §5.2's index bullet deleted. §5.3's
 "wearing 'Didn't send'" bullet corrected: a broken connection's posts now wait
 *silently*, which makes the out-of-app signal it asks for more necessary, not
 less.
+
+### Follow-up, same day — after the owner published for real
+
+The gate was turned on by the owner and a post went out live
+(`urn:li:share:7501717147975561216`, 2026-09-04 19:05Z), which is what produced
+this round of feedback. Two changes:
+
+**The tick is gone from the publish confirmation.** A success glyph beside
+"Published to LinkedIn" is the toast saying the same thing twice. Scoped to that
+one toast rather than to success toasts generally: post-details' toast state
+gained an optional `showIcon` (defaulting to the existing `!toast.action`), and
+day-deck's `showSuccess` took an options object so the publish call can pass
+`{ showIcon: false }` while "Drafted a follow-up" keeps its own behaviour.
+**Not seen in the browser** — the only way to raise that toast is to publish
+again. The mechanism is the one every action-carrying toast already exercises
+(`{showIcon && …}` in toast.tsx), and both call sites were read back.
+
+**Regenerate is called Regenerate again, everywhere.** The published path had
+renamed itself "Draft a follow-up" on the card, the post-details tooltip and the
+modal title. Per direct request the modal header goes back to "Regenerate post";
+the rest followed so the whole path reads as one thing rather than a button and
+a dialog disagreeing. `MODE_COPY` in regenerate-modal.tsx collapsed to just the
+placeholder plus the new note — the title and both button labels are now shared.
+
+The difference is stated instead of being named: a `body-md`/`text-subtle` line
+under the title, "This will create another post in your drafts", with an Info
+button to its right (text-then-icon, per direct request — the app's other info
+lines lead with the icon). Its tooltip: "A published post can't be edited here —
+it's already live. Regenerating writes a new draft instead." The line is pulled
+up with `-mt-dist-md`, cancelling half the dialog's own `gap-dist-lg` so it
+reads as a caption on the heading rather than floating between it and the field.
+
+**The tooltip needed a width.** At its default it renders as one ~440px line
+that reaches past the dialog and sits on the close button — every other tooltip
+in this app is two or three words. `max-w-64 text-balance whitespace-normal` on
+that one instance; the component's default is untouched.
+
+Verified on :3001 against the live post: modal titled "REGENERATE POST" with the
+note beneath it, tooltip wrapping to four lines clear of the close button, and
+the deck card's single full-width button reading "Regenerate" with the
+ArrowClockwise icon. Gates re-run: tsc clean, eslint 17 (baseline), vitest 384,
+build clean.
+

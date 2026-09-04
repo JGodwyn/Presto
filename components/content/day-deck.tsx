@@ -290,6 +290,10 @@ export function DayDeck({
   const [toastAction, setToastAction] = React.useState<
     { icon: React.ReactNode; label: string; onClick: () => void } | undefined
   >(undefined)
+  // Only the publish confirmation turns this off: a tick beside "Published to
+  // LinkedIn" is the toast saying the same thing twice, and per direct request
+  // the words carry it alone.
+  const [toastShowIcon, setToastShowIcon] = React.useState(true)
   // Split from the message for the same reason, and held rather than derived so
   // the button doesn't vanish while the toast is still animating out.
   // The account switch refused for being too long, with the post it was for.
@@ -318,17 +322,22 @@ export function DayDeck({
     setToastMessage(message)
     setToastExtraInfo(extraInfo)
     setToastAction(undefined)
+    setToastShowIcon(true)
     setToastOpen(true)
   }
 
   const showSuccess = (
     message: string,
-    action?: { icon: React.ReactNode; label: string; onClick: () => void }
+    options?: {
+      action?: { icon: React.ReactNode; label: string; onClick: () => void }
+      showIcon?: boolean
+    }
   ) => {
     setToastVariant("success")
     setToastMessage(message)
     setToastExtraInfo(undefined)
-    setToastAction(action)
+    setToastAction(options?.action)
+    setToastShowIcon(options?.showIcon ?? true)
     setToastOpen(true)
   }
 
@@ -764,7 +773,7 @@ export function DayDeck({
     if (keyForPost({ ...post, ...patch }) === dayKey) commit()
     else leaveDeck(post.id, commit)
 
-    showSuccess("Published to LinkedIn")
+    showSuccess("Published to LinkedIn", { showIcon: false })
   }
 
   // The one rule the pill and the guard share. Try out is never refused:
@@ -895,9 +904,11 @@ export function DayDeck({
     const draft = result.post
     onPostsChange((prev) => [...prev, draft])
     showSuccess("Drafted a follow-up", {
-      icon: <ArrowsOutSimpleIcon weight="bold" />,
-      label: "Open the follow-up",
-      onClick: () => closeThenOpen(draft.id),
+      action: {
+        icon: <ArrowsOutSimpleIcon weight="bold" />,
+        label: "Open the follow-up",
+        onClick: () => closeThenOpen(draft.id),
+      },
     })
   }
 
@@ -1161,6 +1172,7 @@ export function DayDeck({
           direction="top"
           extraInfo={toastExtraInfo}
           action={toastAction}
+          showIcon={toastShowIcon && !toastAction}
         >
           {toastMessage}
         </Toast>

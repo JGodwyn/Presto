@@ -9,7 +9,6 @@ import {
   ArrowClockwise,
   ArrowsOutSimpleIcon,
   CalendarDots,
-  NotePencil,
   PaperPlaneTilt,
   CaretLeft,
   PencilSimple,
@@ -214,6 +213,10 @@ export function PostDetails({
     // the same split the offline toast uses: what happened on the toast, what
     // to do about it underneath.
     extraInfo?: string
+    // Overrides the default below. Only the publish confirmation sets it: a
+    // tick beside "Published to LinkedIn" is the toast saying the same thing
+    // twice, and per direct request the words carry it alone.
+    showIcon?: boolean
   }>({ open: false, variant: "danger", message: "" })
 
   const showError = (message: string, extraInfo?: string) =>
@@ -941,6 +944,7 @@ export function PostDetails({
       message: "Published to LinkedIn",
       action: undefined,
       extraInfo: undefined,
+      showIcon: false,
     })
   }
 
@@ -1014,34 +1018,31 @@ export function PostDetails({
               <TooltipContent>Publish now</TooltipContent>
             </Tooltip>
           ) : null}
-          {/* Regenerate keeps its place on a published post but changes what
-              it produces: rewriting this one would only make the page and the
-              live post disagree, so it drafts a *new* post off the back of it
-              instead. Same modal, same brief, different verb — the icon is
-              the tell. */}
+          {/* Regenerate, on a published post as much as any other — same
+              control, same label, same icon (per direct request). What it
+              *produces* differs: rewriting this one would only make the page
+              and the live post disagree, so it writes a new draft instead.
+              That is said inside the modal, where there is room to say it,
+              rather than by renaming the button out here. */}
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
                   variant="brand"
                   size="icon-sm"
-                  aria-label={isPublished ? "Draft a follow-up" : "Regenerate post"}
+                  aria-label="Regenerate post"
                   disabled={isRegenerating || isDraftingFollowUp}
                   onClick={() => setRegenerateOpen(true)}
                 >
                   {isRegenerating || isDraftingFollowUp ? (
                     <SpinnerGap weight="bold" className="animate-spin" />
-                  ) : isPublished ? (
-                    <NotePencil weight="bold" />
                   ) : (
                     <ArrowClockwise weight="bold" />
                   )}
                 </Button>
               }
             />
-            <TooltipContent>
-              {isPublished ? "Draft a follow-up" : "Regenerate"}
-            </TooltipContent>
+            <TooltipContent>Regenerate</TooltipContent>
           </Tooltip>
           {/* The export's own labels: "Move to drafts" on a dated post. The
               drafts screen shows a calendar icon here instead — its label prop
@@ -1460,7 +1461,7 @@ export function PostDetails({
               onOpenChange={(open) => setToast((prev) => ({ ...prev, open }))}
               variant={toast.variant}
               direction="top"
-              showIcon={!toast.action}
+              showIcon={toast.showIcon ?? !toast.action}
               action={toast.action}
               extraInfo={toast.extraInfo}
             >

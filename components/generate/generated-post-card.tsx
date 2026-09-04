@@ -4,7 +4,6 @@ import * as React from "react"
 import {
   ArrowClockwise,
   CalendarDots,
-  NotePencil,
   PaperPlaneTilt,
   Scribble,
   SpinnerGap,
@@ -635,9 +634,9 @@ export function GeneratedPostCard({
               {isDrafting ? (
                 <SpinnerGap weight="bold" className="animate-spin" />
               ) : (
-                <NotePencil weight="bold" />
+                <ArrowClockwise weight="bold" />
               )}
-              {isDrafting ? "Drafting…" : "Draft a follow-up"}
+              {isDrafting ? "Regenerating…" : "Regenerate"}
             </Button>
           </div>
         ) : null
