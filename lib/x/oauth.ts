@@ -19,8 +19,10 @@ import { X_SCOPES } from "@/lib/x/scopes"
 // The scope list lives in lib/x/scopes.ts — pure, so the Connections page can
 // read it without dragging the client secret and the token calls below into
 // the browser bundle. Re-exported here because this is where a reader of the
-// authorization request looks for it. It now includes `tweet.write`
-// (green-lit 2026-09-04); see that file for what turning it on cost.
+// authorization request looks for it. It is **read-only**: `tweet.write` was
+// added on 2026-09-04 under an explicit green-light and taken back out the same
+// day, once X answered the first real send with `402 credits depleted`. See
+// that file for what turning it on would cost.
 export { X_SCOPES }
 
 const AUTHORIZATION_URL = "https://x.com/i/oauth2/authorize"

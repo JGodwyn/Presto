@@ -661,6 +661,10 @@ shipped. The flow itself is intact; one line re-opens it. Note the Generate
 page's account pill disables an unconnected platform on its own, so X is
 disabled there too with no code of its own.
 
+**The X app's permission is back on `Read`** (owner confirmed 2026-09-04), so
+both locks are in place: the repo asks for no write scope, and the app could not
+grant one if it did.
+
 **Two X posts are scheduled and can never go out.** They sit in Queued and will
 read "Overdue" forever. Turning them into drafts, or moving them to LinkedIn, is
 a call for whoever owns the content — left alone deliberately rather than

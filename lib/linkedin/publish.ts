@@ -6,13 +6,18 @@ import { isNetworkError } from "@/lib/network-error"
 import type { PublishFailure } from "@/lib/publish-failure"
 import { isLivePublishEnabled } from "@/lib/publish-gate"
 
-// The LinkedIn publishing path — built, and deliberately unreachable.
+// The LinkedIn publishing path — **live**, and the only one that is.
 //
-// AGENTS.md's hard publishing constraint says Presto must not post to a live
-// account until that is explicitly green-lit. This file exists so that the day
-// it *is* green-lit, the work is a scope migration and a switch rather than a
-// from-scratch build — but nothing here can fire today, and the two reasons it
-// can't are independent (see `checkPublishGate`).
+// This said "built, and deliberately unreachable" until 2026-09-03, when
+// AGENTS.md's hard publishing constraint was explicitly green-lit for LinkedIn
+// and two real posts went out. It can fire: the gate's remaining key is
+// `PRESTO_ENABLE_LIVE_PUBLISH`, which is unset by default and is a deliberate
+// act rather than configuration (see `checkPublishGate`). The constraint itself
+// is unchanged — calling a share endpoint, or wiring a scheduler to one, still
+// needs asking first, every time.
+//
+// Its X sibling (lib/x/publish.ts) is the one that is now built and
+// unreachable, which is where this file's old comment has gone to live.
 //
 // Server-only at runtime: callers hand it a decrypted access token, which must
 // never exist in a client component. Nothing in this file may be imported by

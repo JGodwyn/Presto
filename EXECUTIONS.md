@@ -6518,3 +6518,34 @@ buys nothing — and they are what a future X publish would be tested against.
 Two are *scheduled*, so they sit in Queued and will read Overdue without ever
 going out; that is flagged in FOLLOWUPS rather than silently changed, since
 turning someone's scheduled posts into drafts is their call.
+
+### Finishing touches before handoff
+
+Four comments had gone stale, one of them written by this branch a few hours
+earlier — worth listing, because every one of them would have told the next
+reader something false:
+
+- `lib/x/oauth.ts` claimed the scope list "now includes `tweet.write`". Mine,
+  and wrong within the same day. Now says read-only, and why.
+- `lib/linkedin/publish.ts` still opened "built, and deliberately unreachable…
+  nothing here can fire today". Stale since 2026-09-03, when LinkedIn was
+  green-lit and two real posts went out — a reader would have concluded the app
+  cannot publish at all. Rewritten to say it is the live one, and to hand the
+  old description over to its X sibling, which now genuinely fits it.
+- `lib/x/publish.ts` didn't say it was unreachable. It does now, with the reason
+  and the way back.
+- The action's `unsupported_platform` copy read "Publishing isn't built for that
+  platform" — false for X, which is built and switched off. Now "isn't available
+  for that platform yet".
+
+`INTERFACE.md` §10b and an `AGENTS.md` status bullet were added: the four
+switches, the coming-soon rule (control disabled where something is pending,
+absent where nothing is), and the two consequences that fall out with no code.
+
+Owner confirmed the X app is back on `Read`, so both locks hold, and that the
+existing X posts and X's presence in filters and the dashboard are fine as they
+are.
+
+**Final gates:** tsc clean, `npm run lint` at main's 17-error baseline, vitest
+416 passed across 34 files (excluding `lib/ai/generate.test.ts`), `next build`
+clean.

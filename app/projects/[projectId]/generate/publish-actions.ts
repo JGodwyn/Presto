@@ -42,7 +42,7 @@ const publishPostSchema = z.object({
 const OUTCOME_MESSAGES: Partial<Record<PublishOutcomeFailure, string>> = {
   missing: "That post no longer exists.",
   tryout: "Try out posts can't be published to a real account.",
-  unsupported_platform: "Publishing isn't built for that platform.",
+  unsupported_platform: "Publishing isn't available for that platform yet.",
   already_published: "That post has already been published.",
   claimed: "That post is already being published.",
   read_failed: "Couldn't read that post. Try again.",

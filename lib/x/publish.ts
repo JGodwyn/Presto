@@ -3,8 +3,21 @@ import { isLivePublishEnabled } from "@/lib/publish-gate"
 import type { PublishFailure } from "@/lib/publish-failure"
 import { hasXPublishScope, X_PUBLISH_SCOPE } from "@/lib/x/scopes"
 
-// The X publishing path — the sibling of lib/linkedin/publish.ts, deliberately
-// not an abstraction over it. The two share the *hazards* (see the gate and
+// The X publishing path — **built, exercised against the live API, and
+// currently unreachable.**
+//
+// X is not in `PUBLISHABLE_PLATFORMS` (lib/post-publish.ts), so
+// lib/publish-runner.ts refuses an X post before anything here is called.
+// That is a cost decision rather than missing work: posting through X's v2 API
+// is metered per *app* across every user of Presto, and the first real send
+// came back `402 credits depleted`. Everything below is known-good up to and
+// including X receiving a request; only the 201-and-read-the-id path has never
+// run for real. Nothing here is deleted so that switching X on is a list, a
+// scope and a reconnect rather than a rebuild — the state lib/linkedin/
+// publish.ts sat in before LinkedIn was green-lit.
+//
+// The sibling of lib/linkedin/publish.ts, deliberately not an abstraction
+// over it. The two share the *hazards* (see the gate and
 // `published_without_urn` below, both of which are copied on purpose) and
 // almost nothing else: X takes a JSON body and returns the created post's id in
 // that body, where LinkedIn returns it in a header; X's access tokens live two
