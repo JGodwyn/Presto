@@ -6179,3 +6179,221 @@ classes on a live chip: 24px, `rgb(255,228,228)` fill, `rgb(220,0,0)` text,
 The height stays set outright rather than derived from padding: `body-md`'s
 line-height is 20px, so restoring `py-pad-xs` would put the chip straight back
 at 28. `items-center` splits the remaining 4px.
+
+## 2026-09-04 — Publishing to X (`feat/x-publish`, port 3002)
+
+**Green-light.** The owner was asked directly on 2026-09-04 and green-lit live
+posting to X, including a real send to their own account to prove the path — the
+same authorisation LinkedIn got on 2026-09-03. Scope: this branch's publishing
+work only. Not scheduling, not a cron, not any deployed environment.
+`PRESTO_ENABLE_LIVE_PUBLISH` stays unset by default and is set briefly, by hand,
+for the verification send.
+
+### Scopes first, because they decide what everything else can do
+
+`X_SCOPES` was `users.read tweet.read offline.access` and lived in
+`lib/x/oauth.ts`, which reads the client secret and therefore may not be
+imported by a client component. The Connections page has to read the list (to
+tell a stale grant apart from a current one), so the list moved out first:
+
+- **`lib/scope-grant.ts`** (new, pure, imports nothing) — `parseGrantedScopes`
+  and `grantCovers`. The delimiter quirk it handles (LinkedIn returns commas,
+  sends spaces; X uses spaces) is not LinkedIn's alone, so it stopped living in
+  `lib/linkedin/scopes.ts`, which now re-exports it.
+- **`lib/x/scopes.ts`** (new, pure) — `X_SCOPES` with `tweet.write` added,
+  `X_PUBLISH_SCOPE`, `xGrantIsCurrent`, `hasXPublishScope`. `lib/x/oauth.ts`
+  re-exports `X_SCOPES` so its own callers and test are unmoved.
+- **`lib/social-scopes.ts`** (new, pure) — `isGrantStale(platform, scope)`,
+  moved out of `lib/linkedin/scopes.ts` and widened to X. It could not stay
+  there: `grantIsCurrent` compares against LinkedIn's strings, and the branch
+  that keeps it away from X rows was the fix for a bug that shipped once (a
+  permanent "Reconnect to grant permission to post" chip on every X row, for a
+  permission X was never asked for). A switch with a test on it, not an
+  `=== "linkedin"` at the call site.
+
+### `lib/x/publish.ts`, mirroring the LinkedIn one
+
+Same shape, same two load-bearing parts, one real difference.
+
+- **Gate first, twice.** `checkXPublishGate` refuses on
+  `PRESTO_ENABLE_LIVE_PUBLISH` *before* the scope, and is checked in
+  `publish-runner.ts` (before a token is obtained) as well as inside
+  `publishTweet` (before the request). Both kept.
+- **`published_without_urn` carried over.** X returns the tweet id in the
+  response body (`{ data: { id } }`) rather than a header, so the *shape*
+  differs and the hazard does not: a 2xx with no id means the tweet exists and
+  cannot be named. An unreadable body counts as absent for the same reason —
+  the tweet exists either way, so "I can't parse this" must never be reported as
+  "it didn't go out". Both hold the claim and write the permanent marker.
+- **The one real difference: X's gate has no expiry key.** LinkedIn's 60-day
+  token cannot be renewed, so a lapsed one is a refusal. X's lasts two hours and
+  is renewed on almost every call, so `social_accounts.expires_at` is stale by
+  design — gating on it would refuse virtually every publish with "that
+  connection has expired". Liveness comes from what a refresh actually returns:
+  `xTokenFailure` maps `getLiveXAccessToken`'s answer into the shared
+  vocabulary. A test pins the *absence* of the expiry check, so adding one "for
+  symmetry" fails there rather than in production.
+- New failure code `token_unavailable` for the two X-only cases that are not a
+  verdict on the post (credentials unset, X unreachable mid-refresh).
+  Deliberately not `token_expired`, which tells the user to reconnect, and not
+  `publish`, which says X looked at the post and said no.
+
+### The runner's dispatch, and the token ordering
+
+`lib/publish-runner.ts:113`'s `platform !== "linkedin"` refusal became a
+narrowing (`publishablePlatform`) plus a two-branch `sendPost`. Everything
+around it — claim, `record_failed` marker, `recorded` — is untouched and stays
+platform-agnostic; `sendPost` normalises X's `postId` to `postUrn` so nothing
+below the call site has two shapes to handle. The account read is now
+`.eq("platform", platform)` and selects `id`, which X needs.
+
+**X's token is fetched after the claim, not before**, and that ordering is the
+point: its refresh tokens are rotating and single-use, so obtaining one for a
+post another request already claimed spends a token for nothing — and the
+rotation lands on the row regardless of whether this attempt publishes. A test
+pins it.
+
+### Copy that named the wrong provider
+
+Publishing to X through code written for LinkedIn produced "LinkedIn wouldn't
+accept this post" for a failed tweet, "Published to LinkedIn" for a successful
+one, and "the post stays up on LinkedIn" when deleting one. Every message that
+names a provider is now a template with a `{provider}` placeholder, filled from
+the post's own platform:
+
+- `PUBLISH_FAILURE_MESSAGES` → `PUBLISH_FAILURE_TEMPLATES`. **Renamed on
+  purpose**: had the name stayed, any caller reading a value straight out of it
+  would have gone on compiling while showing `{provider}` to a user.
+- `publishFailureMessage(code, platform)` — platform **required**, not optional.
+  An optional field at a boundary is a suggestion rather than a contract, which
+  is exactly how a URN went missing between this module and the server action
+  once already (LEARNINGS).
+- `PublishOutcome` carries `platform` for the same reason, `null` only where the
+  answer genuinely isn't known (the post row couldn't be read, or carries a
+  platform with no publisher).
+- The messages that are about the *connection* — "reconnect it and try again" —
+  stay provider-free on purpose, and a test pins that they read identically on
+  both platforms.
+
+### Two things deliberately not done
+
+- **The cron still selects `platform = 'linkedin'` only.** X publishing works
+  through the runner, but scheduling it was not green-lit: the authorisation
+  covers a person clicking Publish, not a timer doing it for them. Widening that
+  one condition is the whole change when it is asked for. FOLLOWUPS entry added.
+- **No schema change.** The tweet id goes in the existing `provider_post_id`.
+
+### Gates before the live send
+
+tsc clean; `npm run lint` at main's 17-error baseline; vitest 411 passed across
+34 files (excluding `lib/ai/generate.test.ts`, live Gemini quota); `next build`
+clean.
+
+**Every new test was run against the bug it claims to catch** — the rule from
+LEARNINGS' run of four green-but-wrong defects. Nine mutations, all caught:
+missing-id treated as a plain failure (2 tests fail), gate order swapped (1),
+unreadable body given an invented id (1), `revoked` flattened to `publish` (1),
+dispatch pinned to LinkedIn (3), account read hardcoded to LinkedIn (1), token
+failure flattened (1), X's `published_without_urn` flattened (1), unknown
+platform allowed through (1).
+
+### A hole the brief's 280-character item exposed
+
+"Confirm an over-length post is still refused before it reaches X" turned out
+not to be true of the publish path at all. `exceedsPlatformLimit` was applied
+only where a post is **moved** to a platform (post-details, the deck, the
+generating grid) — so it cannot see a post that was written for X and came back
+over the limit, or one edited past it afterwards. Either reaches X, is refused
+with a 403 indistinguishable from a duplicate or a rate limit, and spends a
+request from a posting budget shared across every user of the app.
+
+Closed on both sides, in the shape the codebase already uses for this: a
+`too_long` refusal in `publishOnePost` (before the claim, so the post stays
+exactly as publishable as it was) and in `publishBlockedReason`, so the control
+isn't offered for a round trip that can only fail. Grouped with the checks about
+the post rather than with the gate, since it needs no connection to answer.
+The count over-counts links by design (lib/post-length.ts) — it can refuse a
+post X would have taken, which is the safe direction.
+
+### Live verification on :3002, at `127.0.0.1` (not `localhost` — see LEARNINGS)
+
+Everything short of the request itself was proven first, since none of it spends
+from X's shared posting budget. The dev server was restarted with
+`PRESTO_ENABLE_LIVE_PUBLISH=true` **in its own process environment**, not in
+`.env.local` — that file is a symlink shared with the main checkout and the
+other live worktree, so writing the switch there would have opened the gate for
+all three. Killing the process is the un-setting.
+
+1. **Connections page**: the X row shows the "Reconnect" chip (its stored grant
+   is `users.read tweet.read offline.access`, which no longer covers the list);
+   LinkedIn, whose grant is current, does not. The per-platform `isGrantStale`
+   working in both directions on one screen.
+2. **Post page**: the account pill and the confirmation both name the real
+   account (`@gdwn__`), and "Publish now" is offered at 271 characters.
+3. **Gate key 1**, switch off → *"Publishing to a live account is switched off
+   for this app."* Row untouched.
+4. **Gate key 2**, switch on, read-only grant → *"This connection doesn't have
+   permission to post. Reconnect the account and try again."* No token fetched,
+   no request made.
+5. **The over-length refusal, reproduced as the real hole rather than a
+   contrived one**: rendered the page with a 67-character post (so the client
+   guard passes), lengthened the row to 421 characters behind the open page,
+   then published. → *"This post is longer than X allows. Shorten it and try
+   again."* — naming X, not LinkedIn. `publish_started_at` still null
+   afterwards, so the claim was never even taken: a refusal leaves the post
+   exactly as publishable as it was.
+
+### The reconnect, and two things that were not what they looked like
+
+**The Reconnect button failed at X with "You weren't able to give access to the
+App" — and it was not the scope.** The obvious reading was that `tweet.write`
+had been requested before the X app's own permission was flipped. It wasn't:
+loading the *old, read-only* authorize URL against :3002 produced the identical
+error, and the *write* scope against :3003 produced a normal consent screen
+listing "Post and repost for you". The variable was the port —
+`http://127.0.0.1:3002/api/connections/x/callback` is not among the X app's
+registered callbacks, and a worktree gets whatever port `/branch` assigned it.
+Moved this worktree's dev server to **:3003**, which is registered, for the
+OAuth leg and the send. See LEARNINGS.
+
+Reconnected: scope is now `tweet.write users.read tweet.read offline.access`
+(note X returns them space-delimited and reordered — `parseGrantedScopes`
+handles both), `connected_at` restamped, refresh token present, and the
+"Reconnect" chip cleared off the X row on its own.
+
+**Then the real send came back `402 {"detail":"credits depleted","title":
+"Payment Required"}`.** The publish path did everything right — refreshed the
+two-hour token, sent the request with `tweet.write`, took and released the
+claim, recorded the failure — and X refused it on the developer account's
+billing, which is not something code can fix.
+
+It did expose a real defect, and that is why this is a code change rather than a
+note: the refusal was reported as **"X wouldn't accept this post. Try again."**
+Nothing about the post was wrong and no number of retries could ever work.
+Two statuses are now their own failures, because they are about the *account*
+rather than the post:
+
+- `402` → `quota_exhausted` — "X has run out of API credits for this app, so
+  nothing can publish until that's topped up. Trying again won't help."
+- `429` → `rate_limited` — retryable, but not now. Near-certain on the Free
+  tier, whose budget is shared across every user of the app.
+
+A `console.error` of the status and the first 500 bytes of the provider's
+problem-JSON stays in `postTweet`. Without it this was undiagnosable: the code
+reaching the user is deliberately coarse, and finding the cause took a
+throwaway log and a second send. X's error bodies describe the app, not the
+member, and the token is never in scope.
+
+**Still unverified: the tweet itself.** Everything up to and including X
+receiving the request is proven; the last step is blocked on the X developer
+account's credits, not on this branch. The 271-character draft
+(`f51ec23f-3c78-4ebc-bb8d-ea994b38af5e`) is left in place with `publish_error`
+cleared, ready to send the moment credits are available — one click on its post
+page with `PRESTO_ENABLE_LIVE_PUBLISH=true`. **No tweet id to record yet**,
+which is the one item of the brief's "done means" that is outstanding.
+
+**Cleanup:** the over-length probe post was deleted, the dev server is back on
+**:3002** with `PRESTO_ENABLE_LIVE_PUBLISH` unset (it was only ever in that
+process's environment, never in `.env.local`, which is a symlink shared with the
+main checkout and the other live worktree). Gates re-run after the 402 work:
+tsc clean, lint at main's 17-error baseline, vitest 420 passed, build clean.

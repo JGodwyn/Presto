@@ -71,10 +71,47 @@ describe("publishBlockedReason", () => {
     )
   })
 
-  it("refuses a platform with no flow behind it", () => {
+  // X joined LinkedIn on 2026-09-04, so this now offers rather than refuses.
+  // The refusal itself stays reachable — see the next test — because a post
+  // whose platform has no publisher must not silently get the control.
+  it("offers a connected X post, now that X publishing exists", () => {
     expect(
       publishBlockedReason(post({ platform: "x" }), [account({ platform: "x" })])
+    ).toBeNull()
+  })
+
+  it("still refuses a platform with no flow behind it", () => {
+    // Not a `PostPlatform`, which is the point: `posts.platform` is text in the
+    // database, so a row can carry something this build has no publisher for —
+    // and the client must not offer a control the server would only refuse.
+    const unknown = post({ platform: "mastodon" as never })
+    expect(
+      publishBlockedReason(unknown, [account({ platform: "mastodon" as never })])
     ).toBe("platform_unsupported")
+  })
+
+  // Not belt-and-braces with the platform-switch guard: that one fires where a
+  // post is *moved* to a platform, and cannot see a post written for X that came
+  // back over the limit, or one edited past it afterwards. Both of those reach
+  // this predicate, and — without it — reach X.
+  it("refuses a post longer than its platform allows", () => {
+    const tooLong = post({ platform: "x", content: "x".repeat(281) })
+    expect(publishBlockedReason(tooLong, [account({ platform: "x" })])).toBe(
+      "too_long"
+    )
+  })
+
+  it("allows one exactly at the limit, and counts it trimmed", () => {
+    const atLimit = post({ platform: "x", content: "x".repeat(280) })
+    expect(publishBlockedReason(atLimit, [account({ platform: "x" })])).toBeNull()
+
+    const padded = post({ platform: "x", content: `  ${"x".repeat(280)}  ` })
+    expect(publishBlockedReason(padded, [account({ platform: "x" })])).toBeNull()
+  })
+
+  it("has no length opinion about a platform with no limit", () => {
+    const long = post({ platform: "linkedin", content: "x".repeat(2000) })
+    expect(publishBlockedReason(long, [account()])).toBeNull()
   })
 
   it("refuses when that platform isn't connected", () => {

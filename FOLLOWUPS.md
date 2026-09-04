@@ -607,3 +607,52 @@ so it belongs in a separate script rather than the unit suite.
 **Why it waited:** it is a change to a shared test harness that every branch
 depends on, and the immediate hole is closed. Best done when nothing is in
 flight.
+
+---
+
+## X publishing: what `feat/x-publish` deliberately did not do
+
+**From:** `feat/x-publish`, 2026-09-04. Publishing to X by hand is done and
+exercised live; these are the parts that were out of scope.
+
+**Scheduling.** `app/api/cron/publish/route.ts` still selects
+`platform = 'linkedin'` only. The runner will publish an X post perfectly well —
+that one condition is the entire change — but the green-light covered a person
+clicking Publish, not a timer doing it for them. AGENTS.md's hard constraint
+still governs: ask first, every time. Note §17 below applies to X as well once
+it is widened, and more sharply — a stale-grant refusal records nothing and
+re-selects on every tick.
+
+**Threads are still declined**, and nothing here moved that. See the
+`feat/x-connect` entry above for what building them would actually cost.
+
+**Character counting is still `String.length`.** It over-counts links (X
+collapses every URL to 23 characters) and under-counts CJK. It is no longer only
+advisory — `publishOnePost` refuses an over-length post outright — so a post
+made mostly of links can now be refused when X would have taken it. The safe
+direction, but the argument for shipping X's real counting rules is stronger
+than it was.
+
+**`token_unavailable` has no retry.** A refresh that fails because X had a bad
+moment reports "try again" and leaves the post for a person to re-click. A
+single silent retry would be the obvious fix if it turns out to be common.
+
+**The X Free tier's 500 posts/month is shared across every user of the app**,
+not per user. Publishing now really does spend from it. Per-user posting limits
+enforced in-app are a prerequisite for any public release — noted in the
+`feat/x-connect` entry as a pricing constraint, now a real one.
+
+**One verification is outstanding, and it is not a code problem.** The real
+tweet was never sent: X answered `402 credits depleted` — the developer
+account is out of API credits. Everything up to and including X receiving the
+request is proven live (see EXECUTIONS, 2026-09-04). The 271-character draft
+`f51ec23f-3c78-4ebc-bb8d-ea994b38af5e` is left in place ready to send: top up
+the X account, run the dev server with `PRESTO_ENABLE_LIVE_PUBLISH=true`, open
+that post and click Publish. **Record the tweet id in EXECUTIONS.md** the way
+the LinkedIn URNs are.
+
+**`http://127.0.0.1:3002/api/connections/x/callback` is not a registered
+callback on the X app**, which is why the reconnect had to be done on :3003.
+Worth registering every worktree port (3001-3005) once, or the next branch that
+touches X connecting hits the same wall and reads it as a scope problem — see
+LEARNINGS.

@@ -853,7 +853,7 @@ export function PostDetails({
     setToast({
       open: true,
       variant: "success",
-      message: "Published to LinkedIn",
+      message: `Published to ${PLATFORM_LABELS[currentPost.platform]}`,
       action: undefined,
       extraInfo: undefined,
     })
@@ -1327,7 +1327,7 @@ export function PostDetails({
         title="Delete post"
         description={
           isPublished
-            ? "This removes Presto's copy. The post itself stays up on LinkedIn — delete it there too if you want it gone."
+            ? `This removes Presto's copy. The post itself stays up on ${PLATFORM_LABELS[currentPost.platform]} — delete it there too if you want it gone.`
             : "You can't undo this. Are you sure you want to delete this post?"
         }
         actionLabel="Delete post"

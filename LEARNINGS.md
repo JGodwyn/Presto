@@ -1537,3 +1537,63 @@ happens; the event announcing it never gets dispatched.
 trap already documented for Motion animations and `setInterval` under an eval,
 one API wider than it was written: it isn't only rAF-driven *animation* that
 freezes, it's anything the browser schedules on a frame, scroll events included.
+
+### An OAuth callback is registered per port, and a worktree's port is assigned
+
+**Symptom.** X's Reconnect button dies at `You weren't able to give access to
+the App` before any consent screen. It reads exactly like asking for a scope the
+app isn't permitted to grant — which was also the change being made at the time
+(`tweet.write`, plus flipping the X app from Read to Read-and-write), so the
+scope was the obvious and wrong suspect.
+
+**Cause.** The redirect URI is derived from the request's own origin, so the
+port the dev server happens to be on becomes part of it. `/branch` assigns each
+worktree a free port from 3001 up; the X app's registered callbacks were added
+by hand while earlier work ran on :3000 and :3003. A worktree on **:3002** sends
+a `redirect_uri` that was never registered, and X refuses the authorize request
+outright.
+
+**Rule.** Isolate a provider-side rejection by **changing one variable at a
+time against the provider itself**, not by reasoning about which change is more
+recent. Hand-build the authorize URL and load it: old scope on the new port, new
+scope on a known-good port. Here that took two page loads and settled it
+immediately —
+
+- read-only + :3002 → same error ⇒ not the scope
+- write + :3003 → consent screen listing "Post and repost for you" ⇒ not the
+  permission either
+
+**Corollary.** `curl` cannot do this test. X validates `redirect_uri` and scope
+only *after* the member is authenticated, so an unauthenticated request returns
+the login redirect for every variant and looks identical whatever is wrong. It
+has to be the signed-in browser.
+
+**Practically:** either register every worktree port on the provider's app once,
+or move the dev server onto a registered port for the OAuth leg — and say which
+port out loud, because everything else about the app works fine on the wrong one
+and only the redirect breaks.
+
+### A provider can refuse for reasons that have nothing to do with the request
+
+**Symptom.** The first real X publish failed with the app saying *"X wouldn't
+accept this post. Try again."* Retrying could never have worked: X had returned
+`402 {"detail":"credits depleted","title":"Payment Required"}` — the developer
+account was out of API credits.
+
+**Cause.** The response handler had one bucket for every non-2xx. That is right
+for the refusals that *are* about the post (too long, duplicate, malformed) and
+actively harmful for the ones about the **account**: a permanent billing state
+described as a transient one sends someone round a loop that cannot terminate,
+and a rate limit described the same way invites the retry that deepens it.
+
+**Rule.** When mapping a provider's HTTP failures, sort them by *what the reader
+should do next*, not by what went wrong. Three different answers hid behind one
+code here — fix the post (4xx about content), stop and pay (402), wait (429) —
+and only the first is a verdict on what was sent.
+
+**Corollary, and the reason this took two live sends to find:** a coarse failure
+code with no logging is undiagnosable from the outside. The provider's own
+problem document is the only thing that says *which* refusal this was, and it
+existed for exactly as long as the response object. Log the status and a
+bounded slice of the body at the point of refusal — provider error bodies
+describe the app, not the member.

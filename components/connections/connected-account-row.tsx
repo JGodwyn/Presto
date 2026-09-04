@@ -20,7 +20,7 @@ import {
   formatExpiry,
   isConnectionDead,
 } from "@/lib/format-date"
-import { isGrantStale } from "@/lib/linkedin/scopes"
+import { isGrantStale } from "@/lib/social-scopes"
 import { cn } from "@/lib/utils"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 
@@ -93,14 +93,15 @@ function ConnectedAccountRow({
   // above — the token still works for what it *was* granted, so this is not a
   // dead row — which is why it's its own flag rather than another
   // ConnectionStatus value with a precedence puzzle attached. Only ever true
-  // after a scope is added to LINKEDIN_SCOPES; before then every row matches.
+  // after a scope is added to a platform's list; before then every row matches.
   //
-  // Platform-gated inside isGrantStale, and that is load-bearing rather than
-  // tidiness: these are LinkedIn's scope strings, so an X row (users.read /
-  // tweet.read / offline.access) can never satisfy a list containing
-  // w_member_social. Ungated, every connected X account wore a permanent
-  // "Reconnect to grant Presto permission to post" chip — for a permission X is
-  // never asked for, and which reconnecting could not clear.
+  // Per-platform inside isGrantStale (lib/social-scopes.ts), and that is
+  // load-bearing rather than tidiness: each provider's scope strings are
+  // meaningless to the other, so asking LinkedIn's question of an X row put a
+  // permanent "Reconnect to grant Presto permission to post" chip on every
+  // connected X account — for a permission X was never asked for, and which
+  // reconnecting could not clear. Both platforms now have a real answer: X's
+  // grants predating tweet.write (2026-09-04) are genuinely stale.
   const grantIsStale = !isDead && isGrantStale(account.platform, account.scope)
 
   return (

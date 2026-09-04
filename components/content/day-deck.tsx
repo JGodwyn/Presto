@@ -751,7 +751,10 @@ export function DayDeck({
     if (keyForPost({ ...post, ...patch }) === dayKey) commit()
     else leaveDeck(post.id, commit)
 
-    showSuccess("Published to LinkedIn")
+    // Named from the post's own platform, not hardcoded: publishing a tweet
+    // and being told it went to LinkedIn is the kind of small lie that makes a
+    // user distrust everything else the app says.
+    showSuccess(`Published to ${PLATFORM_LABELS[post.platform]}`)
   }
 
   // The one rule the pill and the guard share. Try out is never refused:

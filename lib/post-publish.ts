@@ -1,3 +1,4 @@
+import { exceedsPlatformLimit } from "@/lib/post-length"
 import { isRecordFailure } from "@/lib/publish-failure"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 import type { Post, PostPlatform } from "@/types/post"
@@ -18,15 +19,18 @@ import type { Post, PostPlatform } from "@/types/post"
 // explained. The button is offered, the attempt is refused, and the refusal
 // says which key is shut.
 
-// Publishing is built for LinkedIn alone. X has a `platform` value reserved
-// and no flow behind it, so a post written for it can be scheduled and edited
-// but not sent.
-const PUBLISHABLE_PLATFORMS: readonly PostPlatform[] = ["linkedin"]
+// Both platforms can be published to as of 2026-09-04 (X joined LinkedIn once
+// tweet.write was green-lit). Kept as a list rather than dropped: it is the
+// client-side mirror of `PUBLISHABLE` in lib/publish-runner.ts, and a platform
+// added to types/post.ts without a publisher behind it must not silently start
+// offering the control.
+const PUBLISHABLE_PLATFORMS: readonly PostPlatform[] = ["linkedin", "x"]
 
 export type PublishBlockedReason =
   | "already_published"
   | "tryout"
   | "platform_unsupported"
+  | "too_long"
   | "not_connected"
 
 // What a post needs from the outside world to be publishable at all. Taken as
@@ -34,7 +38,10 @@ export type PublishBlockedReason =
 // what they already have (every surface that renders a post card fetches
 // these for the account pill).
 export function publishBlockedReason(
-  post: Pick<Post, "platform" | "isTryout" | "publishedAt" | "publishError">,
+  post: Pick<
+    Post,
+    "platform" | "isTryout" | "publishedAt" | "publishError" | "content"
+  >,
   accounts: ConnectedSocialAccount[]
 ): PublishBlockedReason | null {
   // Checked first: an already-published post is the one state where offering
@@ -59,6 +66,12 @@ export function publishBlockedReason(
     return "platform_unsupported"
   }
 
+  // Longer than the platform allows. The server refuses this too (see
+  // publishOnePost) — offering the control here would spend a round trip and,
+  // on X, a request against a posting budget shared across every user of the
+  // app, to be told something the character count on the card already says.
+  if (exceedsPlatformLimit(post.content, post.platform)) return "too_long"
+
   // No account to publish through. Note this asks only whether the platform is
   // connected, not whether that connection is *alive*: an expired or revoked
   // one still fails, but it fails with "reconnect it and try again", which is
@@ -71,7 +84,10 @@ export function publishBlockedReason(
 }
 
 export function canAttemptPublish(
-  post: Pick<Post, "platform" | "isTryout" | "publishedAt" | "publishError">,
+  post: Pick<
+    Post,
+    "platform" | "isTryout" | "publishedAt" | "publishError" | "content"
+  >,
   accounts: ConnectedSocialAccount[]
 ): boolean {
   return publishBlockedReason(post, accounts) === null

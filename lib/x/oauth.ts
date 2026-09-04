@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto"
 
 import { isNetworkError } from "@/lib/network-error"
+import { X_SCOPES } from "@/lib/x/scopes"
 
 // X's OAuth 2.0 endpoints and the slice of the protocol this app speaks.
 // Server-only at runtime: the client secret is read here, so nothing in this
@@ -15,19 +16,12 @@ import { isNetworkError } from "@/lib/network-error"
 // rather than email, and authenticates the token endpoint with HTTP Basic. A
 // premature merge of the two would be mostly branches.
 //
-// Scopes are read-only. `tweet.write` is deliberately *not* requested — per
-// AGENTS.md's hard publishing constraint, Presto must not be able to post to a
-// live account until that is explicitly green-lit. oauth.test.ts pins this so
-// the guarantee survives a careless edit.
-//
-// **Two independent locks, and both matter.** This scope list is one; the
-// other is the X app's own "App permissions" setting, which must be `Read`.
-// The app-level permission caps what any scope request can be granted, so even
-// a request for tweet.write would come back without it. Turning publishing on
-// later means changing both — and note that changing app permissions
-// invalidates every existing token, so that day is a reconnect-everyone
-// migration, not a scope string edit.
-export const X_SCOPES = ["users.read", "tweet.read", "offline.access"] as const
+// The scope list lives in lib/x/scopes.ts — pure, so the Connections page can
+// read it without dragging the client secret and the token calls below into
+// the browser bundle. Re-exported here because this is where a reader of the
+// authorization request looks for it. It now includes `tweet.write`
+// (green-lit 2026-09-04); see that file for what turning it on cost.
+export { X_SCOPES }
 
 const AUTHORIZATION_URL = "https://x.com/i/oauth2/authorize"
 const TOKEN_URL = "https://api.x.com/2/oauth2/token"

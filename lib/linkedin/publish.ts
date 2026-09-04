@@ -3,6 +3,8 @@ import {
   parseGrantedScopes,
 } from "@/lib/linkedin/scopes"
 import { isNetworkError } from "@/lib/network-error"
+import type { PublishFailure } from "@/lib/publish-failure"
+import { isLivePublishEnabled } from "@/lib/publish-gate"
 
 // The LinkedIn publishing path — built, and deliberately unreachable.
 //
@@ -21,11 +23,12 @@ import { isNetworkError } from "@/lib/network-error"
 // it — see the note there on what adding it cost.
 export { LINKEDIN_PUBLISH_SCOPE }
 
-// The kill switch, and the "explicit confirm" half of the gate. Absent by
-// default and absent from .env.local.example on purpose: it is not
-// configuration, it is a deliberate act. Only ever read through
-// `isLivePublishEnabled` so there is exactly one place that decides.
-const LIVE_PUBLISH_ENV = "PRESTO_ENABLE_LIVE_PUBLISH"
+// Both re-exported for the readers that have always found them here. The gate
+// switch is shared with X (lib/publish-gate.ts — one switch, both platforms)
+// and the failure vocabulary now lives in the pure module client components
+// read (lib/publish-failure.ts), so neither is defined in this file any more.
+export { isLivePublishEnabled }
+export type { PublishFailure }
 
 const POSTS_URL = "https://api.linkedin.com/rest/posts"
 
@@ -33,17 +36,6 @@ const POSTS_URL = "https://api.linkedin.com/rest/posts"
 // header. Pinned rather than derived from the clock: a silently-rolling
 // version means the request shape can start failing on a date nobody chose.
 const LINKEDIN_VERSION = "202608"
-
-// Every way publishing can decline or fail, as a short code the caller maps to
-// copy. The first four are *refusals* — the gate said no and nothing left this
-// process; the last two mean a request was actually made.
-export type PublishFailure =
-  | "publishing_disabled"
-  | "scope_not_granted"
-  | "token_expired"
-  | "not_connected"
-  | "network"
-  | "publish"
 
 export type PublishResult =
   | { ok: true; postUrn: string }
@@ -67,10 +59,6 @@ export function hasPublishScope(raw: string): boolean {
 // the database for every connected row — no migration was needed for this.
 export function personUrn(providerAccountId: string): string {
   return `urn:li:person:${providerAccountId}`
-}
-
-export function isLivePublishEnabled(): boolean {
-  return process.env[LIVE_PUBLISH_ENV] === "true"
 }
 
 // What the gate needs to know about the connection being published through.
