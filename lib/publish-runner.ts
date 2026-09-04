@@ -7,6 +7,7 @@ import {
   type PublishResult,
 } from "@/lib/linkedin/publish"
 import { exceedsPlatformLimit } from "@/lib/post-length"
+import { PUBLISHABLE_PLATFORMS } from "@/lib/post-publish"
 import { PUBLISH_GRACE_MINUTES } from "@/lib/publish-due"
 import {
   RECORD_FAILED_PREFIX,
@@ -106,14 +107,18 @@ export type PublishOutcome =
       publishedUrn?: string
     }
 
-// The platforms this build can publish to. A post's `platform` column is plain
-// text as far as this query is concerned, so it is narrowed here rather than
-// trusted — and the list is what the dispatch below switches on, so the two
-// cannot disagree.
-const PUBLISHABLE: readonly PostPlatform[] = ["linkedin", "x"]
-
+// A post's `platform` column is plain text as far as this query is concerned,
+// so it is narrowed here rather than trusted.
+//
+// **The list itself is lib/post-publish.ts's**, shared with the client
+// predicate that decides whether to offer the control at all — the server must
+// refuse exactly what the UI declines to offer, and two copies of that would
+// drift. X is deliberately absent from it; `sendPost` below still has a
+// complete X branch, unreachable until the list says otherwise. That is the
+// same state lib/linkedin/publish.ts sat in for months before LinkedIn
+// publishing was green-lit.
 function publishablePlatform(value: unknown): PostPlatform | null {
-  return PUBLISHABLE.includes(value as PostPlatform)
+  return PUBLISHABLE_PLATFORMS.includes(value as PostPlatform)
     ? (value as PostPlatform)
     : null
 }

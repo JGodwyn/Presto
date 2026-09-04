@@ -17,10 +17,12 @@ import { X_SCOPES } from "@/lib/x/scopes"
 describe("isGrantStale", () => {
   const CURRENT_LINKEDIN = LINKEDIN_SCOPES.join(",")
   const CURRENT_X = X_SCOPES.join(" ")
-  // Verbatim from the live exchanges: what each platform granted before its
-  // publish scope was requested.
+  // Verbatim from the live exchange: what LinkedIn granted before
+  // w_member_social was requested.
   const SIGN_IN_ONLY_LINKEDIN = "email,openid,profile"
-  const READ_ONLY_X = "users.read tweet.read offline.access"
+  // The grant left behind by the few hours X publishing was switched on. It
+  // holds *more* than the app now asks for, which must not read as stale.
+  const OVER_GRANTED_X = `${CURRENT_X} tweet.write`
 
   it("passes a current grant on either platform", () => {
     expect(isGrantStale("linkedin", CURRENT_LINKEDIN)).toBe(false)
@@ -29,7 +31,15 @@ describe("isGrantStale", () => {
 
   it("catches a grant made before its own platform's publish scope", () => {
     expect(isGrantStale("linkedin", SIGN_IN_ONLY_LINKEDIN)).toBe(true)
-    expect(isGrantStale("x", READ_ONLY_X)).toBe(true)
+  })
+
+  // X asks for nothing beyond sign-in and reading, so no X connection this app
+  // can make is stale today. That will change the day X publishing ships, and
+  // the branch is already here and tested — this pins the current answer rather
+  // than the mechanism, so turning it on fails here and says so.
+  it("has no stale X grant while X asks only for read scopes", () => {
+    expect(isGrantStale("x", CURRENT_X)).toBe(false)
+    expect(isGrantStale("x", OVER_GRANTED_X)).toBe(false)
   })
 
   // The original bug, stated as the invariant rather than the symptom: each

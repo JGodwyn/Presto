@@ -642,14 +642,22 @@ not per user. Publishing now really does spend from it. Per-user posting limits
 enforced in-app are a prerequisite for any public release — noted in the
 `feat/x-connect` entry as a pricing constraint, now a real one.
 
-**One verification is outstanding, and it is not a code problem.** The real
-tweet was never sent: X answered `402 credits depleted` — the developer
-account is out of API credits. Everything up to and including X receiving the
-request is proven live (see EXECUTIONS, 2026-09-04). The 271-character draft
-`f51ec23f-3c78-4ebc-bb8d-ea994b38af5e` is left in place ready to send: top up
-the X account, run the dev server with `PRESTO_ENABLE_LIVE_PUBLISH=true`, open
-that post and click Publish. **Record the tweet id in EXECUTIONS.md** the way
-the LinkedIn URNs are.
+**X publishing is switched off, and turning it on is four things.** X answered
+the first real send with `402 credits depleted`: posting costs money, metered
+per app across every user of Presto, and the owner's decision was not to pay.
+The code is complete and tested — it is the switch that is off. To turn it on:
+add `x` to `PUBLISHABLE_PLATFORMS` (lib/post-publish.ts), add `tweet.write` back
+to `X_SCOPES` (lib/x/scopes.ts), set the X app's permission to Read-and-write in
+X's console, and reconnect (a scope change invalidates every issued token).
+Tests in both files will fail first and say so, which is the point. The
+271-character draft `f51ec23f-3c78-4ebc-bb8d-ea994b38af5e` is left in place to
+send as the proof, and **the tweet id belongs in EXECUTIONS.md** the way the
+LinkedIn URNs are.
+
+**Nothing has ever been published to X**, so `lib/x/publish.ts`'s success path
+is the one thing here never exercised end to end. Everything up to X receiving
+the request is (see EXECUTIONS, 2026-09-04); the 201-and-parse-the-id branch has
+only ever been tested against a stub.
 
 **`http://127.0.0.1:3002/api/connections/x/callback` is not a registered
 callback on the X app**, which is why the reconnect had to be done on :3003.

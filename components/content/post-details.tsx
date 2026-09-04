@@ -53,7 +53,11 @@ import {
 import { isNetworkError } from "@/lib/network-error"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { publishErrorFor } from "@/lib/publish-failure"
-import { canAttemptPublish } from "@/lib/post-publish"
+import {
+  canAttemptPublish,
+  publishComingSoon,
+  publishComingSoonLabel,
+} from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -170,6 +174,12 @@ export function PostDetails({
   // canAttemptPublish refuses an already-published post.
   const isPublished = currentPost.publishedAt !== null
   const canPublish = canAttemptPublish(currentPost, accounts)
+  // A third state between "publish" and "nothing": the platform's publisher is
+  // built and switched off (X — see PUBLISHABLE_PLATFORMS in
+  // lib/post-publish.ts). Shown disabled rather than hidden, because an X post
+  // sitting beside a LinkedIn one with no trace of the control reads as broken
+  // rather than pending.
+  const comingSoon = publishComingSoon(currentPost, accounts)
 
   const { ref: contentFadeRef, onScroll: onContentScroll } = useScrollFade()
   // A separate instance for the streaming view specifically: during the
@@ -906,17 +916,32 @@ export function PostDetails({
               success green — Regenerate already owns `brand`, and the two
               must not read as the same weight of action when one of them is
               irreversible and public. Gone entirely once the post is live
-              (canAttemptPublish), rather than sitting there disabled. */}
-          {canPublish ? (
+              (canAttemptPublish), rather than sitting there disabled: there is
+              nothing coming for a post that has already gone out.
+
+              The exception is a platform whose publisher exists and is switched
+              off, which *is* coming — that one stays, disabled, and its tooltip
+              carries the reason. `disabled` is what makes the two states read
+              differently at a glance; the tooltip is what makes the second one
+              make sense. A disabled button still receives hover, so the tooltip
+              works (unlike the deck's menu row, which has to say it in the
+              label). */}
+          {canPublish || comingSoon ? (
             <Tooltip>
               <TooltipTrigger
                 render={
                   <Button
                     variant="success"
                     size="icon-sm"
-                    aria-label="Publish post now"
-                    disabled={isPublishing}
-                    onClick={() => setPublishOpen(true)}
+                    aria-label={
+                      comingSoon
+                        ? publishComingSoonLabel(currentPost.platform)
+                        : "Publish post now"
+                    }
+                    disabled={isPublishing || comingSoon}
+                    onClick={
+                      comingSoon ? undefined : () => setPublishOpen(true)
+                    }
                   >
                     {isPublishing ? (
                       <SpinnerGap weight="bold" className="animate-spin" />
@@ -926,7 +951,11 @@ export function PostDetails({
                   </Button>
                 }
               />
-              <TooltipContent>Publish now</TooltipContent>
+              <TooltipContent>
+                {comingSoon
+                  ? publishComingSoonLabel(currentPost.platform)
+                  : "Publish now"}
+              </TooltipContent>
             </Tooltip>
           ) : null}
           <Tooltip>

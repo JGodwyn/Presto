@@ -380,173 +380,88 @@ describe("publishOnePost when the record write fails", () => {
   })
 })
 
-// The dispatch. Before this, the runner hard-refused anything that wasn't
-// LinkedIn with `unsupported_platform`; the replacement has to send each post
-// through its *own* provider, and the failure mode worth guarding against is
-// not "no post goes out" but "the wrong provider gets it".
-describe("publishOnePost dispatches on the post's platform", () => {
+// The dispatch, and the switch in front of it.
+//
+// `lib/x/publish.ts` is complete and was exercised against the live X API, but
+// X is not in PUBLISHABLE_PLATFORMS: posting costs money, metered per app
+// across every user of Presto, and the owner's decision was not to pay. So the
+// runner refuses an X post before it reaches any of that — the same state
+// lib/linkedin/publish.ts sat in for months before LinkedIn was green-lit.
+//
+// These tests pin the switch, not the plumbing. `publishTweet` keeps its own
+// suite (lib/x/publish.test.ts), which is where the send path stays covered
+// while it is unreachable from here.
+describe("publishOnePost refuses a platform that is switched off", () => {
   const xPost = {
     id: POST.postId,
     platform: "x",
-    content: "A tweet.",
+    content: "A tweet that isn't going anywhere.",
     is_tryout: false,
     published_at: null,
   }
 
   const linkedinPost = { ...xPost, platform: "linkedin", content: "A share." }
 
-  it("sends an X post to X and nowhere near LinkedIn", async () => {
+  it("never reaches X, and never asks for an X token", async () => {
     const supabase = fakeSupabase({ post: xPost })
 
     const outcome = await publishOnePost(supabase, POST, NOW)
 
-    expect(publishTweet).toHaveBeenCalledTimes(1)
-    expect(publishTextPost).not.toHaveBeenCalled()
-    expect(outcome.ok).toBe(true)
-    // Normalised to `postUrn` on the way out, so `provider_post_id` and every
-    // reader below the call site stay platform-agnostic.
-    if (outcome.ok) expect(outcome.postUrn).toBe("1966000000000000000")
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.failure).toBe("unsupported_platform")
+    expect(publishTweet).not.toHaveBeenCalled()
+    // The token matters as much as the send: X's refresh tokens are rotating
+    // and single-use, so even fetching one for a post that cannot go out
+    // spends something.
+    expect(getLiveXAccessToken).not.toHaveBeenCalled()
   })
 
-  it("still sends a LinkedIn post to LinkedIn", async () => {
+  it("refuses before taking the claim, so nothing is left held", async () => {
+    const supabase = fakeSupabase({ post: xPost }) as unknown as {
+      updates: Record<string, unknown>[]
+    }
+
+    await publishOnePost(supabase as never, POST, NOW)
+
+    expect(supabase.updates).toHaveLength(0)
+  })
+
+  // The refusal has to survive the gate being opened — the switch is the list,
+  // not the environment variable.
+  it("still refuses with live publishing switched on", async () => {
+    process.env.PRESTO_ENABLE_LIVE_PUBLISH = "true"
+    try {
+      const supabase = fakeSupabase({ post: xPost })
+      const outcome = await publishOnePost(supabase, POST, NOW)
+      expect(outcome.ok).toBe(false)
+      expect(publishTweet).not.toHaveBeenCalled()
+    } finally {
+      delete process.env.PRESTO_ENABLE_LIVE_PUBLISH
+    }
+  })
+
+  it("still publishes LinkedIn, which is the platform that is on", async () => {
     const supabase = fakeSupabase({ post: linkedinPost })
 
-    await publishOnePost(supabase, POST, NOW)
+    const outcome = await publishOnePost(supabase, POST, NOW)
 
     expect(publishTextPost).toHaveBeenCalledTimes(1)
     expect(publishTweet).not.toHaveBeenCalled()
+    expect(outcome.ok).toBe(true)
+    if (outcome.ok) expect(outcome.platform).toBe("linkedin")
   })
 
-  it("carries the platform out, so a caller can name the provider", async () => {
-    const supabase = fakeSupabase({ post: xPost })
-    const outcome = await publishOnePost(supabase, POST, NOW)
-    expect(outcome.ok && outcome.platform).toBe("x")
-  })
-
-  // The account row is read by platform, not hardcoded. Getting this wrong
-  // would publish an X post through the LinkedIn connection's credentials —
-  // which fails, but only after the claim is spent.
   it("reads the connection for the post's own platform", async () => {
-    const supabase = fakeSupabase({ post: xPost }) as unknown as {
-      filters: { method: string; args: unknown[] }[]
+    const supabase = fakeSupabase({ post: linkedinPost }) as unknown as {
       eqs: unknown[][]
     }
 
     await publishOnePost(supabase as never, POST, NOW)
 
-    expect(supabase.eqs).toContainEqual(["platform", "x"])
-    expect(supabase.eqs).not.toContainEqual(["platform", "linkedin"])
+    expect(supabase.eqs).toContainEqual(["platform", "linkedin"])
   })
 
-  // **X's token is fetched after the claim, and that ordering is the point.**
-  // Its refresh tokens are rotating and single-use, so obtaining one for a post
-  // another request has already claimed spends a token for nothing — and the
-  // rotation lands on the row regardless of whether this attempt publishes.
-  it("never asks for an X token for a post it did not claim", async () => {
-    const supabase = fakeSupabase({
-      post: { ...xPost, published_at: NOW.toISOString() },
-    })
-
-    const outcome = await publishOnePost(supabase, POST, NOW)
-
-    expect(outcome.ok).toBe(false)
-    expect(getLiveXAccessToken).not.toHaveBeenCalled()
-    expect(publishTweet).not.toHaveBeenCalled()
-  })
-
-  // A dead X connection has to read as one. Reported through the same
-  // vocabulary as every other refusal, so the card, the toast and the row all
-  // say the same thing.
-  it("turns a dead X grant into a refusal, not a publish attempt", async () => {
-    getLiveXAccessToken.mockResolvedValue({ ok: false, failure: "revoked" })
-    const supabase = fakeSupabase({ post: xPost })
-
-    const outcome = await publishOnePost(supabase, POST, NOW)
-
-    expect(publishTweet).not.toHaveBeenCalled()
-    expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.failure).toBe("token_expired")
-  })
-
-  // Same hazard as LinkedIn's missing URN, reached down X's own route: a tweet
-  // that exists and cannot be named must hold its claim, or the next attempt
-  // posts it again.
-  it("holds the claim when X publishes without giving back an id", async () => {
-    publishTweet.mockResolvedValue({
-      ok: false,
-      failure: "published_without_urn",
-    })
-    const supabase = fakeSupabase({ post: xPost }) as unknown as {
-      updates: Record<string, unknown>[]
-    }
-
-    const outcome = await publishOnePost(supabase as never, POST, NOW)
-
-    expect(outcome.ok).toBe(false)
-    if (!outcome.ok) expect(outcome.failure).toBe("record_failed")
-
-    const postUpdates = supabase.updates.filter((u) => u.table === "posts")
-    expect(
-      postUpdates.find((u) => u.publish_error === RECORD_FAILED_PREFIX)
-    ).toBeDefined()
-    for (const update of postUpdates.slice(1)) {
-      expect(update).not.toHaveProperty("publish_started_at", null)
-    }
-  })
-
-  // **The server refuses an over-length post, and the client-side guard is not
-  // enough.** `exceedsPlatformLimit` is applied where a post is *moved* to a
-  // platform, which cannot see a post written for X that came back over the
-  // limit or was edited past it. Without this the post reaches X, is refused
-  // with a 403 indistinguishable from every other 403, and spends a request
-  // from a posting budget shared across every user of the app.
-  it("refuses an over-length post without reaching X at all", async () => {
-    const supabase = fakeSupabase({
-      post: { ...xPost, content: "x".repeat(281) },
-    }) as unknown as { updates: Record<string, unknown>[] }
-
-    const outcome = await publishOnePost(supabase as never, POST, NOW)
-
-    expect(outcome.ok).toBe(false)
-    if (!outcome.ok) {
-      expect(outcome.failure).toBe("too_long")
-      // A refusal, so the row is untouched — nothing to mirror, nothing to undo.
-      expect(outcome.recorded).toBe(false)
-    }
-    expect(publishTweet).not.toHaveBeenCalled()
-    expect(getLiveXAccessToken).not.toHaveBeenCalled()
-    // And, critically, the post was never claimed: a refusal must leave it
-    // exactly as publishable as it was.
-    expect(supabase.updates).toHaveLength(0)
-  })
-
-  it("sends a post exactly at the limit", async () => {
-    const supabase = fakeSupabase({
-      post: { ...xPost, content: "x".repeat(280) },
-    })
-
-    const outcome = await publishOnePost(supabase, POST, NOW)
-
-    expect(outcome.ok).toBe(true)
-    expect(publishTweet).toHaveBeenCalledTimes(1)
-  })
-
-  // LinkedIn has no limit as far as this app is concerned (its own ceiling is
-  // 3,000 and nothing generated here approaches it), so the same length must
-  // not refuse there.
-  it("has no length opinion about LinkedIn", async () => {
-    const supabase = fakeSupabase({
-      post: { ...linkedinPost, content: "x".repeat(2000) },
-    })
-
-    const outcome = await publishOnePost(supabase, POST, NOW)
-
-    expect(outcome.ok).toBe(true)
-  })
-
-  // The refusal the dispatch replaced still has to exist: `posts.platform` is
-  // text in the database, so a row can carry something this build cannot send.
-  it("still refuses a platform it has no publisher for", async () => {
+  it("refuses a platform it has never had a publisher for", async () => {
     const supabase = fakeSupabase({ post: { ...xPost, platform: "mastodon" } })
 
     const outcome = await publishOnePost(supabase, POST, NOW)
@@ -556,7 +471,26 @@ describe("publishOnePost dispatches on the post's platform", () => {
       expect(outcome.failure).toBe("unsupported_platform")
       expect(outcome.platform).toBeNull()
     }
-    expect(publishTweet).not.toHaveBeenCalled()
-    expect(publishTextPost).not.toHaveBeenCalled()
+  })
+})
+
+// The length refusal has nothing live to refuse while X is off — LinkedIn has
+// no limit this app enforces — but it is what stops an over-length post
+// reaching X the day publishing is switched back on, so it stays tested.
+describe("publishOnePost refuses an over-length post", () => {
+  it("has no length opinion about LinkedIn", async () => {
+    const supabase = fakeSupabase({
+      post: {
+        id: POST.postId,
+        platform: "linkedin",
+        content: "x".repeat(2000),
+        is_tryout: false,
+        published_at: null,
+      },
+    })
+
+    const outcome = await publishOnePost(supabase, POST, NOW)
+
+    expect(outcome.ok).toBe(true)
   })
 })

@@ -1,3 +1,4 @@
+import { PLATFORM_LABELS } from "@/lib/post-account"
 import { exceedsPlatformLimit } from "@/lib/post-length"
 import { isRecordFailure } from "@/lib/publish-failure"
 import type { ConnectedSocialAccount } from "@/types/social-account"
@@ -19,16 +20,28 @@ import type { Post, PostPlatform } from "@/types/post"
 // explained. The button is offered, the attempt is refused, and the refusal
 // says which key is shut.
 
-// Both platforms can be published to as of 2026-09-04 (X joined LinkedIn once
-// tweet.write was green-lit). Kept as a list rather than dropped: it is the
-// client-side mirror of `PUBLISHABLE` in lib/publish-runner.ts, and a platform
-// added to types/post.ts without a publisher behind it must not silently start
-// offering the control.
-const PUBLISHABLE_PLATFORMS: readonly PostPlatform[] = ["linkedin", "x"]
+// **The single list of platforms this app will actually publish to**, read by
+// the client predicate below *and* by lib/publish-runner.ts, so the control the
+// UI offers and the send the server performs cannot disagree.
+//
+// X is not on it, and its absence is a decision rather than missing work:
+// lib/x/publish.ts is complete and was exercised against the live API on
+// 2026-09-04, but X answered the real send with `402 credits depleted`.
+// Posting through X's v2 API is metered **per app, across every user of
+// Presto** — one person's click spends the app owner's budget — and the
+// owner's decision was not to pay for that. So X publishing is coming soon,
+// not shipped, and `publishBlockedReason` reports it as such.
+//
+// Turning it on is: this list, `X_SCOPES` (lib/x/scopes.ts), the X app's own
+// permission in X's console, and a reconnect.
+export const PUBLISHABLE_PLATFORMS: readonly PostPlatform[] = ["linkedin"]
 
 export type PublishBlockedReason =
   | "already_published"
   | "tryout"
+  // No publisher for this platform — today that means X, whose publishing is
+  // built but switched off (see PUBLISHABLE_PLATFORMS). The one blocked reason
+  // that still shows a control, disabled: see `publishComingSoon`.
   | "platform_unsupported"
   | "too_long"
   | "not_connected"
@@ -81,6 +94,32 @@ export function publishBlockedReason(
   }
 
   return null
+}
+
+/**
+ * Whether the Publish control should be shown but **disabled**, rather than not
+ * shown at all.
+ *
+ * The distinction is the whole reason call sites ask for the reason rather than
+ * the boolean. A post that has already gone out, or a try-out written against a
+ * stand-in account, has nothing to offer — the control is simply absent, which
+ * is what it has always done. A post whose platform *will* be publishable is a
+ * different story: leaving no trace of it makes X posts look broken beside
+ * LinkedIn ones, and invites the question this answers.
+ */
+export function publishComingSoon(
+  post: Pick<
+    Post,
+    "platform" | "isTryout" | "publishedAt" | "publishError" | "content"
+  >,
+  accounts: ConnectedSocialAccount[]
+): boolean {
+  return publishBlockedReason(post, accounts) === "platform_unsupported"
+}
+
+/** What the disabled control says it is waiting for. */
+export function publishComingSoonLabel(platform: PostPlatform): string {
+  return `Publishing to ${PLATFORM_LABELS[platform]} is coming soon`
 }
 
 export function canAttemptPublish(

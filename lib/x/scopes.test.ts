@@ -7,40 +7,48 @@ import {
   xGrantIsCurrent,
 } from "@/lib/x/scopes"
 
-// This block replaces the tripwire that used to live in oauth.test.ts —
-// "never requests a write scope", which pinned AGENTS.md's hard publishing
-// constraint for as long as X publishing was unbuilt. It fired, loudly, the
-// moment tweet.write was added, which is exactly what it was for. Deleting it
-// would have thrown away the guarantee; what replaces it pins the *new*
-// intended set, so a careless edit is still caught in both directions.
+// The tripwire, restored. It lived in oauth.test.ts and pinned AGENTS.md's hard
+// publishing constraint for as long as X publishing was unbuilt; it fired,
+// loudly, the day `tweet.write` was added under an explicit green-light — which
+// is exactly what it was for.
+//
+// That green-light did not survive contact with X's billing: the first real
+// send came back `402 credits depleted`, posting is metered per *app* across
+// every user of Presto, and the owner's decision was not to pay. So the scope
+// came back out, and so did this. A member must not be asked to grant posting
+// permission the app will not use.
 describe("X_SCOPES", () => {
+  it("never requests a write scope", () => {
+    for (const scope of X_SCOPES) {
+      expect(scope).not.toContain("write")
+    }
+    expect(X_SCOPES).not.toContain(X_PUBLISH_SCOPE)
+  })
+
   it("is exactly the set this app intends to hold", () => {
     // Written out rather than derived, so widening the list is a deliberate
-    // edit here as well as there. `tweet.write` was green-lit on 2026-09-04;
-    // anything beyond these four needs the same conversation.
+    // edit here as well as there — including the day X publishing is turned on.
     expect([...X_SCOPES].sort()).toEqual([
       "offline.access",
       "tweet.read",
-      "tweet.write",
       "users.read",
     ])
-  })
-
-  it("requests exactly one write capability, and it is posting", () => {
-    const writeScopes = X_SCOPES.filter((scope) => scope.includes("write"))
-    expect(writeScopes).toEqual([X_PUBLISH_SCOPE])
-    expect(X_PUBLISH_SCOPE).toBe("tweet.write")
   })
 
   it("requests offline.access, without which the connection dies in 2 hours", () => {
     expect(X_SCOPES).toContain("offline.access")
   })
 
-  // Nothing here asks to read someone's timeline, follow, DM or delete. Those
-  // are separate X scopes and none is requested; a list that grew one would
-  // fail the exact-set assertion above, and this says why that matters.
-  it("asks for nothing beyond signing in and posting", () => {
-    for (const scope of ["tweet.moderate.write", "follows.write", "dm.write"]) {
+  // Nothing here asks to post, read someone's timeline, follow, DM or delete.
+  // Those are separate X scopes and none is requested; a list that grew one
+  // would fail the exact-set assertion above, and this says why that matters.
+  it("asks for nothing beyond signing in and reading", () => {
+    for (const scope of [
+      X_PUBLISH_SCOPE,
+      "tweet.moderate.write",
+      "follows.write",
+      "dm.write",
+    ]) {
       expect(X_SCOPES).not.toContain(scope)
     }
   })
@@ -52,15 +60,12 @@ describe("xGrantIsCurrent", () => {
     expect(xGrantIsCurrent([...X_SCOPES].reverse().join(" "))).toBe(true)
   })
 
-  it("rejects the read-only grant every pre-2026-09-04 connection carries", () => {
-    // Verbatim from the live exchange while X was sign-in-only. This is the
-    // whole migration: tweet.write was added on 2026-09-04, so every connection
-    // made before it is stale and has to reconnect — and the connected row says
-    // so rather than letting it 401 later.
-    expect(xGrantIsCurrent("users.read tweet.read offline.access")).toBe(false)
-  })
-
+  // The connection made during the few hours tweet.write *was* requested holds
+  // more than the app now asks for. It must not read as stale: there is nothing
+  // to reconnect for, and a permanent "Reconnect" chip nobody can clear is the
+  // exact bug lib/social-scopes.ts exists to prevent.
   it("accepts a grant carrying more than is asked for", () => {
+    expect(xGrantIsCurrent(`${X_SCOPES.join(" ")} tweet.write`)).toBe(true)
     expect(xGrantIsCurrent(`${X_SCOPES.join(" ")} like.read`)).toBe(true)
   })
 
@@ -80,13 +85,15 @@ describe("xGrantIsCurrent", () => {
 // whether a share request would be rejected, and it must not start refusing
 // publishes because some unrelated scope was added to X_SCOPES afterwards.
 describe("hasXPublishScope", () => {
-  it("is true for a grant carrying tweet.write and nothing else current", () => {
+  it("is true only for a grant that actually carries tweet.write", () => {
     expect(hasXPublishScope("tweet.write")).toBe(true)
-    expect(hasXPublishScope(X_SCOPES.join(" "))).toBe(true)
   })
 
-  it("is false for the sign-in-only grant", () => {
-    expect(hasXPublishScope("users.read tweet.read offline.access")).toBe(false)
+  // **The lock.** Every connection this app can currently make is granted
+  // X_SCOPES, which no longer includes the write scope — so the publish gate
+  // can never open on a token minted from here, whatever else changes.
+  it("is false for the grant this app actually requests", () => {
+    expect(hasXPublishScope(X_SCOPES.join(" "))).toBe(false)
     expect(hasXPublishScope("")).toBe(false)
   })
 

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { canAttemptPublish, publishBlockedReason } from "@/lib/post-publish"
+import { exceedsPlatformLimit } from "@/lib/post-length"
+import {
+  canAttemptPublish,
+  publishBlockedReason,
+  publishComingSoon,
+} from "@/lib/post-publish"
 import type { Post } from "@/types/post"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 
@@ -71,16 +76,17 @@ describe("publishBlockedReason", () => {
     )
   })
 
-  // X joined LinkedIn on 2026-09-04, so this now offers rather than refuses.
-  // The refusal itself stays reachable — see the next test — because a post
-  // whose platform has no publisher must not silently get the control.
-  it("offers a connected X post, now that X publishing exists", () => {
+  // X publishing is built and switched off — see PUBLISHABLE_PLATFORMS. A
+  // connected X account is therefore still refused, and refused for *this*
+  // reason rather than "not connected", which is what drives the disabled
+  // "coming soon" control instead of no control at all.
+  it("refuses a connected X post, since X publishing is switched off", () => {
     expect(
       publishBlockedReason(post({ platform: "x" }), [account({ platform: "x" })])
-    ).toBeNull()
+    ).toBe("platform_unsupported")
   })
 
-  it("still refuses a platform with no flow behind it", () => {
+  it("refuses a platform with no flow behind it at all", () => {
     // Not a `PostPlatform`, which is the point: `posts.platform` is text in the
     // database, so a row can carry something this build has no publisher for —
     // and the client must not offer a control the server would only refuse.
@@ -90,23 +96,39 @@ describe("publishBlockedReason", () => {
     ).toBe("platform_unsupported")
   })
 
+  // The distinction the disabled control is built on: an X post has something
+  // coming and shows a greyed-out row saying so; a published or try-out post
+  // has nothing coming and shows no control at all.
+  it("marks an X post as coming soon, and a spent post as not", () => {
+    const xAccount = [account({ platform: "x" })]
+    expect(publishComingSoon(post({ platform: "x" }), xAccount)).toBe(true)
+    expect(
+      publishComingSoon(post({ platform: "x", isTryout: true }), xAccount)
+    ).toBe(false)
+    expect(
+      publishComingSoon(
+        post({ platform: "x", publishedAt: "2026-09-01T00:00:00Z" }),
+        xAccount
+      )
+    ).toBe(false)
+    // And nothing about LinkedIn is coming soon — it publishes today.
+    expect(publishComingSoon(post(), [account()])).toBe(false)
+  })
+
   // Not belt-and-braces with the platform-switch guard: that one fires where a
   // post is *moved* to a platform, and cannot see a post written for X that came
   // back over the limit, or one edited past it afterwards. Both of those reach
   // this predicate, and — without it — reach X.
-  it("refuses a post longer than its platform allows", () => {
-    const tooLong = post({ platform: "x", content: "x".repeat(281) })
-    expect(publishBlockedReason(tooLong, [account({ platform: "x" })])).toBe(
-      "too_long"
-    )
-  })
-
-  it("allows one exactly at the limit, and counts it trimmed", () => {
-    const atLimit = post({ platform: "x", content: "x".repeat(280) })
-    expect(publishBlockedReason(atLimit, [account({ platform: "x" })])).toBeNull()
-
-    const padded = post({ platform: "x", content: `  ${"x".repeat(280)}  ` })
-    expect(publishBlockedReason(padded, [account({ platform: "x" })])).toBeNull()
+  // X is the only platform with a length limit and it isn't publishable today,
+  // so this check has nothing live to refuse — it is kept, and kept tested,
+  // because it is what stops an over-length post reaching X the day publishing
+  // is switched back on. The platform check runs first, so the reason reported
+  // for an X post is `platform_unsupported`; the length rule is asserted on its
+  // own predicate instead.
+  it("still knows an over-length post from one that fits", () => {
+    expect(exceedsPlatformLimit("x".repeat(281), "x")).toBe(true)
+    expect(exceedsPlatformLimit("x".repeat(280), "x")).toBe(false)
+    expect(exceedsPlatformLimit(`  ${"x".repeat(280)}  `, "x")).toBe(false)
   })
 
   it("has no length opinion about a platform with no limit", () => {

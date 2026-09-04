@@ -6397,3 +6397,75 @@ which is the one item of the brief's "done means" that is outstanding.
 process's environment, never in `.env.local`, which is a symlink shared with the
 main checkout and the other live worktree). Gates re-run after the 402 work:
 tsc clean, lint at main's 17-error baseline, vitest 420 passed, build clean.
+
+## 2026-09-04 — X publishing set to "coming soon"
+
+**The decision, and why.** X answered the first real send with `402 credits
+depleted`. Posting through X's v2 API costs money, and the quota is metered
+**per app, across every user of Presto** — one person's click spends the app
+owner's budget, unlike AI models (BYOK, each user's own key) or LinkedIn (free).
+The owner's decision was not to pay for that, so X publishing goes back to
+coming-soon rather than shipping. None of the code is deleted: it is complete,
+tested, and exercised against the live API, sitting in exactly the state
+`lib/linkedin/publish.ts` sat in for months before LinkedIn was green-lit.
+
+**Both locks restored, and either alone is enough.**
+
+- `X_SCOPES` drops `tweet.write`, and the tripwire test that fails if it comes
+  back is restored alongside it. A member must not be asked to grant posting
+  permission the app will not use. The X app's own "App permissions" should go
+  back to `Read` — the second lock, and the one not in this repo.
+- `PUBLISHABLE_PLATFORMS` (lib/post-publish.ts) is `["linkedin"]` again, and is
+  now **exported and read by lib/publish-runner.ts too**, so the control the UI
+  offers and the send the server performs come from one list rather than two
+  that can drift. A test pins that the runner still refuses X *with live
+  publishing switched on* — the switch is the list, not the env var.
+
+Turning it back on is four things: that list, `X_SCOPES`, the X app's
+permission, and a reconnect (a scope change invalidates every issued token).
+Note `xGrantIsCurrent` passes a grant carrying *more* than is requested, so the
+connection made during the few hours `tweet.write` was live does not read as
+stale — no reconnect prompt nobody can clear.
+
+**The UI says so rather than going quiet.** Per direct request, an X post shows
+the publish control **disabled** instead of absent — an X post sitting beside a
+LinkedIn one with no trace of the control reads as broken rather than pending.
+The distinction is `publishBlockedReason`, not `canAttemptPublish`: a published
+or try-out post has nothing coming and still shows no control at all.
+
+- Post details: the button stays, disabled, tooltip and `aria-label` both
+  "Publishing to X is coming soon". A disabled button still receives hover, so
+  the tooltip works.
+- The deck's actions menu: a disabled row reading "Publishing coming soon".
+  `MenuItem` already styles `disabled` (text-minimal, no hover or pressed
+  surface), so this needed no new pattern. The **label** carries the reason
+  because a disabled menu row cannot hold a tooltip — "Publish now" greyed out
+  says nothing.
+
+Verified in-browser on **:3002**: the X post's button is disabled and labelled,
+its deck row reads "Publishing coming soon" greyed above the divider, and a
+LinkedIn post in the same deck still shows a live "Publish now".
+
+**`too_long`, `quota_exhausted` and `rate_limited` are unreachable now** and are
+kept deliberately — they are what makes X safe the day it is switched on, and
+`lib/x/publish.test.ts` still covers the send path in full.
+
+### Something found while doing this, worth knowing
+
+The whole test suite went red on `checkXPublishGate` reporting `allowed: true`
+by default. The cause was **`PRESTO_ENABLE_LIVE_PUBLISH=true` in `.env.local`**,
+added after the earlier check confirmed it absent — not by this work, which kept
+the switch in the dev server's *process* environment for exactly this reason.
+
+`.env.local` is a **symlink to the main checkout's copy**, shared with every
+worktree. So that one line opened the live-publish gate for every dev server on
+the machine, including the ones that publish to LinkedIn, which does work and
+does have credits. Removed; every other key left intact. If the gate is ever
+needed again, pass it to the one process
+(`PRESTO_ENABLE_LIVE_PUBLISH=true npm run dev -- -p <port>`) rather than writing
+it to the shared file.
+
+Gates: tsc clean, lint at main's 17-error baseline, vitest 416 passed across 34
+files, build clean. Both locks mutation-tested — putting X back on
+`PUBLISHABLE_PLATFORMS` fails 5 tests, putting `tweet.write` back in `X_SCOPES`
+fails 4.

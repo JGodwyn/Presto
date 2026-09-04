@@ -39,7 +39,7 @@ import { BUILTIN_MODEL_ID } from "@/lib/ai/model-constants"
 import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { publishErrorFor } from "@/lib/publish-failure"
-import { canAttemptPublish } from "@/lib/post-publish"
+import { canAttemptPublish, publishComingSoon } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -983,6 +983,7 @@ export function DayDeck({
                             ? () => setPublishTarget(post)
                             : undefined
                         }
+                        publishComingSoon={publishComingSoon(post, accounts)}
                         onTurnToDraft={() => handleTurnToDraft(post)}
                         onOpen={() => closeThenOpen(post.id)}
                         onRegenerate={() => handleRegenerate(post)}
