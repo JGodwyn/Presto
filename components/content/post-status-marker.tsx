@@ -38,11 +38,17 @@ const CHIP_CORNER_RADIUS = 8
 // resolves on hydration. `hasFailed` needs no clock at all and renders on both.
 //
 // The shape comes from the "Overdue chip design" export: a warning-tinted chip
-// with a stroke, structurally the same box as components/ui/chip.tsx (rad-md,
-// stroke-lg, pad-sm/pad-xs, 28px tall) in a different palette. The export draws
-// no icon, which is why the ClockCountdown/WarningDiamond pair this used to
-// carry is gone — the tint and the word do the work, and the chip has to sit in
-// a row beside real topic chips without out-weighing them.
+// in a different palette to components/ui/chip.tsx but the same family. The
+// export draws no icon, which is why the ClockCountdown/WarningDiamond pair
+// this used to carry is gone — the tint and the word do the work.
+//
+// **It is deliberately quieter than the export**, per direct feedback that the
+// chip was too prominent: 20px tall instead of 28, and no stroke at all. Both
+// changes exist to stop it out-weighing the topic chips it shares a row with —
+// a real Chip is 28px with a border, so matching that made a *warning* look
+// like the most substantial thing on the card. Shorter and border-free, it
+// reads as a tag on the row rather than a peer of it. That also means no
+// vertical padding: `body-md`'s own 20px line-height is the full height.
 //
 // Only the overdue half is exported. The failed half is the same chip in the
 // app's danger tones: the two occupy the same slot and mean the same kind of
@@ -80,10 +86,10 @@ export function PostStatusMarker({
       ref={ref}
       style={style}
       className={cn(
-        "flex h-7 shrink-0 items-center rounded-rad-md border-[length:var(--stroke-lg)] px-pad-sm py-pad-xs text-body-md-bold",
+        "flex h-5 shrink-0 items-center rounded-rad-md px-pad-sm text-body-md-bold",
         failed
-          ? "border-border-danger bg-surface-danger-light text-text-danger"
-          : "border-border-warning bg-surface-warning-light text-text-warning",
+          ? "bg-surface-danger-light text-text-danger"
+          : "bg-surface-warning-light text-text-warning",
         // Only the bare chip carries the caller's own layout classes; with a
         // reason those belong to the wrapper below, which is the thing sitting
         // in the row.

@@ -6122,3 +6122,46 @@ with neither gets no row at all: an empty band would still cost the stack a
 
 Verified in-browser on :3000 across Kanban, the day deck and a post's own page.
 Gates: tsc, eslint, vitest (372), `next build` all clean.
+
+## 2026-09-04 — Overdue chip quietened, and the whole card row scrolls
+
+**1. The chip was too prominent.** Dropped to 20px tall (`h-5`) with no stroke
+at all. Both changes are about rank, not size for its own sake: at 28px with a
+2px border it was matching `components/ui/chip.tsx` exactly, which made a
+*warning* the most substantial thing on the card — heavier than the topics it
+sits beside. Shorter and border-free it reads as a tag on the row rather than a
+peer of it. The vertical padding goes with the height: `body-md`'s own 20px
+line-height is now the whole box, so `py-pad-xs` had to come off or the chip
+would still measure 28.
+
+**2. Only the topics were scrolling, which was the wrong half.** The row was
+`statusMarker + pill + [scrolling topics]`, so everything ahead of the topics
+held its width and squeezed them into the remainder — 65px on the day deck's
+272px card. The one part that could move was the one part too small to grab,
+which is exactly what "has the fade mask but isn't scrollable" describes. The
+**whole row is the scroll container now**, so the status chip and the account
+pill move out of the way with everything else.
+
+- The inner topics `<div>` is gone entirely, and with it the `min-w-0 flex-1`
+  and the asymmetric 8px/16px fade the old geometry needed. One `EDGE_FADE_PX`
+  (16) now serves both edges, since the row starts at the card's own padding on
+  both sides rather than tucking under the pill on one.
+- `-mx-4`/`px-4` replaces the old `-ml-2 pl-2`/`-mr-4 pr-4`: the row bleeds by
+  exactly the card's `p-pad-lg` and pads itself back by the same, so nothing
+  moves at rest but content can scroll out to the card's true edges.
+- `topicsRef`/`onTopicsScroll` renamed to `rowRef`/`onRowScroll` — it isn't the
+  topics' hook any more.
+
+**Verified in-browser on :3000** with a real wheel scroll (not a programmatic
+`scrollLeft`, which can't work here — see LEARNINGS): on the deck card the row
+scrolls "Overdue" off the start and brings the full "Product management" chip
+into view, with the fade flipping to the left edge and clearing on the right at
+max scroll. Kanban's smaller chip checked beside the time, and the post page's
+`withReason` row checked with the 20px chip beside its 28px pill and topic.
+Gates: tsc, eslint, vitest (372), `next build` all clean.
+
+**Note for whoever reads a screenshot of this app.** Several verification passes
+here caught the *pre-hydration* frame: the Content page's stored layout and the
+overdue clock both resolve on hydration (`getServerClock()` is 0 by design), so
+the first screenshot after a navigation can show the wrong view with no status
+chips at all. Take a second one.

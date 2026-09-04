@@ -20,16 +20,13 @@ import { cn } from "@/lib/utils"
 
 const CARD_CORNER_RADIUS = 16 // rad-lg
 
-// How far the topics row dissolves at each end, once there is actually
-// something left to scroll to there — the same scroll-aware fade the Kanban
-// card uses (hooks/use-scroll-fade.ts), not the static mask this row used to
-// carry. The right fade is this card's own p-pad-lg (16px), since the row
-// bleeds out to exactly that padding and no further; the left is half that,
-// because the topics sit beside the account pill and a 16px fade there would
-// reach back under it. Kept in sync by hand with the row's own pl-2/-ml-2 and
-// pr-4/-mr-4 (Tailwind needs literals).
-const EDGE_FADE_LEFT_PX = 8
-const EDGE_FADE_RIGHT_PX = 16
+// How far the status/account/topics row dissolves at each end, once there is
+// actually something left to scroll to there — the same scroll-aware fade the
+// Kanban card uses (hooks/use-scroll-fade.ts), not the static mask this row
+// used to carry. Both edges are this card's own p-pad-lg, since the row bleeds
+// out to exactly that padding and no further. Kept in sync by hand with the
+// row's own px-4/-mx-4 (Tailwind needs literals).
+const EDGE_FADE_PX = 16
 
 // Same fade-instead-of-hard-cutoff idea as the topics row above, applied
 // vertically to the content box: it scrolls (mouse wheel/trackpad/drag) the
@@ -179,10 +176,10 @@ export function GeneratedPostCard({
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({
     cornerRadius: CARD_CORNER_RADIUS,
   })
-  const { ref: topicsRef, onScroll: onTopicsScroll } = useScrollFade({
+  const { ref: rowRef, onScroll: onRowScroll } = useScrollFade({
     axis: "x",
-    start: EDGE_FADE_LEFT_PX,
-    end: EDGE_FADE_RIGHT_PX,
+    start: EDGE_FADE_PX,
+    end: EDGE_FADE_PX,
   })
 
   // The placeholder stands in for this card for exactly as long as the real
@@ -497,10 +494,26 @@ export function GeneratedPostCard({
         </div>
       )}
 
-      {/* The account pill and the topics share one row (per direct
-          request) — the pill holds its own width and the topics take
-          whatever's left, scrolling within it. */}
-      <div className="flex h-7 shrink-0 items-center gap-dist-sm">
+      {/* Status, account and topics share one row (per direct request), and
+          the *whole* row scrolls — not just the topics within it, which is
+          what this used to do. With only the topics scrolling, everything
+          ahead of them held its width and squeezed them into whatever was
+          left (65px on the day deck's 272px card), so the one part that could
+          move was the one part too small to grab. Scrolling the row means the
+          status chip and the account pill move out of the way instead.
+
+          The -mx-4/px-4 pair is what lets content scroll out to the card's
+          true edges rather than stopping at its padding: the row bleeds by
+          exactly the card's own p-pad-lg and pads itself back by the same, so
+          nothing moves at rest. */}
+      <div
+        ref={rowRef}
+        onScroll={onRowScroll}
+        className={cn(
+          "-mx-4 flex h-7 shrink-0 items-center gap-dist-sm overflow-x-auto px-4",
+          HIDE_NATIVE_SCROLLBAR_CLASSNAME
+        )}
+      >
         {statusMarker}
         {/* Tap-to-cycle (per direct feedback), but only between accounts this
             project has actually connected — see `nextAccount` above for why
@@ -508,59 +521,38 @@ export function GeneratedPostCard({
             tint is SelectPill's own capsule recipe, since a cycling pill is
             the same kind of "click to change" control.
 
-            max-w-40 + truncate: the label is now an account name, which is
-            user data of no fixed length, and the topics beside it still need
-            room. */}
+            max-w-40 + truncate: the label is an account name, which is user
+            data of no fixed length, and a very long one would otherwise push
+            every topic past the end of a row nobody would think to scroll
+            that far. */}
         <PostAccountPill
           account={account}
           nextAccount={nextAccount}
           onSelect={onSocialChange}
-          // max-w-40 + truncate: the label is an account name now, which is
-          // user data of no fixed length, and the topics beside it need room.
           className="max-w-40 shrink-0"
         />
 
-        {/* Horizontally scrolling, not wrapping — a wider topics list no
-            longer grows the row's height, keeping every card's height
-            identical regardless of how many topics a post ends up with.
-            min-w-0 so this can actually shrink inside the flex row (a flex
-            item's automatic minimum is its content, which would otherwise
-            push the pill out of the card).
-
-            The bleed/padding pair on each side is what keeps the fade mask
-            off resting content: the mask fades against this box's own
-            boundary, which is exactly where a resting chip's edge sits, so
-            each side is padded by its fade width and pulled back out by the
-            same amount. Right goes the full 16px to the card's inner edge;
-            left only 8px, since past that it would reach under the pill. */}
-        <div
-          ref={topicsRef}
-          onScroll={onTopicsScroll}
-          className={cn(
-            "-mr-4 -ml-2 flex h-7 min-w-0 flex-1 items-center gap-dist-sm overflow-x-auto pr-4 pl-2",
-            HIDE_NATIVE_SCROLLBAR_CLASSNAME
-          )}
-        >
-          {topics.map((topic) => (
-            <Chip
-              key={topic}
-              size="md"
-              selected={false}
-              retired={activeTopics ? !activeTopics.has(topic) : false}
-              // max-w-none undoes Chip's own max-w-full, and it is the whole
-              // fix for topics vanishing on a narrow card. Capped at 100% of
-              // this row, a chip *shrinks to fit* instead of overflowing — so
-              // the row never has anything to scroll, the fade never engages,
-              // and the label truncates. On the day deck's 272px card, with
-              // the status chip and the account pill ahead of it, that left
-              // roughly 40px and rendered as an empty pill. Hugging its label
-              // instead is what lets the row overflow and scroll at all.
-              className="max-w-none shrink-0"
-            >
-              {topic}
-            </Chip>
-          ))}
-        </div>
+        {/* In the row rather than wrapping, so a wider topics list never grows
+            the card's height — every card stays the same height regardless of
+            how many topics a post ends up with. */}
+        {topics.map((topic) => (
+          <Chip
+            key={topic}
+            size="md"
+            selected={false}
+            retired={activeTopics ? !activeTopics.has(topic) : false}
+            // max-w-none undoes Chip's own max-w-full, and it is the whole fix
+            // for topics vanishing on a narrow card. Capped at 100% of this
+            // row, a chip *shrinks to fit* instead of overflowing — so the row
+            // never has anything to scroll, the fade never engages, and the
+            // label truncates away. On the day deck's 272px card that left
+            // roughly 40px and rendered as an empty pill. Hugging its label is
+            // what lets the row overflow, and therefore scroll, at all.
+            className="max-w-none shrink-0"
+          >
+            {topic}
+          </Chip>
+        ))}
       </div>
 
       <div className="flex shrink-0 items-center gap-dist-sm">
