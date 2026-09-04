@@ -6179,3 +6179,259 @@ classes on a live chip: 24px, `rgb(255,228,228)` fill, `rgb(220,0,0)` text,
 The height stays set outright rather than derived from padding: `body-md`'s
 line-height is 20px, so restoring `py-pad-xs` would put the chip straight back
 at 28. `items-center` splits the remaining 4px.
+
+## 2026-09-04 — A published post stops behaving like one that hasn't (`feat/published-posts`, port 3001)
+
+Branch holds the schema slot. Four pieces, in the order they were built.
+
+**1. The predicate.** `isPostLocked` in lib/post-publish.ts, sibling to
+`canAttemptPublish`. `publishBlockedReason`'s two `already_published` branches
+now go through it, so "may this go out" and "may this still change" cannot
+disagree about what "already out" means. It covers both live states —
+`publishedAt` set, *and* the `record_failed:` marker, where the share went out
+and the row's own write of it failed. Reading `publishedAt` alone (which every
+one of these surfaces was doing) leaves every control open on the second, so
+that is the case the test pins; mutation-checked by reverting the predicate to
+`publishedAt !== null`, which fails 2 of 13.
+
+**2. The migration.** `posts_scheduled_for_idx` on `(scheduled_for) where
+published_at is null`, applied to the live project. Additive. Confirmed in
+`pg_indexes`; posts previously had only `posts_pkey` and `posts_project_id_idx`.
+
+**3. Scheduler refusals — skip accounts, not posts** (§17). `accountSkipReason`
+/ `partitionSchedulableAccounts` in lib/publish-due.ts, wired into the cron's
+selection so it now asks the *connection* question first and scopes the due
+query with `.in("project_id", eligible)`. `isGrantStale`, not `grantIsCurrent`:
+the platform check has to stay inside, or every X connection is excluded
+permanently with no reconnect able to clear it — mutation-checked, that swap
+fails the test written for it. Skipped connections are reported in the run
+summary by name; the risk of the quieter choice is a broken connection hiding
+indefinitely, and a summary that names them is what keeps it visible.
+
+**4. Read-only treatment** (§5b, §18) and **the heading** (§5c). See the
+INTERFACE.md entry for the per-control decisions.
+
+**Verified in the browser on :3001**, against the two genuinely published rows
+(left untouched — read only, plus three TasteTest follow-up drafts created and
+deleted afterwards; the table is back at 311 rows / 2 published):
+
+- Post details, `049d6052` (published from a draft, `scheduled_for` null): the
+  heading reads **"SEPT 3 • 6:35 AM"** where it used to read "Draft"; no button
+  at all in the heading row (the pencil is gone); the account pill is a plain
+  `SPAN` not inside a button; `cursor: auto` on the body and a click produces no
+  textarea; the first action is now NotePencil / "Draft a follow-up"; Publish
+  now is absent, Turn-to-drafts disabled, Delete live.
+- The follow-up: modal titled "Draft a follow-up" with "Just draft it", a toast
+  with "Open the follow-up" that closes the deck and lands on the new draft's
+  own page. **The source row is byte-identical afterwards** and the new row is
+  `status draft`, no date, no publish state, inheriting platform/is_tryout/
+  topics.
+- Day deck, Published tab: both cards show the published moment with the
+  PaperPlaneTilt icon, a plain-`SPAN` account pill, one full-width "Draft a
+  follow-up" and a two-row menu (Open up / Delete — no Turn to draft, no
+  Publish now). Double-tapping the text produces no textarea.
+- Regression, Queued deck and the follow-up draft's own page: everything back —
+  "Change date" + the icon regenerate, tappable pill, the Overdue chip, and the
+  four-action header with Publish now.
+
+**The cron was exercised against the live database**, not mocked (gate shut
+throughout, `livePublishEnabled: false`). One post temporarily re-dated to
+`now() - 1 minute`, then the connection mutated and restored:
+
+| connection | `due` | `skippedAccounts` |
+| --- | --- | --- |
+| healthy | 1 (refused `publishing_disabled`, nothing recorded) | `[]` |
+| scope `email,openid,profile` | **0** | `scope_not_granted` |
+| `status = 'revoked'` | **0** | `revoked` |
+
+The skipped post came back with `publish_error`, `publish_started_at` and
+`published_at` all null — clean, which is the whole promise of §17. The account
+row and the post's date were restored to their exact prior values.
+
+**Gates:** tsc clean, `npx eslint` 17 errors (`main`'s own baseline, confirmed
+by running it in the main checkout in the same session — FOLLOWUPS §13), vitest
+384 passed **excluding `lib/ai/generate.test.ts`** deliberately (FOLLOWUPS §12 —
+it spends live Gemini quota), `next build` clean.
+
+FOLLOWUPS §5b, §5c, §16, §17, §18 and §5.2's index bullet deleted. §5.3's
+"wearing 'Didn't send'" bullet corrected: a broken connection's posts now wait
+*silently*, which makes the out-of-app signal it asks for more necessary, not
+less.
+
+### Follow-up, same day — after the owner published for real
+
+The gate was turned on by the owner and a post went out live
+(`urn:li:share:7501717147975561216`, 2026-09-04 19:05Z), which is what produced
+this round of feedback. Two changes:
+
+**The tick is gone from the publish confirmation.** A success glyph beside
+"Published to LinkedIn" is the toast saying the same thing twice. Scoped to that
+one toast rather than to success toasts generally: post-details' toast state
+gained an optional `showIcon` (defaulting to the existing `!toast.action`), and
+day-deck's `showSuccess` took an options object so the publish call can pass
+`{ showIcon: false }` while "Drafted a follow-up" keeps its own behaviour.
+**Not seen in the browser** — the only way to raise that toast is to publish
+again. The mechanism is the one every action-carrying toast already exercises
+(`{showIcon && …}` in toast.tsx), and both call sites were read back.
+
+**Regenerate is called Regenerate again, everywhere.** The published path had
+renamed itself "Draft a follow-up" on the card, the post-details tooltip and the
+modal title. Per direct request the modal header goes back to "Regenerate post";
+the rest followed so the whole path reads as one thing rather than a button and
+a dialog disagreeing. `MODE_COPY` in regenerate-modal.tsx collapsed to just the
+placeholder plus the new note — the title and both button labels are now shared.
+
+The difference is stated instead of being named: a `body-md`/`text-subtle` line
+under the title, "This will create another post in your drafts", with an Info
+button to its right (text-then-icon, per direct request — the app's other info
+lines lead with the icon). Its tooltip: "A published post can't be edited here —
+it's already live. Regenerating writes a new draft instead." The line is pulled
+up with `-mt-dist-md`, cancelling half the dialog's own `gap-dist-lg` so it
+reads as a caption on the heading rather than floating between it and the field.
+
+**The tooltip needed a width.** At its default it renders as one ~440px line
+that reaches past the dialog and sits on the close button — every other tooltip
+in this app is two or three words. `max-w-64 text-balance whitespace-normal` on
+that one instance; the component's default is untouched.
+
+Verified on :3001 against the live post: modal titled "REGENERATE POST" with the
+note beneath it, tooltip wrapping to four lines clear of the close button, and
+the deck card's single full-width button reading "Regenerate" with the
+ArrowClockwise icon. Gates re-run: tsc clean, eslint 17 (baseline), vitest 384,
+build clean.
+
+### Third round — the follow-up runs on the page you land on
+
+Copy and type first: the note is "This will create a draft" at `text-body-lg`
+(there is no bare `text-lg` token — `body-lg` is this app's large body size, one
+step up from the `body-md` it had), and the tooltip lost its em-dash clause:
+"A published post can't be edited here. Regenerating writes a new draft
+instead."
+
+**The real change: Regenerate on a published post now navigates.** It used to
+generate on the server, spin a small icon button for however long that took,
+and finish with a toast carrying a link. Now the click lands you on the new
+draft's own page and the words arrive there.
+
+That needed the row to exist *before* the generation, which inverts what
+`draftFollowUpPost` does: it no longer calls a model at all, it inserts a draft
+and returns in milliseconds. The generation then runs through
+`/api/regenerate-post` — the same streaming route, the same "generating post
+. . ." heading and line-by-line reveal an ordinary reroll already uses on that
+screen. Nothing new was built for the streaming; it was already there.
+
+Three consequences worth knowing:
+
+- **The draft is seeded with the published text.** `posts.content` cannot be
+  empty and something has to go in it. Of the options, the post being followed
+  up is the only one that is still useful if the generation never lands — the
+  draft is then a copy to edit rather than a placeholder to delete. In the happy
+  path it is never seen (see the microtask below).
+- **The brief crosses the navigation in a module store**, `lib/pending-
+  regeneration.ts` — same pattern as lib/section-navigation.ts. Not a query
+  string, because the guidance is the user's own free text and has no business
+  in a URL; not sessionStorage, because this only has to outlive one
+  `router.push`. It is consumed on read, so a re-render, Fast Refresh or a
+  back-navigation cannot fire a second generation, and it degrades to nothing on
+  a hard reload — you get the seeded draft and regenerate it yourself.
+- **The auto-start is in a `queueMicrotask`, and that is not a lint dodge.**
+  Calling `handleRegenerate` straight from the effect body trips
+  `react-hooks/set-state-in-effect` (verified: it took lint from 17 to 18), and
+  the rule is right — it sets a lot of state. A microtask still runs before
+  paint, so the seeded copy never gets a frame on screen before the body blanks
+  for the stream; a `setTimeout` would have painted the copy first.
+
+The success toast is gone from both call sites, and with it the whole toast-
+`action` machinery this branch had added to day-deck — no call site passes one
+any more, so it came back out rather than sitting dead.
+
+**Verified on :3001** against the real published post
+(`urn:li:share:7501717147975561216`), on TasteTest so the owner's BYOK key paid
+for nothing:
+
+- From post details: modal → lands on `/calendar/<new id>`, no toast, and the
+  new row's content is the TasteTest text, *not* the seeded copy — so the
+  regeneration really ran. Exactly one row per click (the consume-once read
+  survives React's development double-invoke).
+- From the day deck: the deck closes, and the new page was caught mid-stream —
+  Regenerate disabled and spinning, heading blank, first words landing.
+- The published source is byte-identical afterwards: content, `published_at` and
+  `provider_post_id` all unchanged.
+
+Both test drafts deleted (313 rows / 3 published — the third published row is
+the owner's own live post, and there is one draft at 19:25 that is theirs, not
+mine, so it was left alone). The stored model preference was flipped to
+TasteTest for the deck test and put back.
+
+Gates: tsc clean, eslint 17 (baseline), vitest 384, build clean.
+
+### Fourth round — three small ones
+
+**Publish is off while anything is being written into the post.** Mid-stream the
+body on screen is a partial post and the row still holds the old one, so a send
+would put one or the other on a real timeline — neither being the thing the user
+is looking at. `disabled={isPublishing || isRegenerating || isDraftingFollowUp}`
+on post-details' green button. **The deck's card needed nothing**: it swaps
+itself for `GeneratingPostCard` for the whole regeneration, so the menu holding
+its own "Publish now" row is not rendered at all. Checked rather than assumed.
+
+**The modal's info icon is `weight="bold"`**, and its tooltip text is centred
+(`text-center` alongside the `max-w-64` it already had, on that instance only).
+
+Verified on :3001. The publish lock was measured rather than eyeballed, on a
+scratch draft inserted for the purpose and deleted afterwards: sampling the
+button every 100ms across a TasteTest regeneration gave `ENABLED` before, four
+consecutive `disabled` samples during, and `ENABLED` after. The bold icon and
+the centred three-line tooltip were checked by zooming the rendered modal, and
+the same modal on an *unpublished* draft correctly showed no note line and the
+ordinary "new version" placeholder.
+
+Gates: tsc clean, eslint 17 (baseline), vitest 384, build clean.
+
+**Two drafts in the database are not mine** — 19:25 and 19:45 on 2026-09-04,
+both dateless — and were left alone. Every row this session created for testing
+has been deleted.
+
+### Fifth round — the tooltip's gutters
+
+Reported as "too much space right and left of the tooltip". It was
+`text-balance`, which I had added in the third round alongside `max-w-64`,
+and the two fight each other: balance does not shrink the box, so the lines
+were balanced *inside* the full 256px cap and the centred text sat in ~29px of
+dead gutter each side.
+
+Measured rather than guessed, with an off-screen probe carrying the same class
+string (the live tooltip cannot be measured — an eval backgrounds the tab and
+the hover closes it): with balance, box 256 / content 232 / longest line 174 /
+slack **57.8px**; without, longest line 211 / slack **20.7px**. Dropped
+`text-balance`; `max-w-64 whitespace-normal text-center` stays. Confirmed in the
+browser — the first two lines now fill the box and only the last is short.
+
+Full entry in LEARNINGS, including the probe technique and the fact that
+`max-w-56`/`max-w-48` are not in this project's Tailwind scale and silently do
+nothing.
+
+### Handoff note — the state the machine is in
+
+**`PRESTO_ENABLE_LIVE_PUBLISH=true` is currently set in `.env.local`**, put
+there by the owner to publish for real (`urn:li:share:7501717147975561216`). It
+is *not* in the repo — `.env.local` is gitignored and symlinked from the main
+checkout — but it is shared with `presto` and the `x-publish` worktree, so any
+dev server any of them restarts picks it up, and `/api/cron/publish` on any port
+will genuinely publish. Take it out when the testing is finished.
+
+Three dev servers were up at handoff: :3000 (main checkout), :3001 (this
+worktree), :3002 (x-publish). Only :3001 was started by this session.
+
+**Two drafts in the database are not this session's** — 19:25 and 19:45 on
+2026-09-04, both dateless — and were deliberately left alone. Every row created
+for testing here has been deleted; the table is at 314 rows / 3 published, and
+the 3 published rows are all genuinely on the owner's timeline.
+
+**What this branch does not include, by design:** the scheduler firing on its
+own. That needs a deployed origin — Postgres cannot reach a laptop — and the
+owner is doing the deployment on `main`. FOLLOWUPS §5.1 is the whole remaining
+list (pg_cron schedule, production env, production callback URL, the gate) and
+no code is left to write for it. A local launchd/cron job was offered as a way
+to rehearse it and declined as a stopgap, correctly.
+

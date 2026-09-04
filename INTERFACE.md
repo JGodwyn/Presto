@@ -1292,3 +1292,90 @@ the pill instead of widening the row.
 
 **No Figma export draws either state** — the content exports predate publishing.
 Composed from existing tokens and the card's own `body-md-bold`.
+
+## 9k. A published post is read-only
+
+**From `feat/published-posts`, 2026-09-04.** Publishing works, and what it
+exposed is that the app had no concept of "published" as a *state a post is
+in* — only as a tab it appears on. A live post could still be edited,
+re-dated, moved to another account and regenerated, and none of that changes
+what is public. The row and the real post drift apart silently.
+
+**One predicate decides it: `isPostLocked` (lib/post-publish.ts)**, sibling to
+`canAttemptPublish`, which now asks it too. Four controls across three surfaces
+read it, and a control that locks on one screen and not another reads as a bug,
+so there is exactly one definition. It keys off `publishedAt`, **never off
+`platform`** — X publishing is being built alongside this and inherits the whole
+treatment for nothing.
+
+It counts two states as live: `published_at` set, and the `record_failed:`
+marker (the share went out, the row's own write of it failed). The second is the
+one every surface used to miss.
+
+**Per control:**
+
+| Control | Published |
+| --- | --- |
+| Inline content editor (click / double-tap) | Refused in the handler, and the `cursor-text` affordance goes with it |
+| The date | The heading *is* the moment it went out; the pencil is removed, and the card's "Change date" button with it |
+| Account pill | `nextAccount={null}` → a plain span. It still names the account, it just stops offering to change it |
+| Turn to draft | Row left out of the actions menu; the button on post details stays disabled |
+| Regenerate | **Stays, keeps its name, and writes a new draft** |
+
+Nothing is *disabled and left sitting there* except the middle post-details
+action, which keeps its place in a fixed row of four. Everywhere the layout can
+absorb it, the control is gone: a greyed button invites a click that can never
+do anything.
+
+**Delete stays,** unchanged. It removes this app's record and its own copy says
+the live post survives.
+
+**Regenerate writes a new draft, and is still called Regenerate.** Rewriting a
+published post would only make the screen and the timeline disagree, so it
+writes a *new draft* instead (`draftFollowUpPost`) — a piece that landed well is
+exactly the one worth another angle on. Same brief, with the published text as
+`previousContent`. The new post inherits platform, try-out flag and topics and
+nothing else: no date, no publish state, a fresh id.
+
+**The control is not renamed** (per direct request, after the first pass called
+it "Draft a follow-up" on the card, the tooltip and the modal title). Same
+label, same ArrowClockwise icon, same modal title, same button labels — a
+published post's Regenerate should not read as a different feature.
+`RegenerateModal`'s `mode` therefore changes only two things: the placeholder,
+and a `body-md`/`text-subtle` note under the title reading **"This will create
+another post in your drafts"**, with an Info button to its *right* (the app's
+other info lines lead with the icon; here the sentence is the thing being read
+and the icon is the offer of more). Its tooltip carries the why: "A published
+post can't be edited here — it's already live. Regenerating writes a new draft
+instead." The note is pulled up with `-mt-dist-md`, cancelling half the dialog's
+`gap-dist-lg` so it sits with the heading rather than between heading and field,
+and the tooltip is capped (`max-w-64`) because at its default this sentence is
+one ~440px line that lands on the dialog's close button.
+
+**The publish confirmation carries no icon.** "Published to LinkedIn" with a
+tick beside it is the toast saying the same thing twice. Scoped to that one
+toast, not to success toasts generally.
+
+**The click navigates, and the generation happens where you land.** The insert
+is cheap — `draftFollowUpPost` calls no model — so the new draft's page opens at
+once and the text streams in *there*, through the same route and the same
+"generating post . . ." treatment an ordinary reroll uses. There is no success
+toast: arriving on the post is the confirmation. The old shape (generate, spin
+the button, toast a link) was replaced because a spinner on a 24px button is not
+a loading state anyone can read.
+
+Two mechanics this rests on. The draft is **seeded with the published text**,
+since `content` cannot be empty and a copy is the only seed still useful if the
+generation fails; it is never seen in the happy path. And the brief picked in
+the modal crosses the navigation through `lib/pending-regeneration.ts`, a
+consume-once module store — not a query string, because guidance is the user's
+own free text. It degrades to nothing on a hard reload, which is the safe
+direction: a lost handoff costs one click, a persisted one could re-fire a
+generation on a post someone only meant to open.
+
+**The card's header, on both surfaces.** A post published straight from a draft
+never gets a `scheduled_for`, so its heading used to read "Draft" above
+something live on LinkedIn. It now reports the published moment, with
+PaperPlaneTilt in place of the calendar icon. Absent on the live-but-unrecorded
+case, where the moment genuinely isn't known — the status chip says so there
+(see §12c).

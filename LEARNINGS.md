@@ -1537,3 +1537,36 @@ happens; the event announcing it never gets dispatched.
 trap already documented for Motion animations and `setInterval` under an eval,
 one API wider than it was written: it isn't only rAF-driven *animation* that
 freezes, it's anything the browser schedules on a frame, scroll events included.
+
+## `text-balance` does not shrink the box, so centred text inside a capped one sits in dead gutters
+
+**Symptom.** A multi-line tooltip capped at `max-w-64` and centred looked wrong:
+"too much space right and left" of the text. Nothing about the padding or the
+alignment was unusual, and the same classes on a short tooltip look fine.
+
+**Cause.** `text-wrap: balance` splits the text into lines of roughly equal
+length — but it does **not** feed that back into the element's width. Chrome
+sizes the box first, as `min(max-content, max-width)`, and only then balances
+the lines inside whatever it got. So a sentence whose `max-content` is 541px
+pins the box at the 256px cap, and balance then lays it out as 166/170/174px
+lines inside a 232px content box. Centred, that is ~29px of empty gutter on each
+side, and it is *worse* the more balance has to shorten the lines. Measured with
+a probe carrying the same classes: slack 57.8px with balance, 20.7px without.
+
+**Rule.** `text-balance` is for text that is allowed to size its own box —
+headings, a `w-fit` block. On anything with a width cap it only ever *adds*
+whitespace, and centring makes that whitespace symmetric and obvious. Cap the
+width or balance the text; doing both fights itself.
+
+**Corollary on measuring this.** Don't eyeball it off a screenshot and don't try
+to measure the live tooltip — every `javascript_tool` eval backgrounds the tab,
+which closes a hover-driven popup before the measurement runs. Build a probe:
+one off-screen div with the same class string, then read `getBoundingClientRect`
+for the box and `Range.getClientRects()` for the individual line boxes. That
+also lets several candidate class strings be compared in one pass.
+
+**And check the width scale exists.** In the same pass, `max-w-56` and
+`max-w-48` silently did nothing — they are not in this project's Tailwind scale,
+so the class was dropped and the box went to its full 541px `max-content`. A
+width utility that "has no effect" is more likely absent than overridden.
+

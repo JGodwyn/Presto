@@ -1,12 +1,17 @@
 "use client"
 
 import * as React from "react"
-import { CaretDown, PlugCharging, SpinnerGap } from "@phosphor-icons/react"
+import { CaretDown, Info, PlugCharging, SpinnerGap } from "@phosphor-icons/react"
 
 import { SelectPill, type SelectPillOption } from "@/components/generate/select-pill"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { PillTextarea } from "@/components/ui/pill-textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { BUILTIN_MODEL_ID, TASTE_TEST_MODEL_ID } from "@/lib/ai/model-constants"
 import { PLATFORM_LENGTH_LIMITS } from "@/lib/post-length"
@@ -17,6 +22,31 @@ import { createClient } from "@/lib/supabase/client"
 import { fetchUserAiModels } from "@/lib/supabase/queries"
 
 const BADGE_CORNER_RADIUS = 8 // rad-md
+
+export type RegenerateMode = "regenerate" | "follow-up"
+
+// The only thing the two modes disagree about — and it is deliberately very
+// little. The title and both button labels are shared: this is Regenerate in
+// both cases, and a published post's version of it should not read as a
+// different feature (per direct request). The whole difference is the note
+// below the title, which says what actually happens, and the tooltip on it,
+// which says why.
+const MODE_COPY: Record<
+  RegenerateMode,
+  { placeholder: string; note: string | null; noteTooltip: string | null }
+> = {
+  regenerate: {
+    placeholder: "Anything you’d like to see in the new version? (Optional)",
+    note: null,
+    noteTooltip: null,
+  },
+  "follow-up": {
+    placeholder: "Anything you’d like the new draft to do differently? (Optional)",
+    note: "This will create a draft",
+    noteTooltip:
+      "A published post can’t be edited here. Regenerating writes a new draft instead.",
+  },
+}
 
 // Same two no-setup models as generate-card.tsx's own BUILTIN_MODEL_OPTIONS
 // (kept in sync by hand, same as that file already does against
@@ -59,6 +89,7 @@ export function RegenerateModal({
   onConfirm,
   isPending = false,
   targetPlatform,
+  mode = "regenerate",
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -86,6 +117,13 @@ export function RegenerateModal({
   // shown and the prompt falls back to the post's own (absent) topic.
   onConfirm: (guidance: string, model: string, topic: string | undefined) => void
   isPending?: boolean
+  // What this reroll produces. "regenerate" rewrites the post in place;
+  // "follow-up" writes a brand-new draft off the back of it, which is what
+  // Regenerate becomes once a post has gone out and can no longer be changed
+  // (isPostLocked, lib/post-publish.ts). Only the copy differs — the brief,
+  // the model pill and the topic pill are the same question either way, which
+  // is exactly why this is a mode rather than a second modal.
+  mode?: RegenerateMode
 }) {
   // Cleared on a successful confirm (see the button below), not on every
   // open/close — closing via the X without submitting keeps the draft, same
@@ -171,14 +209,54 @@ export function RegenerateModal({
   )
 
   const hasGuidance = guidance.trim().length > 0
+  const copy = MODE_COPY[mode]
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent popupClassName="w-90">
         <DialogTitle>Regenerate post</DialogTitle>
+        {/* Sits with the title rather than floating between it and the field:
+            the dialog's own gap-dist-lg is 16px, and this is a caption on the
+            heading, so -mt-dist-md cancels half of it. The icon goes to its
+            right, per direct request — the other info lines in the app lead
+            with it, but here the sentence is the thing being read and the icon
+            is the offer of more. */}
+        {copy.note ? (
+          <p className="-mt-dist-md flex items-center gap-dist-sm text-body-lg text-text-subtle">
+            {copy.note}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Why this creates a draft"
+                    className="flex cursor-pointer items-center text-icon-subtle transition-colors duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50"
+                  >
+                    <Info weight="bold" className="size-4" />
+                  </button>
+                }
+              />
+              {/* Capped and wrapping: a sentence this long renders as one
+                  ~540px line by default, which reaches past the dialog and
+                  sits on its close button. Every other tooltip in the app is
+                  a couple of words, so this is the one that needs a width.
+
+                  **No `text-balance`.** It does not shrink the box — Chrome
+                  sizes the element first (min(max-content, max-width) = 256px
+                  here) and only then balances the lines inside it, so the
+                  lines came out at 166/170/174px in a 232px content box and
+                  the centred text sat inside ~29px of dead gutter on each
+                  side. Plain wrapping fills the box: 211/211/88, 10px of
+                  slack. See LEARNINGS. */}
+              <TooltipContent className="max-w-64 whitespace-normal text-center">
+                {copy.noteTooltip}
+              </TooltipContent>
+            </Tooltip>
+          </p>
+        ) : null}
         <PillTextarea
           name="guidance"
-          placeholder="Anything you’d like to see in the new version? (Optional)"
+          placeholder={copy.placeholder}
           value={guidance}
           onChange={(event) => setGuidance(event.target.value)}
           disabled={isPending}

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { canAttemptPublish, publishBlockedReason } from "@/lib/post-publish"
+import {
+  canAttemptPublish,
+  isPostLocked,
+  publishBlockedReason,
+} from "@/lib/post-publish"
+import { RECORD_FAILED_PREFIX } from "@/lib/publish-failure"
 import type { Post } from "@/types/post"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 
@@ -102,5 +107,52 @@ describe("publishBlockedReason", () => {
     expect(
       publishBlockedReason(post(), [account({ scope: "email,openid,profile" })])
     ).toBeNull()
+  })
+})
+
+// The read-only half. Four controls across three surfaces ask this, and the
+// point of it being one function is that none of them can answer differently
+// from `publishBlockedReason` above.
+describe("isPostLocked", () => {
+  it("leaves an ordinary queued post alone", () => {
+    expect(isPostLocked(post())).toBe(false)
+    expect(isPostLocked(post({ scheduledFor: null }))).toBe(false)
+  })
+
+  it("locks a published post", () => {
+    expect(
+      isPostLocked(post({ publishedAt: new Date("2026-09-03T10:00:00Z").toISOString() }))
+    ).toBe(true)
+  })
+
+  // The trap: this post IS on someone's timeline, and `published_at` is null
+  // because the write recording that failed. Reading `publishedAt` alone —
+  // which every one of these surfaces used to do — leaves every control open
+  // on it.
+  it("locks a post that is live but unrecorded", () => {
+    const live = post({
+      publishError: `${RECORD_FAILED_PREFIX}urn:li:share:7501150776556412931`,
+    })
+    expect(live.publishedAt).toBeNull()
+    expect(isPostLocked(live)).toBe(true)
+  })
+
+  // An ordinary failure means nothing went out, so everything about the post
+  // is still editable — that is the whole point of "Didn't send".
+  it("does not lock a post whose publish failed", () => {
+    expect(isPostLocked(post({ publishError: "token_expired" }))).toBe(false)
+    expect(isPostLocked(post({ publishError: "publish" }))).toBe(false)
+  })
+
+  // The pair must agree: anything locked is also refused a publish, or one
+  // surface offers to send a post another surface says is already out.
+  it("agrees with publishBlockedReason about what is already out", () => {
+    for (const locked of [
+      post({ publishedAt: new Date("2026-09-03T10:00:00Z").toISOString() }),
+      post({ publishError: `${RECORD_FAILED_PREFIX}urn:li:share:1` }),
+    ]) {
+      expect(isPostLocked(locked)).toBe(true)
+      expect(publishBlockedReason(locked, [account()])).toBe("already_published")
+    }
   })
 })

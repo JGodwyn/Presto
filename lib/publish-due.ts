@@ -1,3 +1,5 @@
+import { isGrantStale } from "@/lib/linkedin/scopes"
+
 // Which scheduled posts the scheduler may send, and — far more importantly —
 // which it must leave alone.
 //
@@ -100,4 +102,96 @@ export function skipReason(
   if (isDueNow(scheduledFor, now, graceMinutes)) return null
 
   return Date.parse(scheduledFor) > now.getTime() ? "not_yet" : "too_old"
+}
+
+// ---------------------------------------------------------------------------
+// Which *connections* the scheduler may send through.
+//
+// **The rule: skip accounts, not posts** (the decision behind FOLLOWUPS §17).
+// A connection whose grant predates `w_member_social`, whose token has lapsed,
+// or which the member revoked at the provider's end cannot publish anything —
+// and every post behind it refuses identically, every tick, recording nothing.
+// Being the oldest rows in the window they then fill the whole
+// `PUBLISH_BATCH_LIMIT` and starve newer posts on healthy connections.
+//
+// The alternative was to mark each refused post "Didn't send". That blames the
+// post for the connection's problem: the text is fine, the schedule is fine,
+// and re-dating every one of them would fix nothing. So the *connection* is
+// excluded instead and its posts wait quietly — the Connections page already
+// says the grant is stale and prompts a reconnect, and they go out on the next
+// tick after it is fixed, provided they are still inside the grace window.
+//
+// **The cost, stated plainly:** a connection nobody fixes hides its posts
+// indefinitely, and each of them ages out of the grace window and becomes
+// permanently overdue without ever wearing a failure. That is why the run
+// summary reports the skipped connections by name rather than only the sends —
+// a scheduler quietly doing nothing must not look the same as one with nothing
+// to do.
+
+// What the eligibility question needs to know about a stored connection. The
+// same three fields `checkPublishGate` reads, plus the revocation flag it has
+// no way to see (only a real call to the provider discovers that, which is
+// what `social_accounts.status` records).
+export interface SchedulableAccount {
+  projectId: string
+  platform: string
+  scope: string
+  expiresAt: string
+  status: string
+}
+
+// Why a connection was passed over, for the run summary. These mirror
+// `PublishFailure`'s own refusal codes — deliberately, since they are the
+// same three refusals, asked one layer earlier so the posts behind them are
+// never selected in the first place.
+export type AccountSkipReason = "scope_not_granted" | "token_expired" | "revoked"
+
+// `isGrantStale` rather than `grantIsCurrent`, and the difference matters:
+// the platform check is inside it. LinkedIn's scope list means nothing to an X
+// row, and asking it there is false for every X account that will ever exist
+// (see lib/linkedin/scopes.ts) — which would exclude every X connection from
+// the scheduler permanently, with a reconnect that could never clear it.
+export function accountSkipReason(
+  account: SchedulableAccount,
+  now: Date
+): AccountSkipReason | null {
+  // Checked first: a revoked grant is dead whatever else is true of it, and
+  // it is the one state waiting cannot resolve.
+  if (account.status === "revoked") return "revoked"
+  if (isGrantStale(account.platform, account.scope)) return "scope_not_granted"
+
+  const expiresAt = Date.parse(account.expiresAt)
+  // An unparseable expiry is treated as expired rather than ignored: the safe
+  // reading of "we don't know when this dies" is "assume it has".
+  if (Number.isNaN(expiresAt) || expiresAt <= now.getTime()) {
+    return "token_expired"
+  }
+
+  return null
+}
+
+export interface AccountPartition<T> {
+  // The projects whose connection can actually send. The due query is scoped
+  // to these, so nothing behind a broken connection is ever selected.
+  eligibleProjectIds: string[]
+  skipped: { account: T; reason: AccountSkipReason }[]
+}
+
+// Splits the connections one tick found into the ones it may publish through
+// and the ones it must report. Generic over the row shape so the cron can hand
+// over whatever it selected without mapping first.
+export function partitionSchedulableAccounts<T extends SchedulableAccount>(
+  accounts: T[],
+  now: Date
+): AccountPartition<T> {
+  const eligibleProjectIds: string[] = []
+  const skipped: { account: T; reason: AccountSkipReason }[] = []
+
+  for (const account of accounts) {
+    const reason = accountSkipReason(account, now)
+    if (reason) skipped.push({ account, reason })
+    else eligibleProjectIds.push(account.projectId)
+  }
+
+  return { eligibleProjectIds, skipped }
 }

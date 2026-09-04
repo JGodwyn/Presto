@@ -24,6 +24,7 @@ import {
 } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 import { isNetworkError, NETWORK_ERROR_MESSAGE } from "@/lib/network-error"
+import { isPostLocked } from "@/lib/post-publish"
 import type { Post, PostPlatform, PostStatus } from "@/types/post"
 
 const WRITING_STYLE_FILES_BUCKET = "writing-style-files"
@@ -416,6 +417,105 @@ export async function regeneratePost(
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)
 
   return { ok: true, post: mapPostRow(data), batchContextId }
+}
+
+const draftFollowUpPostSchema = z.object({
+  projectId: z.string().uuid(),
+  // The published post to riff on.
+  id: z.string().uuid(),
+})
+
+// Regenerate, on a post that has already gone out.
+//
+// **It must not rewrite the source**, which is the whole reason this exists
+// beside `regeneratePost` rather than inside it: the live post is on someone's
+// timeline and this app cannot change or recall it, so an in-place UPDATE
+// would only make the row and the real post disagree. So this INSERTs a *new
+// draft* instead — a piece that landed well is exactly the one worth writing
+// another angle on, and a draft is the state where that is still editable,
+// re-datable and cancellable.
+//
+// **It does not generate anything, and that is deliberate.** The row has to
+// exist before the user can be taken to it, and taking them to it is the whole
+// point: the generation then streams onto the draft's own page through
+// /api/regenerate-post, the same path an ordinary reroll uses, so they watch it
+// being written instead of watching a spinner on the button they just pressed.
+// This call is therefore a cheap insert and returns in milliseconds.
+//
+// **The draft is seeded with the published text.** `posts.content` cannot be
+// empty, and of the things that satisfy that, the post being followed up is the
+// only one that is useful if the generation never lands: the draft is then a
+// copy to edit rather than a placeholder to delete. In the ordinary path it is
+// never seen — the draft's page blanks the body the moment the stream starts.
+//
+// **Refuses anything that is not live.** This is the published path and only
+// the published path; an unpublished post has `regeneratePost`, which rewrites
+// in place. Keeping the guard here means this can never become a quiet second
+// way to duplicate arbitrary posts.
+export async function draftFollowUpPost(
+  input: z.infer<typeof draftFollowUpPostSchema>
+): Promise<{ error: string; reason: GenerationFailureReason } | { ok: true; post: Post }> {
+  const parsed = draftFollowUpPostSchema.safeParse(input)
+  if (!parsed.success) {
+    return { error: "Couldn't start a new draft.", reason: "unknown" }
+  }
+
+  const supabase = await createClient()
+  const auth = await requireUser(supabase)
+  if (!auth.user) {
+    return auth.offline
+      ? { error: NETWORK_ERROR_MESSAGE, reason: "network" }
+      : { error: "You need to be signed in to generate posts.", reason: "not_signed_in" }
+  }
+  const user = auth.user
+
+  // RLS scopes this to the signed-in user, so someone else's post id reads as
+  // a post that doesn't exist — same contract as regeneratePost.
+  const { data: existing, error: fetchError } = await supabase
+    .from("posts")
+    .select(POST_COLUMNS)
+    .eq("id", parsed.data.id)
+    .eq("project_id", parsed.data.projectId)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    return { error: "Couldn't find that post.", reason: "unknown" }
+  }
+
+  const source = mapPostRow(existing as PostRow)
+
+  // The same predicate the three surfaces use to decide the control is even
+  // offered (lib/post-publish.ts) — asked again here because a client
+  // predicate is a courtesy, never a guarantee.
+  if (!isPostLocked(source)) {
+    return {
+      error: "That post hasn't gone out yet — regenerate it instead.",
+      reason: "unknown",
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .insert({
+      project_id: parsed.data.projectId,
+      user_id: user.id,
+      platform: source.platform,
+      status: "draft",
+      content: source.content,
+      topics: source.topics,
+      scheduled_for: null,
+      is_tryout: source.isTryout,
+    })
+    .select(POST_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    return { error: "Couldn't start a new draft. Please try again.", reason: "unknown" }
+  }
+
+  revalidatePath(`/projects/${parsed.data.projectId}/calendar`)
+
+  return { ok: true, post: mapPostRow(data) }
 }
 
 const updatePostSchema = z.object({

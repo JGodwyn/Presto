@@ -7,6 +7,7 @@ import { PaperPlaneTilt, X } from "@phosphor-icons/react"
 
 import {
   deletePost,
+  draftFollowUpPost,
   regeneratePost,
   updatePost,
 } from "@/app/projects/[projectId]/generate/post-actions"
@@ -38,8 +39,9 @@ import { generationFailureCopy } from "@/lib/ai/failure-copy"
 import { BUILTIN_MODEL_ID } from "@/lib/ai/model-constants"
 import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { setPendingRegeneration } from "@/lib/pending-regeneration"
 import { publishErrorFor } from "@/lib/publish-failure"
-import { canAttemptPublish } from "@/lib/post-publish"
+import { canAttemptPublish, isPostLocked } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -282,6 +284,10 @@ export function DayDeck({
   const [toastExtraInfo, setToastExtraInfo] = React.useState<string | undefined>(
     undefined
   )
+  // Only the publish confirmation turns this off: a tick beside "Published to
+  // LinkedIn" is the toast saying the same thing twice, and per direct request
+  // the words carry it alone.
+  const [toastShowIcon, setToastShowIcon] = React.useState(true)
   // Split from the message for the same reason, and held rather than derived so
   // the button doesn't vanish while the toast is still animating out.
   // The account switch refused for being too long, with the post it was for.
@@ -309,13 +315,15 @@ export function DayDeck({
     setToastVariant("danger")
     setToastMessage(message)
     setToastExtraInfo(extraInfo)
+    setToastShowIcon(true)
     setToastOpen(true)
   }
 
-  const showSuccess = (message: string) => {
+  const showSuccess = (message: string, options?: { showIcon?: boolean }) => {
     setToastVariant("success")
     setToastMessage(message)
     setToastExtraInfo(undefined)
+    setToastShowIcon(options?.showIcon ?? true)
     setToastOpen(true)
   }
 
@@ -751,7 +759,7 @@ export function DayDeck({
     if (keyForPost({ ...post, ...patch }) === dayKey) commit()
     else leaveDeck(post.id, commit)
 
-    showSuccess("Published to LinkedIn")
+    showSuccess("Published to LinkedIn", { showIcon: false })
   }
 
   // The one rule the pill and the guard share. Try out is never refused:
@@ -849,6 +857,44 @@ export function DayDeck({
         commitSocialChange({ ...post, content: result.post.content }, switchTo)
       }
     }
+  }
+
+  // Regenerate, on a post that has already gone out. It writes a **new draft**
+  // rather than touching this one — see draftFollowUpPost for why, and
+  // isPostLocked (lib/post-publish.ts) for what decides which of the two a
+  // card offers.
+  //
+  // The insert is cheap and generates nothing, so this closes the deck and
+  // lands on the new draft's own page, where the generation actually streams.
+  // The deck has no model picker, so the brief handed over is the model the
+  // Generate page last ran on — a BYOK user's reroll should stay on their own
+  // key — with no guidance and the post's own topic.
+  const handleDraftFollowUp = async (post: Post) => {
+    const result = await withNetworkStatus(
+      draftFollowUpPost({ projectId, id: post.id }),
+    )
+    if (result === null) return
+    if ("error" in result) {
+      if (result.reason === "network") reportNetworkIssue()
+      else {
+        const { message, extraInfo } = generationFailureCopy(result.reason, {
+          message: result.error,
+        })
+        showError(message, extraInfo)
+      }
+      return
+    }
+
+    const draft = result.post
+    setPendingRegeneration(draft.id, {
+      guidance: "",
+      model: readPreferredModel(projectId) ?? BUILTIN_MODEL_ID,
+      topic: draft.topics[0],
+    })
+    // The draft has no date, so it never belongs to this deck. Closing first
+    // means the cards fly home into their chip and *then* the new page
+    // appears, rather than the overlay blinking out mid-flight.
+    closeThenOpen(draft.id)
   }
 
   // Portalled to <body>, and it has to be: GlowPanel carries a clip-path (the
@@ -983,6 +1029,13 @@ export function DayDeck({
                         onTurnToDraft={() => handleTurnToDraft(post)}
                         onOpen={() => closeThenOpen(post.id)}
                         onRegenerate={() => handleRegenerate(post)}
+                        locked={isPostLocked(post)}
+                        publishedAt={
+                          post.publishedAt
+                            ? new Date(post.publishedAt)
+                            : undefined
+                        }
+                        onDraftFollowUp={() => handleDraftFollowUp(post)}
                         regenerating={dialogRegeneratingId === post.id}
                         account={resolvePostAccount(post, accounts)}
                         nextAccount={nextPostAccount(post, accounts)}
@@ -1103,6 +1156,7 @@ export function DayDeck({
           variant={toastVariant}
           direction="top"
           extraInfo={toastExtraInfo}
+          showIcon={toastShowIcon}
         >
           {toastMessage}
         </Toast>

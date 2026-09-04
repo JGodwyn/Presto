@@ -6,8 +6,10 @@ import type { NextRequest } from "next/server"
 import { isLivePublishEnabled } from "@/lib/linkedin/publish"
 import {
   dueWindow,
+  partitionSchedulableAccounts,
   PUBLISH_BATCH_LIMIT,
   PUBLISH_GRACE_MINUTES,
+  type AccountSkipReason,
 } from "@/lib/publish-due"
 import { publishOnePost, type PublishOutcomeFailure } from "@/lib/publish-runner"
 import { createServiceClient } from "@/lib/supabase/service"
@@ -41,6 +43,12 @@ interface RunSummary {
   due: number
   published: number
   failed: number
+  // The connections this tick refused to send through, and why. Reported
+  // rather than merely acted on: excluding an account's posts instead of
+  // marking each one failed is the quieter choice, and the whole risk of it
+  // is that a broken connection hides indefinitely (lib/publish-due.ts). A
+  // run summary that names them is what keeps that visible.
+  skippedAccounts: { projectId: string; platform: string; reason: AccountSkipReason }[]
   results: {
     postId: string
     ok: boolean
@@ -86,6 +94,44 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const now = new Date()
   const window = dueWindow(now)
 
+  // **Connections first, posts second.** A post can only go out through a
+  // connection that is alive, and a refusal at the gate records nothing — so a
+  // post behind a stale grant used to come back every tick, and being the
+  // oldest in the window it filled the whole batch limit and starved newer
+  // posts on healthy connections. Asking the connection question one layer
+  // earlier means those posts are never selected at all: they wait quietly,
+  // clean, until the member reconnects. See lib/publish-due.ts for the
+  // decision and what it costs.
+  //
+  // **This reads every LinkedIn connection there is, and that is the order it
+  // has to be in.** Selecting due posts first and filtering afterwards would
+  // put the broken ones back inside the batch limit, which is the starvation
+  // being fixed. It is fine at this app's size and is not fine at a large one —
+  // see FOLLOWUPS for the join/RPC that replaces it when there are enough
+  // connections for one page of them to matter.
+  const { data: accountRows, error: accountsError } = await supabase
+    .from("social_accounts")
+    .select("project_id, platform, scope, expires_at, status")
+    .eq("platform", "linkedin")
+
+  if (accountsError) {
+    return NextResponse.json(
+      { error: "Couldn't read the connections." },
+      { status: 500 }
+    )
+  }
+
+  const { eligibleProjectIds, skipped } = partitionSchedulableAccounts(
+    accountRows.map((row) => ({
+      projectId: row.project_id as string,
+      platform: row.platform as string,
+      scope: row.scope as string,
+      expiresAt: row.expires_at as string,
+      status: row.status as string,
+    })),
+    now
+  )
+
   // The selection query, and the security boundary. Every condition here is
   // doing work that RLS would normally do or that the backlog rule requires:
   //
@@ -97,20 +143,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   //   is_tryout false        — a try-out post borrows a real platform value
   //   platform linkedin      — the only publishing flow that exists
   //   scheduled_for in window— came due, and came due *recently*
+  //   project_id in eligible — the connection behind it can actually send
   //
   // Ordered oldest-first within the window so a busy minute drains in the order
   // the posts were meant to go out, and capped so a mistake stays small.
-  const { data: duePosts, error } = await supabase
-    .from("posts")
-    .select("id, project_id, scheduled_for")
-    .is("published_at", null)
-    .is("publish_error", null)
-    .eq("is_tryout", false)
-    .eq("platform", "linkedin")
-    .gte("scheduled_for", window.from)
-    .lte("scheduled_for", window.to)
-    .order("scheduled_for", { ascending: true })
-    .limit(PUBLISH_BATCH_LIMIT)
+  //
+  // The eligibility list is also why the query is skipped outright when it is
+  // empty: `.in("project_id", [])` is a query that can only return nothing,
+  // and running it once a minute to learn that is work for no answer.
+  const { data: duePosts, error } = eligibleProjectIds.length
+    ? await supabase
+        .from("posts")
+        .select("id, project_id, scheduled_for")
+        .is("published_at", null)
+        .is("publish_error", null)
+        .eq("is_tryout", false)
+        .eq("platform", "linkedin")
+        .in("project_id", eligibleProjectIds)
+        .gte("scheduled_for", window.from)
+        .lte("scheduled_for", window.to)
+        .order("scheduled_for", { ascending: true })
+        .limit(PUBLISH_BATCH_LIMIT)
+    : { data: [] as { id: string; project_id: string; scheduled_for: string }[], error: null }
 
   if (error) {
     return NextResponse.json(
@@ -126,6 +180,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     due: duePosts.length,
     published: 0,
     failed: 0,
+    skippedAccounts: skipped.map(({ account, reason }) => ({
+      projectId: account.projectId,
+      platform: account.platform,
+      reason,
+    })),
     results: [],
   }
 
