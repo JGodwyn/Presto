@@ -1424,3 +1424,39 @@ surfaces described this one post differently — the toast, the card, and the
 still-enabled "Publish now" button — because each derived its answer from a
 different field. Once a state exists, find every reader before declaring it
 handled.
+
+### LinkedIn and X cannot be connected from the same dev origin
+
+**Symptom.** With the X flow working on `http://127.0.0.1:3000`, LinkedIn's
+connect button fails at the state check. Browse at `http://localhost:3000`
+instead and LinkedIn works while X is rejected by X with a redirect_uri
+mismatch. Neither is broken; they cannot both work at once.
+
+**Cause.** The two derive their `redirect_uri` differently, for a good reason
+each:
+
+- **X** must use `127.0.0.1`, because X's developer console *refuses to
+  register a callback on the hostname `localhost` at all*. So `lib/x/oauth.ts`
+  has `resolveRequestOrigin`, which prefers the `Host` header (restricted to
+  loopback, or it would be an open-redirect vector) over `nextUrl.origin` —
+  because **Next pins `request.nextUrl.origin` to `http://localhost:<port>` in
+  development regardless of the host actually requested.**
+- **LinkedIn** uses `request.nextUrl.origin` directly, so it always says
+  `localhost`, which is what is registered on the LinkedIn app.
+
+Both set an httpOnly `sameSite: lax` state cookie at authorize and read it at
+the callback. `localhost` and `127.0.0.1` are **different cookie origins**, so a
+flow that starts on one and returns to the other never sends its cookie and dies
+at the state check. Supabase's auth cookies split the same way, so each origin
+is a separate signed-in session.
+
+**Rule.** In development, pick the origin for the provider being worked on:
+`127.0.0.1:3000` for X, `localhost:3000` for LinkedIn. Pinning
+`X_REDIRECT_URI`/`LINKEDIN_REDIRECT_URI` does not rescue this — the mismatch is
+the *cookie* origin, not just the registered URI.
+
+In production both are the same real hostname and the problem disappears, so
+this is a dev-workflow trap rather than a product bug. Do not "fix" it by
+teaching LinkedIn to follow the Host header: that would make the two agree, but
+LinkedIn's registered callback is `localhost`, so agreeing on `127.0.0.1` would
+break LinkedIn instead.

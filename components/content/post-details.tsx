@@ -813,6 +813,15 @@ export function PostDetails({
       result = await withNetworkStatus(
         publishPost({ projectId: currentPost.projectId, id: currentPost.id })
       )
+    } catch {
+      // withNetworkStatus rethrows anything that is not a network failure, and
+      // decryptApiKey throws outright on a corrupt or re-keyed token — the cron
+      // wraps that same call for this reason. Without a catch the rejection
+      // escapes the caller: the modal closes, nothing is said, and the click
+      // reads as never having registered, so it gets clicked again.
+      setPublishOpen(false)
+      showError("Couldn't publish that post. Please try again.")
+      return
     } finally {
       setIsPublishing(false)
     }

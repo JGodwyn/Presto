@@ -5923,3 +5923,72 @@ module. The claim that it predated the branch was wrong.
 is invisible — which is exactly how the `publish-failure` → `publish-runner`
 import nearly shipped Supabase and the share call into the browser. This branch
 widened the blast radius by adding three modules to `SERVER_ONLY`.
+
+---
+
+## 2026-09-04 — Housekeeping on `main`: the four post-merge defects
+
+Nothing in flight (`worktree.sh list` empty), so straight onto `main` per
+AGENTS.md. All four were found by the review passes on `feat/linkedin-publish`
+and deliberately not fixed there: three predate the branch, and blocking on them
+would have left `main` strictly more exposed.
+
+**1. A 2xx with no `x-restli-id` was a double-publish path.** `postShare` treated
+a missing URN header as `failure: "publish"` — "nothing was published" — so the
+runner released the claim and left the post retryable. But a 2xx means LinkedIn
+*did* create the post; only its name is missing. The next attempt would have put
+a second copy on a real timeline.
+
+New `published_without_urn` result, handled in `publishOnePost` *before* the
+ordinary failure branch: it writes a bare `RECORD_FAILED_PREFIX` marker and
+leaves the claim held, exactly as a failed `published_at` write does, minus the
+URN there is no way to obtain. Verified against Postgres that `%` matches a
+zero-length suffix, so the bare marker is caught by the claim predicate and by
+`isRecordFailure` just as a URN-bearing one is.
+
+**The first test written for this was worthless and was replaced.** It mocked
+`publishTextPost` and asserted the runner's handling — so reverting the fix left
+it green, because the bug lives in `postShare`'s response parsing, which that
+test never reaches. Rewritten in `lib/linkedin/publish.test.ts` to stub `fetch`
+and drive the real path: a 201 with a URN, a 201 without one, and a 422.
+Confirmed the middle one fails when the fix is reverted. This is the second time
+in two days the same mistake was nearly shipped, and the LEARNINGS rule about it
+already existed — writing the rule down is not the same as following it.
+
+**2. Neither client publish handler had a `catch`.** `try/finally` was added
+earlier so a throw could not leave the modal permanently unclosable, but
+`withNetworkStatus` rethrows anything that is not a network failure and
+`decryptApiKey` throws outright on a corrupt or re-keyed token. The rejection
+escaped the caller: modal closed, nothing said, no marker — indistinguishable
+from a click that never registered, which invites a second click on the one
+action that must not be repeated. Both handlers now catch and surface a toast.
+
+**3. The cron stranded a post when its `catch` fired.** The throw happens after
+the claim, so the row kept `publish_started_at` set with `publish_error` null.
+The post then aged out of the 15-minute window before its 16-minute claim
+lapsed: never retried, never marked, the response body its only trace. It now
+releases the claim and records the reason. Safe precisely because nothing was
+published on that path — both paths where a share *did* go out are handled
+inside `publishOnePost` and return rather than throw.
+
+**4. `lib/clock.ts` served a stale `now` on remount.** The interval is torn down
+with the last subscriber, so `now` stayed frozen at the final tick — after a
+spell on another page or a throttled background tab, the first render back could
+read a timestamp hours old and hold it for a further minute, with nothing
+overdue marked in between. `subscribeToClock` now refreshes on subscribe.
+
+**Also logged, not code:** LEARNINGS gained the LinkedIn/X dev-origin split —
+they cannot both be connected from the same origin, because X's console refuses
+to register `localhost` while LinkedIn's callback is registered on it, and the
+two spellings are different cookie origins. Raised by the user after noticing
+the X branch ran on 127.0.0.1. Dev-only; production is one hostname.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 — `main`'s baseline |
+| `npm run test` | **371** passed / 31 files, excluding `lib/ai/generate.test.ts` |
+| `npm run build` | clean |
+
+Publishing remains gated shut throughout: `PRESTO_ENABLE_LIVE_PUBLISH` unset, no
+cron registered, `pg_cron`/`pg_net` absent from the live project.

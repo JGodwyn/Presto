@@ -185,6 +185,22 @@ export async function publishOnePost(
     now,
   })
 
+  // Live, but unnameable: LinkedIn accepted the share and gave back no URN.
+  // Handled before the ordinary failure branch below because it must NOT
+  // release the claim — the post exists, and offering it for retry would put a
+  // second copy on the timeline. Same treatment as a failed `published_at`
+  // write, minus the URN there is no way to know: a permanent marker, and the
+  // claim left held.
+  if (!result.ok && result.failure === "published_without_urn") {
+    const { error: markError } = await supabase
+      .from("posts")
+      .update({ publish_error: RECORD_FAILED_PREFIX })
+      .eq("id", input.postId)
+      .eq("project_id", input.projectId)
+
+    return { ok: false, failure: "record_failed", recorded: !markError }
+  }
+
   if (!result.ok) {
     // Release the claim and record why, so the post reads as failed rather than
     // sitting in the queue looking untouched (see hasFailed in

@@ -126,6 +126,71 @@ describe("publishTextPost", () => {
     expect(result).toEqual({ ok: false, failure: "scope_not_granted" })
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+
+  // Everything below actually reaches postShare's response handling, which is
+  // where the bug lived. A test that mocks publishTextPost itself cannot see
+  // any of this.
+  describe("reading LinkedIn's response", () => {
+    function allowed() {
+      process.env.PRESTO_ENABLE_LIVE_PUBLISH = "true"
+      return account({ scope: "openid profile email w_member_social" })
+    }
+
+    function respond(init: { status: number; urn?: string }) {
+      const headers = new Headers()
+      if (init.urn) headers.set("x-restli-id", init.urn)
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(null, { status: init.status, headers })
+        )
+      )
+    }
+
+    it("returns the URN LinkedIn put in the header", async () => {
+      respond({ status: 201, urn: "urn:li:share:99" })
+
+      const result = await publishTextPost({
+        account: allowed(),
+        accessToken: "token",
+        content: "hello",
+        now: NOW,
+      })
+
+      expect(result).toEqual({ ok: true, postUrn: "urn:li:share:99" })
+    })
+
+    // **The double-publish path.** A 2xx means the post was created; a missing
+    // x-restli-id means only that we cannot name it. Reporting a plain
+    // `publish` failure here — which this did — releases the claim and leaves
+    // the post retryable, so the next attempt puts a second copy on the
+    // member's real timeline.
+    it("does not call a 2xx without a URN a failure to publish", async () => {
+      respond({ status: 201 })
+
+      const result = await publishTextPost({
+        account: allowed(),
+        accessToken: "token",
+        content: "hello",
+        now: NOW,
+      })
+
+      expect(result).toEqual({ ok: false, failure: "published_without_urn" })
+    })
+
+    it("still calls a non-2xx a publish failure, since nothing was created", async () => {
+      respond({ status: 422 })
+
+      const result = await publishTextPost({
+        account: allowed(),
+        accessToken: "token",
+        content: "hello",
+        now: NOW,
+      })
+
+      expect(result).toEqual({ ok: false, failure: "publish" })
+    })
+  })
 })
 
 describe("personUrn", () => {

@@ -47,6 +47,15 @@ export type PublishFailure =
 
 export type PublishResult =
   | { ok: true; postUrn: string }
+  // **The post is live and we have no handle on it.** LinkedIn accepted the
+  // share (a 2xx) but the response carried no `x-restli-id`, so there is no
+  // URN to store. Deliberately *not* `{ ok: false, failure: "publish" }`,
+  // which is what this used to return: that reads as "nothing was published",
+  // and the caller then releases the claim and leaves the post retryable — so
+  // the next attempt puts a second copy on the member's timeline. It is the
+  // same hazard `record_failed` closes for the database-write path, and it was
+  // sitting one function away on the response-parsing path.
+  | { ok: false; failure: "published_without_urn" }
   | { ok: false; failure: PublishFailure }
 
 export function hasPublishScope(raw: string): boolean {
@@ -152,8 +161,12 @@ async function postShare(
 
   // The created post's URN comes back in a header, not the body (the body is
   // empty on a 201). Worth keeping: it is the only handle on the live post.
+  //
+  // Its absence does not mean the share failed — the 2xx above already said it
+  // succeeded. It means we cannot name what we just created, which is a
+  // different and worse thing: see `published_without_urn` on PublishResult.
   const postUrn = response.headers.get("x-restli-id")
-  if (!postUrn) return { ok: false, failure: "publish" }
+  if (!postUrn) return { ok: false, failure: "published_without_urn" }
 
   return { ok: true, postUrn }
 }

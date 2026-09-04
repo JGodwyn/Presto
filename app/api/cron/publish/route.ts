@@ -147,7 +147,26 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       })
     } catch (error) {
       console.error(`[publish] post ${post.id} threw`, error)
-      outcome = { ok: false, failure: "publish", recorded: false }
+
+      // The throw almost certainly happened *after* the claim was taken —
+      // decryptApiKey is the realistic thrower and it runs post-claim — so the
+      // row is left with publish_started_at set and publish_error null. That
+      // post then ages out of the 15-minute due window before its 16-minute
+      // claim lapses, so nothing ever selects it again: never retried, never
+      // marked, and this response body the only trace it happened.
+      //
+      // Releasing the claim and recording the reason puts it back in the one
+      // state a person can see and act on. Safe to release here precisely
+      // because nothing was published: publishOnePost handles both paths where
+      // a share did go out (record_failed, published_without_urn) internally
+      // and returns rather than throwing.
+      const { error: releaseError } = await supabase
+        .from("posts")
+        .update({ publish_started_at: null, publish_error: "publish" })
+        .eq("id", post.id)
+        .eq("project_id", post.project_id)
+
+      outcome = { ok: false, failure: "publish", recorded: !releaseError }
     }
 
     if (outcome.ok) {

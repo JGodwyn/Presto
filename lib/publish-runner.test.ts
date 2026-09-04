@@ -161,6 +161,59 @@ describe("the claim predicate is null-safe", () => {
   })
 })
 
+// LinkedIn accepted the share and returned no x-restli-id. The post is live and
+// unnameable. This used to come back as a plain `publish` failure, which
+// released the claim and left the post retryable — so the next attempt put a
+// second copy on the member's timeline. Exactly the hazard record_failed closes
+// for the database-write path, one function away on the response-parsing path.
+describe("publishOnePost when the share succeeds without a URN", () => {
+  const livePost = {
+    id: POST.postId,
+    platform: "linkedin",
+    content: "Live, unnameable.",
+    is_tryout: false,
+    published_at: null,
+  }
+
+  it("reports record_failed, not a publish failure", async () => {
+    publishTextPost.mockResolvedValue({
+      ok: false,
+      failure: "published_without_urn",
+    })
+    const supabase = fakeSupabase({ post: livePost })
+
+    const outcome = await publishOnePost(supabase, POST, NOW)
+
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok) return
+    expect(outcome.failure).toBe("record_failed")
+  })
+
+  it("marks the row and never releases the claim", async () => {
+    publishTextPost.mockResolvedValue({
+      ok: false,
+      failure: "published_without_urn",
+    })
+    const supabase = fakeSupabase({ post: livePost }) as unknown as {
+      updates: Record<string, unknown>[]
+    }
+
+    await publishOnePost(supabase as never, POST, NOW)
+
+    const postUpdates = supabase.updates.filter((u) => u.table === "posts")
+    // The marker carries no URN — there isn't one — but it is still a marker,
+    // and `%` matches a zero-length suffix, so the claim predicate blocks it.
+    const marker = postUpdates.find(
+      (u) => u.publish_error === RECORD_FAILED_PREFIX
+    )
+    expect(marker).toBeDefined()
+    // Nothing after the claim may null publish_started_at.
+    for (const update of postUpdates.slice(1)) {
+      expect(update).not.toHaveProperty("publish_started_at", null)
+    }
+  })
+})
+
 describe("publishOnePost when the record write fails", () => {
   const livePost = {
     id: POST.postId,

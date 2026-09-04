@@ -25,6 +25,15 @@ let timer: ReturnType<typeof setInterval> | null = null
 export function subscribeToClock(listener: () => void): () => void {
   listeners.add(listener)
 
+  // Refreshed on subscribe, not only on the interval. `now` was last written
+  // by a tick, and the interval is torn down when the final subscriber leaves
+  // — so after a spell on another page (or another tab, where timers are
+  // throttled) the first render back reads a `now` frozen at however long ago
+  // that was, and holds it for up to a further minute. Nothing overdue in the
+  // interim would be marked. Cheap, and it makes the first paint the accurate
+  // one rather than the stalest.
+  now = Date.now()
+
   if (timer === null) {
     timer = setInterval(() => {
       now = Date.now()

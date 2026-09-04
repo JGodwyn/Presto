@@ -706,6 +706,14 @@ export function DayDeck({
     let result: Awaited<ReturnType<typeof publishPost>> | null
     try {
       result = await withNetworkStatus(publishPost({ projectId, id: post.id }))
+    } catch {
+      // withNetworkStatus rethrows anything that is not a network failure, and
+      // decryptApiKey throws outright on a corrupt or re-keyed token — the cron
+      // wraps that same call for this reason. Without a catch the rejection
+      // escapes `void handlePublish()`: the modal closes, nothing is said, and
+      // the click reads as never having registered, so it gets clicked again.
+      showError("Couldn't publish that post. Please try again.")
+      return
     } finally {
       setPublishing(false)
       setPublishTarget(null)
