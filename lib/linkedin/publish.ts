@@ -105,14 +105,16 @@ export function checkPublishGate(
 }
 
 // The share call itself. **Never reachable without passing `checkPublishGate`
-// first** — that is the caller's contract, and publish-actions.ts is the only
-// caller. Kept as its own function rather than inlined so the gate cannot be
-// accidentally reordered after the request.
+// first** — that is the caller's contract. The only caller is
+// lib/publish-runner.ts, which both the "Publish now" action and the cron
+// route go through. Kept as its own function rather than inlined so the gate
+// cannot be accidentally reordered after the request.
 //
 // The request shape follows LinkedIn's Posts API (rest/posts, versioned) and
-// is **unverified against a live call** — by construction, since nothing has
-// ever been allowed to make one. Treat it as the starting point for the first
-// real attempt, not as known-good.
+// **is verified against live calls**: two posts were published on 2026-09-03
+// under an explicit green-light, one by hand and one by a hand-fired scheduler
+// tick. So this is known-good for a plain text share; everything past that
+// (media, articles, visibility other than the default) is still untried.
 async function postShare(
   accessToken: string,
   authorUrn: string,

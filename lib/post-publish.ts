@@ -1,3 +1,4 @@
+import { isRecordFailure } from "@/lib/publish-failure"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 import type { Post, PostPlatform } from "@/types/post"
 
@@ -33,13 +34,21 @@ export type PublishBlockedReason =
 // what they already have (every surface that renders a post card fetches
 // these for the account pill).
 export function publishBlockedReason(
-  post: Pick<Post, "platform" | "isTryout" | "publishedAt">,
+  post: Pick<Post, "platform" | "isTryout" | "publishedAt" | "publishError">,
   accounts: ConnectedSocialAccount[]
 ): PublishBlockedReason | null {
   // Checked first: an already-published post is the one state where offering
   // the control could produce a *second* live post, and the reason a reader
   // most expects to see named.
   if (post.publishedAt !== null) return "already_published"
+
+  // Live at the provider, but the row's own `published_at` write failed — so
+  // the check above cannot see it and only the marker can. Without this the
+  // control stays enabled on a post that is already on someone's timeline; the
+  // claim predicate refuses the attempt, but the user is told "that post is
+  // already being published", which is the third different story one post gets
+  // told about itself. See RECORD_FAILED_PREFIX in lib/publish-failure.ts.
+  if (isRecordFailure(post.publishError)) return "already_published"
 
   // A "Try out" post was written against a stand-in account. It borrows a real
   // platform value, so without this it would resolve to the member's genuine
@@ -62,7 +71,7 @@ export function publishBlockedReason(
 }
 
 export function canAttemptPublish(
-  post: Pick<Post, "platform" | "isTryout" | "publishedAt">,
+  post: Pick<Post, "platform" | "isTryout" | "publishedAt" | "publishError">,
   accounts: ConnectedSocialAccount[]
 ): boolean {
   return publishBlockedReason(post, accounts) === null

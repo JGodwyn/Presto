@@ -56,7 +56,20 @@ function messageFor(failure: PublishOutcomeFailure): string {
 }
 
 export type PublishPostResult =
-  | { error: string; failure?: PublishOutcomeFailure; recorded?: true }
+  | {
+      error: string
+      failure?: PublishOutcomeFailure
+      recorded?: true
+      // Present only on `record_failed`: the post IS live under this URN even
+      // though its row does not say so. **It has to cross this boundary**, or
+      // the client mirrors a bare "record_failed" into publish_error while the
+      // server wrote "record_failed:<urn>" — and the card then reads the marker
+      // as an ordinary failure, says "Didn't send" under a toast saying it
+      // published, and changes its story on reload. TypeScript cannot catch
+      // that: publishErrorFor takes the field as optional, so dropping it here
+      // type-checks perfectly.
+      publishedUrn?: string
+    }
   | { ok: true; postUrn: string; publishedAt: string }
 
 export async function publishPost(
@@ -85,13 +98,12 @@ export async function publishPost(
   revalidatePath(`/projects/${parsed.data.projectId}/calendar`)
 
   if (!outcome.ok) {
-    return outcome.recorded
-      ? {
-          error: messageFor(outcome.failure),
-          failure: outcome.failure,
-          recorded: true,
-        }
-      : { error: messageFor(outcome.failure), failure: outcome.failure }
+    return {
+      error: messageFor(outcome.failure),
+      failure: outcome.failure,
+      ...(outcome.recorded ? { recorded: true as const } : {}),
+      ...(outcome.publishedUrn ? { publishedUrn: outcome.publishedUrn } : {}),
+    }
   }
 
   return {

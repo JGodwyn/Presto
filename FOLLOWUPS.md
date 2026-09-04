@@ -578,3 +578,32 @@ to distinguish the states.
 **Why it waited:** four controls across `GeneratedPostCard`, the day deck and
 post-details, and each wants a different answer. Not reachable while the gate is
 shut, since nothing can be published in the first place.
+
+---
+
+## 19. The client/server bundle guard only checks one hop
+
+**From:** `feat/linkedin-publish`, 2026-09-04.
+
+`lib/ai/no-client-sdk.test.ts` regexes for a *direct* `import … from "<server
+module>"` inside files marked `"use client"`. A client component importing a
+pure module that itself imports a server one is invisible to it.
+
+That is not hypothetical: putting `RECORD_FAILED_PREFIX` in `lib/publish-runner`
+and importing it from `lib/publish-failure` — which three client components read
+— would have pulled Supabase and the LinkedIn share call into the browser
+bundle, with the guard green. Caught by diffing a real build, not by the test.
+
+This branch made the gap wider by adding `lib/linkedin/publish`,
+`lib/linkedin/oauth`, `lib/supabase/service` and `lib/publish-runner` to
+`SERVER_ONLY`.
+
+**Do:** resolve each client component's import graph transitively (handling the
+`@/` alias, relative paths and extension resolution) rather than one hop. A
+cheaper stopgap: assert on built output — grep `.next/static/chunks` for
+`service_role` / `api.linkedin.com` after a build — though that needs a build,
+so it belongs in a separate script rather than the unit suite.
+
+**Why it waited:** it is a change to a shared test harness that every branch
+depends on, and the immediate hole is closed. Best done when nothing is in
+flight.

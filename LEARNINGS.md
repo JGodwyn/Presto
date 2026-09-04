@@ -1398,3 +1398,29 @@ query you meant; it can never prove the query means what you think.** Where the
 two can differ, either assert on the predicate as written (which is what the new
 `the claim predicate is null-safe` test does) or check it against a real
 database. This one was found by running both forms against live PostgREST.
+
+### An optional field silently dropped at a boundary type-checks perfectly
+
+**Symptom.** A fix to make a `record_failed` post read as "published, not
+recorded" worked in isolation and did nothing in the app. The card kept saying
+"Didn't send" under a toast saying the post had published, and changed its story
+on reload.
+
+**Cause.** The helper was correct; the server action never passed it the field.
+`publishErrorFor({ failure, publishedUrn? })` takes the URN as **optional**, so
+an action that returned only `{ failure }` satisfied the type and lost the URN
+in silence. The client then stored `"record_failed"` while the database held
+`"record_failed:<urn>"`, and every reader that prefix-tests the marker
+misclassified it.
+
+**Rule.** When a value must survive a boundary — a server action's return, a
+props hop, a serialization — an *optional* field is not a contract, it is a
+suggestion. Either make it required on the shape that carries it, or pin the
+agreement with a test that constructs what the producer really returns and
+asserts the consumer's answer. A type that permits the bug will not report it.
+
+**Corollary.** Fixing the display of a state is not fixing the state. Three
+surfaces described this one post differently — the toast, the card, and the
+still-enabled "Publish now" button — because each derived its answer from a
+different field. Once a state exists, find every reader before declaring it
+handled.

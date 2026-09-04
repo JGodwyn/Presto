@@ -5863,3 +5863,63 @@ story on reload.
 | `npm run lint` | 17 — `main`'s baseline |
 | `npm run test` | 359 passed / 30 files, excluding `lib/ai/generate.test.ts` |
 | `npm run build` | clean, client bundle verified free of server modules |
+
+---
+
+## 2026-09-04 — fourth round: the copy fix that never reached the client
+
+Held again, on a defect in the previous commit, and the reviewer was right.
+
+**`publishErrorFor()` was correct and unreachable.** The server action's error
+branch was typed `{ error; failure?; recorded? }` with no `publishedUrn`, and
+its return discarded `outcome.publishedUrn`. **TypeScript could not catch it**:
+`publishedUrn` is optional on `publishErrorFor`'s structural parameter, so
+dropping it type-checks perfectly. The client therefore mirrored a bare
+`"record_failed"` while the row held `"record_failed:<urn>"`, and every reader
+misclassified it — the card said "Didn't send" over *"This post didn't go out.
+Try publishing it again"* beneath a toast saying the post had published, then
+changed its story on reload. Both call sites were affected; both correctly
+guarded on `result.recorded`, and neither received the URN.
+
+Fixed by threading `publishedUrn` through `PublishPostResult`, with a comment on
+the field saying why it must cross that boundary.
+
+**A third contradictory message, from the same root.** `publishBlockedReason`
+keys on `publishedAt`, which is null on this path, so "Publish now" stayed
+enabled on a post already live; clicking it hit the claim predicate and returned
+*"That post is already being published"*. It now also returns
+`already_published` for a `record_failed` marker — the marker is the only thing
+that can see this state.
+
+**New `lib/publish-failure.test.ts` (7 tests)** pinning the thing the type system
+cannot: that what the client mirrors equals what the server wrote. One test
+deliberately asserts the *broken* shape misclassifies, documenting why the field
+has to be passed rather than leaving a future reader to rediscover it.
+
+**Two stale comments corrected in `lib/linkedin/publish.ts`.** They still said
+the share call was "unverified against a live call — by construction, since
+nothing has ever been allowed to make one", and that publish-actions.ts was the
+only caller. Both false since 2026-09-03: two posts are live, and the caller is
+publish-runner.ts, reached from the action *and* the cron. A stale "nothing has
+ever published" in the file that owns the gate is the wrong direction to be
+wrong in. Now records that a plain text share is verified and that media,
+articles and non-default visibility are not.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 — `main`'s baseline |
+| `npm run test` | **366** passed / 31 files, excluding `lib/ai/generate.test.ts` |
+| `npm run build` | clean; client chunks 3.4M, zero hits for `service_role`, `api.linkedin.com`, `SUPABASE_SERVICE_ROLE_KEY`, `LINKEDIN_CLIENT_SECRET`, `CRON_SECRET` |
+
+**Correction to an earlier entry:** the `w_member_social` string in a client
+chunk is *not* "present on main too" — `lib/linkedin/scopes.ts` is new on this
+branch. It is still correct and harmless: a public OAuth scope identifier, ~40
+bytes, pulled in because the Connections row imports `isGrantStale` from that
+module. The claim that it predated the branch was wrong.
+
+**One item added to FOLLOWUPS (§19):** `no-client-sdk.test.ts` only inspects
+*direct* imports in `"use client"` files, so a two-hop path into a server module
+is invisible — which is exactly how the `publish-failure` → `publish-runner`
+import nearly shipped Supabase and the share call into the browser. This branch
+widened the blast radius by adding three modules to `SERVER_ONLY`.
