@@ -6392,3 +6392,22 @@ Gates: tsc clean, eslint 17 (baseline), vitest 384, build clean.
 both dateless — and were left alone. Every row this session created for testing
 has been deleted.
 
+### Fifth round — the tooltip's gutters
+
+Reported as "too much space right and left of the tooltip". It was
+`text-balance`, which I had added in the third round alongside `max-w-64`,
+and the two fight each other: balance does not shrink the box, so the lines
+were balanced *inside* the full 256px cap and the centred text sat in ~29px of
+dead gutter each side.
+
+Measured rather than guessed, with an off-screen probe carrying the same class
+string (the live tooltip cannot be measured — an eval backgrounds the tab and
+the hover closes it): with balance, box 256 / content 232 / longest line 174 /
+slack **57.8px**; without, longest line 211 / slack **20.7px**. Dropped
+`text-balance`; `max-w-64 whitespace-normal text-center` stays. Confirmed in the
+browser — the first two lines now fill the box and only the last is short.
+
+Full entry in LEARNINGS, including the probe technique and the fact that
+`max-w-56`/`max-w-48` are not in this project's Tailwind scale and silently do
+nothing.
+

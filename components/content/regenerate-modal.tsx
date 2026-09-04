@@ -237,10 +237,18 @@ export function RegenerateModal({
                 }
               />
               {/* Capped and wrapping: a sentence this long renders as one
-                  ~440px line by default, which reaches past the dialog and
+                  ~540px line by default, which reaches past the dialog and
                   sits on its close button. Every other tooltip in the app is
-                  a couple of words, so this is the one that needs a width. */}
-              <TooltipContent className="max-w-64 text-balance whitespace-normal text-center">
+                  a couple of words, so this is the one that needs a width.
+
+                  **No `text-balance`.** It does not shrink the box — Chrome
+                  sizes the element first (min(max-content, max-width) = 256px
+                  here) and only then balances the lines inside it, so the
+                  lines came out at 166/170/174px in a 232px content box and
+                  the centred text sat inside ~29px of dead gutter on each
+                  side. Plain wrapping fills the box: 211/211/88, 10px of
+                  slack. See LEARNINGS. */}
+              <TooltipContent className="max-w-64 whitespace-normal text-center">
                 {copy.noteTooltip}
               </TooltipContent>
             </Tooltip>
