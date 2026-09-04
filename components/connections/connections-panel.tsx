@@ -290,7 +290,12 @@ function ConnectionsPanel({
                   )}
                 </Button>
               ) : (
-                <span className="text-body-lg text-text-subtle">
+                // pr-pad-md is not a nudge: the row's own pr-pad-sm (8px) is
+                // sized for a Button, which insets its label by another
+                // pad-md. Text with no box of its own would otherwise sit 12px
+                // nearer the edge than every other row's action does — this
+                // lands it exactly where a Connect or Disconnect label sits.
+                <span className="pr-pad-md text-body-lg text-text-subtle">
                   Coming soon
                 </span>
               )

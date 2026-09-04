@@ -6493,7 +6493,11 @@ redirect for a platform the app no longer offers is a dead end wearing a button.
 
 The "Coming soon" text is `body-lg`/`text-subtle` (16px, 24px line-height,
 weight 500), per direct request — it was `body-md`, which read too quiet beside
-the 16px platform label sitting on the same row.
+the 16px platform label sitting on the same row. It also carries `pr-pad-md`,
+which is not a nudge: `PlatformRow`'s own `pr-pad-sm` (8px) is sized for a
+Button, and a Button `sm` insets its label by a further `pad-md`. Bare text with
+no box of its own sat 12px nearer the edge than every other row's action; the
+padding lands it at the same 20px a Connect or Disconnect label sits at.
 
 Verified on **:3002**: X renders as "Coming soon" beside LinkedIn's live
 Disconnect. The withdrawn-but-connected path has no data to exercise it (the
