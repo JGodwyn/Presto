@@ -162,6 +162,16 @@ it restarts, so removing the line is not the same as the gate being shut.
   treatment until it is reloaded. Correct for a boundary that moves once every
   60 days; noted so nobody reports it as a bug.
 
+**From:** `feat/published-posts`, 2026-09-04.
+
+- **The publish confirmation's missing tick has never been seen.** "Published to
+  LinkedIn" was changed to render without its success glyph, and the only way to
+  raise that toast is to publish for real — which is not a thing to do to look
+  at an icon. The mechanism (`{showIcon && …}` in toast.tsx) is the one every
+  action-carrying toast already exercises and both call sites were read back, so
+  this is low risk, but it is unverified. Whoever publishes next should glance
+  at it.
+
 
 ---
 
@@ -472,6 +482,37 @@ comes back over 280, the switch is refused and the user is told "Still too long
 for X" — they must regenerate again themselves. Deliberate for now (an automatic
 retry loop spends tokens without asking), but if it turns out to be common, a
 single silent retry before reporting would be the obvious fix.
+
+---
+
+## A failed follow-up leaves a draft that duplicates the published post
+
+**From:** `feat/published-posts`, 2026-09-04. **A known trade-off, not a bug.**
+
+Regenerating a published post creates the draft row *first* — that is what lets
+the click take you to the draft's own page and watch the generation stream in,
+instead of staring at a spinner on the button you pressed. `posts.content`
+cannot be empty, so the row is seeded with the published post's own text.
+
+In the ordinary path that seed is never seen: the page blanks the body before
+paint (the auto-start runs in a `queueMicrotask`, deliberately, not a timeout).
+But **if the generation fails, the user is left with a draft that is a verbatim
+copy of the published post**, plus an error toast. It is recoverable — delete
+it, or regenerate it again — and a copy is more useful than a placeholder, which
+is why it was chosen. It is still litter nobody asked for.
+
+**If this turns out to be annoying**, the options are: delete the row when the
+first generation fails (needs care — the user may have navigated away, and the
+row is theirs by then), or seed it with something explicitly provisional and
+accept a useless draft instead of a duplicate one. Neither is obviously right,
+which is why it was left.
+
+**Related, same feature:** the brief picked in the modal crosses the navigation
+through `lib/pending-regeneration.ts`, a module store. It degrades to nothing on
+a hard reload — you land on the seeded draft and nothing generates. That is the
+safe direction (a persisted handoff could re-fire a generation on a post
+someone only meant to open) but it does mean the failure looks like "it just
+didn't do anything".
 
 ---
 

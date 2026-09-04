@@ -6411,3 +6411,27 @@ Full entry in LEARNINGS, including the probe technique and the fact that
 `max-w-56`/`max-w-48` are not in this project's Tailwind scale and silently do
 nothing.
 
+### Handoff note — the state the machine is in
+
+**`PRESTO_ENABLE_LIVE_PUBLISH=true` is currently set in `.env.local`**, put
+there by the owner to publish for real (`urn:li:share:7501717147975561216`). It
+is *not* in the repo — `.env.local` is gitignored and symlinked from the main
+checkout — but it is shared with `presto` and the `x-publish` worktree, so any
+dev server any of them restarts picks it up, and `/api/cron/publish` on any port
+will genuinely publish. Take it out when the testing is finished.
+
+Three dev servers were up at handoff: :3000 (main checkout), :3001 (this
+worktree), :3002 (x-publish). Only :3001 was started by this session.
+
+**Two drafts in the database are not this session's** — 19:25 and 19:45 on
+2026-09-04, both dateless — and were deliberately left alone. Every row created
+for testing here has been deleted; the table is at 314 rows / 3 published, and
+the 3 published rows are all genuinely on the owner's timeline.
+
+**What this branch does not include, by design:** the scheduler firing on its
+own. That needs a deployed origin — Postgres cannot reach a laptop — and the
+owner is doing the deployment on `main`. FOLLOWUPS §5.1 is the whole remaining
+list (pg_cron schedule, production env, production callback URL, the gate) and
+no code is left to write for it. A local launchd/cron job was offered as a way
+to rehearse it and declined as a stopgap, correctly.
+
