@@ -6165,3 +6165,17 @@ here caught the *pre-hydration* frame: the Content page's stored layout and the
 overdue clock both resolve on hydration (`getServerClock()` is 0 by design), so
 the first screenshot after a navigation can show the wrong view with no status
 chips at all. Take a second one.
+
+## 2026-09-04 — Status chip to 24px
+
+`h-5` → `h-6` on the overdue/failed chip, per direct request. The failed half
+needed no separate change: both branches already share one base class string
+and differ only in palette, so "red, no border, same as overdue" was already
+what it rendered. Confirmed rather than assumed — no post in the database has a
+`publishError`, so the danger variant was previewed by swapping the palette
+classes on a live chip: 24px, `rgb(255,228,228)` fill, `rgb(220,0,0)` text,
+`0px` border.
+
+The height stays set outright rather than derived from padding: `body-md`'s
+line-height is 20px, so restoring `py-pad-xs` would put the chip straight back
+at 28. `items-center` splits the remaining 4px.

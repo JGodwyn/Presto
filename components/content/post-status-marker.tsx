@@ -43,12 +43,14 @@ const CHIP_CORNER_RADIUS = 8
 // this used to carry is gone — the tint and the word do the work.
 //
 // **It is deliberately quieter than the export**, per direct feedback that the
-// chip was too prominent: 20px tall instead of 28, and no stroke at all. Both
+// chip was too prominent: 24px tall instead of 28, and no stroke at all. Both
 // changes exist to stop it out-weighing the topic chips it shares a row with —
 // a real Chip is 28px with a border, so matching that made a *warning* look
 // like the most substantial thing on the card. Shorter and border-free, it
-// reads as a tag on the row rather than a peer of it. That also means no
-// vertical padding: `body-md`'s own 20px line-height is the full height.
+// reads as a tag on the row rather than a peer of it. The height is set
+// outright rather than derived from padding: `body-md`'s line-height is 20px,
+// so `py-pad-xs` would put it straight back at 28 — `items-center` splits the
+// remaining 4px instead.
 //
 // Only the overdue half is exported. The failed half is the same chip in the
 // app's danger tones: the two occupy the same slot and mean the same kind of
@@ -86,7 +88,7 @@ export function PostStatusMarker({
       ref={ref}
       style={style}
       className={cn(
-        "flex h-5 shrink-0 items-center rounded-rad-md px-pad-sm text-body-md-bold",
+        "flex h-6 shrink-0 items-center rounded-rad-md px-pad-sm text-body-md-bold",
         failed
           ? "bg-surface-danger-light text-text-danger"
           : "bg-surface-warning-light text-text-warning",
