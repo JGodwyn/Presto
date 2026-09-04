@@ -6491,6 +6491,10 @@ where it would otherwise offer Reconnect. Keeping the row matters — a live
 connection with a stored token must not become invisible — but an authorize
 redirect for a platform the app no longer offers is a dead end wearing a button.
 
+The "Coming soon" text is `body-lg`/`text-subtle` (16px, 24px line-height,
+weight 500), per direct request — it was `body-md`, which read too quiet beside
+the 16px platform label sitting on the same row.
+
 Verified on **:3002**: X renders as "Coming soon" beside LinkedIn's live
 Disconnect. The withdrawn-but-connected path has no data to exercise it (the
 owner disconnected X in the meantime), so it was checked by forcing LinkedIn

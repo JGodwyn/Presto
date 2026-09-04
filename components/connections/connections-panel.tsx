@@ -290,7 +290,7 @@ function ConnectionsPanel({
                   )}
                 </Button>
               ) : (
-                <span className="text-body-md text-text-subtle">
+                <span className="text-body-lg text-text-subtle">
                   Coming soon
                 </span>
               )
