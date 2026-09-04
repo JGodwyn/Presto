@@ -3,10 +3,11 @@
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { PaperPlaneTilt, X } from "@phosphor-icons/react"
+import { ArrowsOutSimpleIcon, PaperPlaneTilt, X } from "@phosphor-icons/react"
 
 import {
   deletePost,
+  draftFollowUpPost,
   regeneratePost,
   updatePost,
 } from "@/app/projects/[projectId]/generate/post-actions"
@@ -39,7 +40,7 @@ import { BUILTIN_MODEL_ID } from "@/lib/ai/model-constants"
 import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { publishErrorFor } from "@/lib/publish-failure"
-import { canAttemptPublish } from "@/lib/post-publish"
+import { canAttemptPublish, isPostLocked } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -282,6 +283,13 @@ export function DayDeck({
   const [toastExtraInfo, setToastExtraInfo] = React.useState<string | undefined>(
     undefined
   )
+  // Held for the same reason: a button that vanished while the toast was still
+  // animating out would read as the toast changing its mind. Only the
+  // follow-up draft sets one — it is the one thing this deck produces that
+  // lands somewhere the deck cannot show.
+  const [toastAction, setToastAction] = React.useState<
+    { icon: React.ReactNode; label: string; onClick: () => void } | undefined
+  >(undefined)
   // Split from the message for the same reason, and held rather than derived so
   // the button doesn't vanish while the toast is still animating out.
   // The account switch refused for being too long, with the post it was for.
@@ -309,13 +317,18 @@ export function DayDeck({
     setToastVariant("danger")
     setToastMessage(message)
     setToastExtraInfo(extraInfo)
+    setToastAction(undefined)
     setToastOpen(true)
   }
 
-  const showSuccess = (message: string) => {
+  const showSuccess = (
+    message: string,
+    action?: { icon: React.ReactNode; label: string; onClick: () => void }
+  ) => {
     setToastVariant("success")
     setToastMessage(message)
     setToastExtraInfo(undefined)
+    setToastAction(action)
     setToastOpen(true)
   }
 
@@ -851,6 +864,43 @@ export function DayDeck({
     }
   }
 
+  // Regenerate, on a post that has already gone out. It writes a **new draft**
+  // rather than touching this one — see draftFollowUpPost for why, and
+  // isPostLocked (lib/post-publish.ts) for what decides which of the two a
+  // card offers.
+  //
+  // The new draft never belongs to this deck: it has no date, so it lands on
+  // the Draft tab under today, which is a different day and usually a
+  // different tab from whatever is open. So it goes into the page's own post
+  // list (the chips behind the deck update in the same beat) and the toast
+  // carries the only way to reach it — a success message with no route out of
+  // it would be a post the user has to go hunting for.
+  const handleDraftFollowUp = async (post: Post) => {
+    const model = readPreferredModel(projectId) ?? BUILTIN_MODEL_ID
+    const result = await withNetworkStatus(
+      draftFollowUpPost({ projectId, id: post.id, model }),
+    )
+    if (result === null) return
+    if ("error" in result) {
+      if (result.reason === "network") reportNetworkIssue()
+      else {
+        const { message, extraInfo } = generationFailureCopy(result.reason, {
+          message: result.error,
+        })
+        showError(message, extraInfo)
+      }
+      return
+    }
+
+    const draft = result.post
+    onPostsChange((prev) => [...prev, draft])
+    showSuccess("Drafted a follow-up", {
+      icon: <ArrowsOutSimpleIcon weight="bold" />,
+      label: "Open the follow-up",
+      onClick: () => closeThenOpen(draft.id),
+    })
+  }
+
   // Portalled to <body>, and it has to be: GlowPanel carries a clip-path (the
   // squircle), and any clip-path other than `none` makes that element the
   // containing block for its fixed-position descendants — so rendered in
@@ -983,6 +1033,13 @@ export function DayDeck({
                         onTurnToDraft={() => handleTurnToDraft(post)}
                         onOpen={() => closeThenOpen(post.id)}
                         onRegenerate={() => handleRegenerate(post)}
+                        locked={isPostLocked(post)}
+                        publishedAt={
+                          post.publishedAt
+                            ? new Date(post.publishedAt)
+                            : undefined
+                        }
+                        onDraftFollowUp={() => handleDraftFollowUp(post)}
                         regenerating={dialogRegeneratingId === post.id}
                         account={resolvePostAccount(post, accounts)}
                         nextAccount={nextPostAccount(post, accounts)}
@@ -1103,6 +1160,7 @@ export function DayDeck({
           variant={toastVariant}
           direction="top"
           extraInfo={toastExtraInfo}
+          action={toastAction}
         >
           {toastMessage}
         </Toast>

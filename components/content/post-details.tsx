@@ -7,7 +7,9 @@ import { useRouter } from "next/navigation"
 import {
   ArrowArcLeftIcon,
   ArrowClockwise,
+  ArrowsOutSimpleIcon,
   CalendarDots,
+  NotePencil,
   PaperPlaneTilt,
   CaretLeft,
   PencilSimple,
@@ -17,7 +19,11 @@ import {
 } from "@phosphor-icons/react"
 import { TextMorph } from "torph/react"
 
-import { deletePost, updatePost } from "@/app/projects/[projectId]/generate/post-actions"
+import {
+  deletePost,
+  draftFollowUpPost,
+  updatePost,
+} from "@/app/projects/[projectId]/generate/post-actions"
 import { publishPost } from "@/app/projects/[projectId]/generate/publish-actions"
 import { RegenerateModal } from "@/components/content/regenerate-modal"
 import { StreamedLine } from "@/components/content/streamed-line"
@@ -53,7 +59,7 @@ import {
 import { isNetworkError } from "@/lib/network-error"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { publishErrorFor } from "@/lib/publish-failure"
-import { canAttemptPublish } from "@/lib/post-publish"
+import { canAttemptPublish, isPostLocked } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -168,8 +174,22 @@ export function PostDetails({
   // stays (it removes Presto's record, and its own copy says the live post
   // survives), and the publish control is gone by construction, since
   // canAttemptPublish refuses an already-published post.
-  const isPublished = currentPost.publishedAt !== null
+  // The one predicate three surfaces share (lib/post-publish.ts). It covers
+  // the ordinary published post *and* the one that is live at LinkedIn with a
+  // failed `published_at` write — reading `publishedAt` alone here would have
+  // left every control open on the second.
+  const isPublished = isPostLocked(currentPost)
   const canPublish = canAttemptPublish(currentPost, accounts)
+  // When it went out. The heading reports this instead of the schedule once a
+  // post is live: a post published straight from a draft never gets a
+  // `scheduled_for`, so the heading used to read "Draft" above something on
+  // someone's timeline (FOLLOWUPS §5c). Null on the live-but-unrecorded case,
+  // where the moment genuinely isn't known — the status marker says so there.
+  const publishedAt = currentPost.publishedAt
+    ? new Date(currentPost.publishedAt)
+    : undefined
+  // What the heading line actually shows.
+  const headingDate = publishedAt ?? scheduled
 
   const { ref: contentFadeRef, onScroll: onContentScroll } = useScrollFade()
   // A separate instance for the streaming view specifically: during the
@@ -310,6 +330,9 @@ export function PostDetails({
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
 
   const handleContentClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    // Nothing on this box says "editable", so the lock has to be enforced
+    // here: rewriting a published post changes nothing about what is public.
+    if (isPublished) return
     const el = event.currentTarget
     const caret = getCaretOffsetFromPoint(event.clientX, event.clientY)
     caretOffsetRef.current =
@@ -460,6 +483,68 @@ export function PostDetails({
         if (result !== null) showError("Couldn't move that post to drafts")
         else setToast((prev) => ({ ...prev, open: false }))
       }
+    })
+  }
+
+  // Regenerate, once the post is out. It writes a **new draft** rather than
+  // touching this one (draftFollowUpPost) — decision 2 of this branch: a piece
+  // that landed well is exactly the one worth another angle on, and nothing
+  // about the live post moves.
+  //
+  // Awaited rather than streamed, unlike the reroll below. The stream exists
+  // so new text can replace the old text *on this page*, and here it must
+  // not: the body still has to show what actually went out. So the wait lives
+  // on the button, and the finished draft is reached through the toast.
+  const [isDraftingFollowUp, setIsDraftingFollowUp] = React.useState(false)
+  const handleDraftFollowUp = async (
+    guidance: string,
+    model: string,
+    topic: string | undefined
+  ) => {
+    setRegenerateOpen(false)
+    setIsDraftingFollowUp(true)
+    let result: Awaited<ReturnType<typeof draftFollowUpPost>> | null
+    try {
+      result = await withNetworkStatus(
+        draftFollowUpPost({
+          projectId: currentPost.projectId,
+          id: currentPost.id,
+          model,
+          guidance: guidance || undefined,
+          topic,
+        })
+      )
+    } finally {
+      setIsDraftingFollowUp(false)
+    }
+
+    if (result === null) return
+    if ("error" in result) {
+      if (result.reason === "network") reportNetworkIssue()
+      else {
+        const { message, extraInfo } = generationFailureCopy(result.reason, {
+          message: result.error,
+        })
+        showError(message, extraInfo)
+      }
+      return
+    }
+
+    // The draft is dateless, so it lands on the Draft tab under today — never
+    // on this page and rarely on the tab the reader came from. The toast's
+    // action is the only route to it, which is why it has one.
+    const draft = result.post
+    const href = `/projects/${currentPost.projectId}/calendar/${draft.id}`
+    router.prefetch(href)
+    setToast({
+      open: true,
+      variant: "success",
+      message: "Drafted a follow-up",
+      action: {
+        icon: <ArrowsOutSimpleIcon weight="bold" />,
+        label: "Open the follow-up",
+        onClick: () => router.push(href),
+      },
     })
   }
 
@@ -929,18 +1014,25 @@ export function PostDetails({
               <TooltipContent>Publish now</TooltipContent>
             </Tooltip>
           ) : null}
+          {/* Regenerate keeps its place on a published post but changes what
+              it produces: rewriting this one would only make the page and the
+              live post disagree, so it drafts a *new* post off the back of it
+              instead. Same modal, same brief, different verb — the icon is
+              the tell. */}
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
                   variant="brand"
                   size="icon-sm"
-                  aria-label="Regenerate post"
-                  disabled={isRegenerating || isPublished}
+                  aria-label={isPublished ? "Draft a follow-up" : "Regenerate post"}
+                  disabled={isRegenerating || isDraftingFollowUp}
                   onClick={() => setRegenerateOpen(true)}
                 >
-                  {isRegenerating ? (
+                  {isRegenerating || isDraftingFollowUp ? (
                     <SpinnerGap weight="bold" className="animate-spin" />
+                  ) : isPublished ? (
+                    <NotePencil weight="bold" />
                   ) : (
                     <ArrowClockwise weight="bold" />
                   )}
@@ -948,9 +1040,7 @@ export function PostDetails({
               }
             />
             <TooltipContent>
-              {isPublished
-                ? "Already published — rewriting it here wouldn't change the live post"
-                : "Regenerate"}
+              {isPublished ? "Draft a follow-up" : "Regenerate"}
             </TooltipContent>
           </Tooltip>
           {/* The export's own labels: "Move to drafts" on a dated post. The
@@ -1048,9 +1138,9 @@ export function PostDetails({
                       morphs on its own when the schedule changes. */}
                   <h1 className="flex items-baseline gap-dist-md text-heading-sm font-display text-text-bold">
                     <TextMorph duration={HEADING_MORPH_DURATION} ease={STRONG_EASE_OUT}>
-                      {scheduled ? formatDate(scheduled) : "Draft"}
+                      {headingDate ? formatDate(headingDate) : "Draft"}
                     </TextMorph>
-                    {scheduled ? (
+                    {headingDate ? (
                       <>
                         <span aria-hidden className="text-text-subtle">
                           •
@@ -1060,7 +1150,7 @@ export function PostDetails({
                             duration={HEADING_MORPH_DURATION}
                             ease={STRONG_EASE_OUT}
                           >
-                            {formatClockTime(scheduled)}
+                            {formatClockTime(headingDate)}
                           </TextMorph>
                         </span>
                       </>
@@ -1069,24 +1159,31 @@ export function PostDetails({
                   {/* Not a content edit — this pencil is the date action:
                   reschedule a dated post, or give a draft its first date.
                   Same picker as the button above; this is just the quicker
-                  way to reach it. */}
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label={scheduled ? "Change date" : "Add to calendar"}
-                          onClick={() => setPickerOpen(true)}
-                          className="flex cursor-pointer items-center text-icon-subtle transition-[color,scale] duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
-                        >
-                          <PencilSimple weight="bold" className="size-6" />
-                        </button>
-                      }
-                    />
-                    <TooltipContent>
-                      {scheduled ? "Change date" : "Add to calendar"}
-                    </TooltipContent>
-                  </Tooltip>
+                  way to reach it.
+
+                  Gone once the post is out, rather than disabled: the heading
+                  beside it is no longer a schedule at all — it is the moment
+                  the post went live — and a pencil next to that offers to
+                  edit something that has already happened. */}
+                  {isPublished ? null : (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            aria-label={scheduled ? "Change date" : "Add to calendar"}
+                            onClick={() => setPickerOpen(true)}
+                            className="flex cursor-pointer items-center text-icon-subtle transition-[color,scale] duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
+                          >
+                            <PencilSimple weight="bold" className="size-6" />
+                          </button>
+                        }
+                      />
+                      <TooltipContent>
+                        {scheduled ? "Change date" : "Add to calendar"}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </>
               )}
             </div>
@@ -1115,8 +1212,13 @@ export function PostDetails({
                   : currentPost,
                 accounts
               )}
+              // Null makes the pill a plain span: it still names the account
+              // this went out as, it just no longer offers to change it. A
+              // published post's account is a fact, not a setting.
               nextAccount={
-                isRegenerating ? null : nextPostAccount(currentPost, accounts)
+                isRegenerating || isPublished
+                  ? null
+                  : nextPostAccount(currentPost, accounts)
               }
               onSelect={handleSocialChange}
               className="max-w-60"
@@ -1182,7 +1284,11 @@ export function PostDetails({
                     exit={{ opacity: 0, filter: "blur(8px)" }}
                     transition={{ duration: 0.3, ease: STRONG_EASE_OUT_TUPLE }}
                     className={cn(
-                      "absolute inset-0 cursor-text overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
+                      "absolute inset-0 overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
+                      // The only affordance this box has. Dropped once the
+                      // post is live, so the pointer stops promising an edit
+                      // that handleContentClick now refuses.
+                      isPublished ? undefined : "cursor-text",
                       HIDE_NATIVE_SCROLLBAR_CLASSNAME
                     )}
                   >
@@ -1243,8 +1349,12 @@ export function PostDetails({
         // The platform this reroll writes for: the one a refused switch is
         // waiting on, or the post's own when it is an ordinary regenerate.
         targetPlatform={pendingSwitch?.platform ?? currentPost.platform}
+        mode={isPublished ? "follow-up" : "regenerate"}
+        isPending={isDraftingFollowUp}
         onConfirm={(guidance, model, topic) =>
-          void handleRegenerate(guidance, model, topic, pendingSwitch ?? undefined)
+          isPublished
+            ? void handleDraftFollowUp(guidance, model, topic)
+            : void handleRegenerate(guidance, model, topic, pendingSwitch ?? undefined)
         }
       />
 

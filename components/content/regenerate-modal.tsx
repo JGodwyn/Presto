@@ -18,6 +18,28 @@ import { fetchUserAiModels } from "@/lib/supabase/queries"
 
 const BADGE_CORNER_RADIUS = 8 // rad-md
 
+export type RegenerateMode = "regenerate" | "follow-up"
+
+// The only thing the two modes disagree about. Kept as one table so the pair
+// can be read side by side rather than chased through three ternaries.
+const MODE_COPY: Record<
+  RegenerateMode,
+  { title: string; placeholder: string; confirm: string; confirmPlain: string }
+> = {
+  regenerate: {
+    title: "Regenerate post",
+    placeholder: "Anything you’d like to see in the new version? (Optional)",
+    confirm: "Regenerate",
+    confirmPlain: "Just regenerate",
+  },
+  "follow-up": {
+    title: "Draft a follow-up",
+    placeholder: "Anything you’d like the follow-up to do differently? (Optional)",
+    confirm: "Draft it",
+    confirmPlain: "Just draft it",
+  },
+}
+
 // Same two no-setup models as generate-card.tsx's own BUILTIN_MODEL_OPTIONS
 // (kept in sync by hand, same as that file already does against
 // lib/ai/generate.ts) — a user's own Connections models are appended once
@@ -59,6 +81,7 @@ export function RegenerateModal({
   onConfirm,
   isPending = false,
   targetPlatform,
+  mode = "regenerate",
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -86,6 +109,13 @@ export function RegenerateModal({
   // shown and the prompt falls back to the post's own (absent) topic.
   onConfirm: (guidance: string, model: string, topic: string | undefined) => void
   isPending?: boolean
+  // What this reroll produces. "regenerate" rewrites the post in place;
+  // "follow-up" writes a brand-new draft off the back of it, which is what
+  // Regenerate becomes once a post has gone out and can no longer be changed
+  // (isPostLocked, lib/post-publish.ts). Only the copy differs — the brief,
+  // the model pill and the topic pill are the same question either way, which
+  // is exactly why this is a mode rather than a second modal.
+  mode?: RegenerateMode
 }) {
   // Cleared on a successful confirm (see the button below), not on every
   // open/close — closing via the X without submitting keeps the draft, same
@@ -171,14 +201,15 @@ export function RegenerateModal({
   )
 
   const hasGuidance = guidance.trim().length > 0
+  const copy = MODE_COPY[mode]
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent popupClassName="w-90">
-        <DialogTitle>Regenerate post</DialogTitle>
+        <DialogTitle>{copy.title}</DialogTitle>
         <PillTextarea
           name="guidance"
-          placeholder="Anything you’d like to see in the new version? (Optional)"
+          placeholder={copy.placeholder}
           value={guidance}
           onChange={(event) => setGuidance(event.target.value)}
           disabled={isPending}
@@ -241,9 +272,9 @@ export function RegenerateModal({
           {isPending ? (
             <SpinnerGap weight="bold" className="animate-spin" />
           ) : hasGuidance ? (
-            "Regenerate"
+            copy.confirm
           ) : (
-            "Just regenerate"
+            copy.confirmPlain
           )}
         </Button>
         {/* Always on — this app's Instructions are never optional, so this is

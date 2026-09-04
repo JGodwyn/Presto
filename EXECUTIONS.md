@@ -6179,3 +6179,81 @@ classes on a live chip: 24px, `rgb(255,228,228)` fill, `rgb(220,0,0)` text,
 The height stays set outright rather than derived from padding: `body-md`'s
 line-height is 20px, so restoring `py-pad-xs` would put the chip straight back
 at 28. `items-center` splits the remaining 4px.
+
+## 2026-09-04 — A published post stops behaving like one that hasn't (`feat/published-posts`, port 3001)
+
+Branch holds the schema slot. Four pieces, in the order they were built.
+
+**1. The predicate.** `isPostLocked` in lib/post-publish.ts, sibling to
+`canAttemptPublish`. `publishBlockedReason`'s two `already_published` branches
+now go through it, so "may this go out" and "may this still change" cannot
+disagree about what "already out" means. It covers both live states —
+`publishedAt` set, *and* the `record_failed:` marker, where the share went out
+and the row's own write of it failed. Reading `publishedAt` alone (which every
+one of these surfaces was doing) leaves every control open on the second, so
+that is the case the test pins; mutation-checked by reverting the predicate to
+`publishedAt !== null`, which fails 2 of 13.
+
+**2. The migration.** `posts_scheduled_for_idx` on `(scheduled_for) where
+published_at is null`, applied to the live project. Additive. Confirmed in
+`pg_indexes`; posts previously had only `posts_pkey` and `posts_project_id_idx`.
+
+**3. Scheduler refusals — skip accounts, not posts** (§17). `accountSkipReason`
+/ `partitionSchedulableAccounts` in lib/publish-due.ts, wired into the cron's
+selection so it now asks the *connection* question first and scopes the due
+query with `.in("project_id", eligible)`. `isGrantStale`, not `grantIsCurrent`:
+the platform check has to stay inside, or every X connection is excluded
+permanently with no reconnect able to clear it — mutation-checked, that swap
+fails the test written for it. Skipped connections are reported in the run
+summary by name; the risk of the quieter choice is a broken connection hiding
+indefinitely, and a summary that names them is what keeps it visible.
+
+**4. Read-only treatment** (§5b, §18) and **the heading** (§5c). See the
+INTERFACE.md entry for the per-control decisions.
+
+**Verified in the browser on :3001**, against the two genuinely published rows
+(left untouched — read only, plus three TasteTest follow-up drafts created and
+deleted afterwards; the table is back at 311 rows / 2 published):
+
+- Post details, `049d6052` (published from a draft, `scheduled_for` null): the
+  heading reads **"SEPT 3 • 6:35 AM"** where it used to read "Draft"; no button
+  at all in the heading row (the pencil is gone); the account pill is a plain
+  `SPAN` not inside a button; `cursor: auto` on the body and a click produces no
+  textarea; the first action is now NotePencil / "Draft a follow-up"; Publish
+  now is absent, Turn-to-drafts disabled, Delete live.
+- The follow-up: modal titled "Draft a follow-up" with "Just draft it", a toast
+  with "Open the follow-up" that closes the deck and lands on the new draft's
+  own page. **The source row is byte-identical afterwards** and the new row is
+  `status draft`, no date, no publish state, inheriting platform/is_tryout/
+  topics.
+- Day deck, Published tab: both cards show the published moment with the
+  PaperPlaneTilt icon, a plain-`SPAN` account pill, one full-width "Draft a
+  follow-up" and a two-row menu (Open up / Delete — no Turn to draft, no
+  Publish now). Double-tapping the text produces no textarea.
+- Regression, Queued deck and the follow-up draft's own page: everything back —
+  "Change date" + the icon regenerate, tappable pill, the Overdue chip, and the
+  four-action header with Publish now.
+
+**The cron was exercised against the live database**, not mocked (gate shut
+throughout, `livePublishEnabled: false`). One post temporarily re-dated to
+`now() - 1 minute`, then the connection mutated and restored:
+
+| connection | `due` | `skippedAccounts` |
+| --- | --- | --- |
+| healthy | 1 (refused `publishing_disabled`, nothing recorded) | `[]` |
+| scope `email,openid,profile` | **0** | `scope_not_granted` |
+| `status = 'revoked'` | **0** | `revoked` |
+
+The skipped post came back with `publish_error`, `publish_started_at` and
+`published_at` all null — clean, which is the whole promise of §17. The account
+row and the post's date were restored to their exact prior values.
+
+**Gates:** tsc clean, `npx eslint` 17 errors (`main`'s own baseline, confirmed
+by running it in the main checkout in the same session — FOLLOWUPS §13), vitest
+384 passed **excluding `lib/ai/generate.test.ts`** deliberately (FOLLOWUPS §12 —
+it spends live Gemini quota), `next build` clean.
+
+FOLLOWUPS §5b, §5c, §16, §17, §18 and §5.2's index bullet deleted. §5.3's
+"wearing 'Didn't send'" bullet corrected: a broken connection's posts now wait
+*silently*, which makes the out-of-app signal it asks for more necessary, not
+less.

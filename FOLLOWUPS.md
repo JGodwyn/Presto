@@ -117,19 +117,6 @@ it restarts, so removing the line is not the same as the gate being shut.
 - **The gate itself.** Publishing stays off in production until it is set to
   exactly `"true"`.
 
-### 5.2 Blocked on the schema lock (`feat/x-connect` holds it)
-
-- **A partial index on `scheduled_for`.** The scheduler queries once a minute;
-  `posts` has only `posts_pkey` and `posts_project_id_idx` today. Cheap now,
-  worth having before the table grows:
-
-  ```sql
-  create index posts_scheduled_for_idx on public.posts (scheduled_for)
-    where published_at is null;
-  ```
-
-  Fold it in with FOLLOWUPS #4, which already collects index work.
-
 ### 5.3 Before anyone but the owner can connect
 
 - **The LinkedIn app is almost certainly still in development mode**, in which
@@ -140,9 +127,14 @@ it restarts, so removing the line is not the same as the gate being shut.
   cheapest test is to have one other person try Connect on a deployed build.
 - **Nothing tells a user their connection died.** Tokens last 60 days with no
   refresh available to a standard app. The owner will notice the chip on
-  Connections; a stranger will not, and their scheduled posts will simply stop,
-  wearing "Didn't send". Needs an email or some out-of-app signal before this
-  has real users.
+  Connections; a stranger will not, and their scheduled posts will simply stop.
+  **Silently**, since `feat/published-posts`: the scheduler now excludes a
+  broken connection's posts from the due query rather than marking each one
+  "Didn't send", so they sit in Queued looking untouched until they age out of
+  the grace window and go Overdue. That was the right call for the post — the
+  connection is what is broken — but it makes an out-of-app signal (an email,
+  something) more necessary, not less, before this has real users. The cron's
+  run summary names every skipped connection, which is the only trace today.
 - **LinkedIn's rate limits are per-app, shared across all users.** The
   scheduler's cap of 5 posts per tick is a useful ceiling; a busy app may need
   more thought.
@@ -158,41 +150,6 @@ it restarts, so removing the line is not the same as the gate being shut.
 - **AGENTS.md's "Hard constraint — publishing" section still describes the old
   world** and needs the user's own hand. INTERFACE.md §10a has been rewritten to
   describe the gate that replaced it.
-
----
-
-## 5b. Decide: what a *published* post may still do
-
-**From:** `feat/linkedin-publish`, 2026-09-02. **This is an open question the
-user raised and deliberately parked**, not a bug.
-
-Publishing currently closes two doors on a post: once `published_at` is set,
-post-details disables Regenerate and Move-to-drafts, on the grounds that
-LinkedIn owns the copy people are reading and this screen would otherwise show
-text that isn't what went out. Delete stays, and says the live post survives.
-
-The user's own words: *"later we might need to push it back to being any post
-on a future date or not. i don't know."* So the question left open is whether a
-published post should be re-datable — scheduled again as a *new* post, or
-re-opened for editing — and if so, whether that is a copy or the same row.
-Nothing should change here until that is decided; the current behaviour is the
-conservative reading and is easy to loosen later.
-
----
-
-## 5c. A published draft still reads "Draft" on its own page
-
-**From:** `feat/linkedin-publish`, 2026-09-03. Small, cosmetic, one line.
-
-post-details' heading is the scheduled date or the word "Draft". A post
-published straight from a draft never gets a date (`scheduled_for` stays null by
-design), so its own page now says **Draft** above a post that is live on
-LinkedIn. The Content page is right about it — it sits on the Published tab
-under the day it went out — so this is only the heading.
-
-Found by publishing one for real. Not fixed here because the obvious fix ("show
-the published date instead") overlaps the question parked in 5b about what a
-published post is allowed to be, and that should be decided once.
 
 ---
 
@@ -434,24 +391,6 @@ an otherwise-quiet moment.
 
 ---
 
-## 16. Overdue and failed posts have no treatment on the card
-
-**From:** `publish-state` on `main`, 2026-09-01.
-
-`isOverdue` and `hasFailed` (lib/content-grouping.ts) are built and tested, and
-nothing renders them. A post whose scheduled moment passed without it going out
-now sits in Queued looking exactly like one still waiting its turn — currently
-76 of them, all pre-publishing test data.
-
-**Do:** a state on the Kanban card, the deck card and the post-details header.
-`hasFailed` should surface `publishError`; `isOverdue` alone is quieter.
-
-**Why it waited:** it belongs with the branch that makes publishing — and
-therefore failure — actually possible, so the treatment can be designed against
-real states rather than invented ones. Threading it also touches
-MonthBoard → KanbanColumn → KanbanPostCard and the shared `GeneratedPostCard`,
-which the Generate page also renders.
-
 ## LinkedIn's OAuth routes derive their origin from `nextUrl.origin`
 
 `app/api/connections/linkedin/{authorize,callback}/route.ts` build their
@@ -536,48 +475,24 @@ single silent retry before reporting would be the obvious fix.
 
 ---
 
-## 17. A refusal that records nothing re-selects on every tick
+## The scheduler reads every connection on every tick
 
-**From:** `feat/linkedin-publish`, 2026-09-03. **This is a decision, not a bug.**
+**From:** `feat/published-posts`, 2026-09-04.
 
-The cron's due query excludes `publish_error is not null`, so a *recorded*
-failure is skipped. But the gate refusals — `publishing_disabled`,
-`scope_not_granted`, `token_expired` — return `recorded: false` and leave the row
-untouched, so they come back every tick. Being oldest, they occupy the entire
-`PUBLISH_BATCH_LIMIT` of 5 and starve newer posts behind them.
+`app/api/cron/publish/route.ts` selects *all* LinkedIn `social_accounts`,
+partitions them, and scopes the due query with `.in("project_id", eligible)`.
+Once a minute, forever.
 
-That is currently *every* connection, since adding `w_member_social` invalidated
-every token issued before it.
+**The order is not negotiable** — selecting due posts first and filtering them
+afterwards puts a broken connection's posts back inside `PUBLISH_BATCH_LIMIT`,
+which is the starvation §17 existed to fix. So the fix is not "reorder", it is
+"ask the database to do both at once": a join, or an RPC / view that returns due
+posts already scoped to healthy connections.
 
-**The decision:** should a scope refusal mark the post as failed (it wears the
-"Didn't send" marker, and a person must act), or should the *account* be excluded
-from the due query while its grant is stale (posts wait quietly for a reconnect)?
-The first is visible but blames the post for the connection's problem; the second
-is quieter but can hide a broken connection indefinitely.
-
-**Why it waited:** not reachable while `PRESTO_ENABLE_LIVE_PUBLISH` is unset —
-every post refuses identically, so nothing is starved. Inventing a policy here
-without the decision would have been the wrong kind of initiative.
-
----
-
-## 18. A published post is still editable
-
-**From:** `feat/linkedin-publish`, 2026-09-03. **Product decision.**
-
-A post that has gone out still offers the inline editor, the date pencil and the
-account pill, and Regenerate is exposed on the Published tab in the day deck.
-Rewriting a post that is already public does not change what is public — the row
-and the timeline simply drift apart.
-
-**Do:** decide per control. Plausibly: content and account become read-only once
-`publishedAt` is set; the date becomes a display of when it went out; Regenerate
-disappears or becomes "draft a follow-up". `isOverdue`/`hasFailed` already exist
-to distinguish the states.
-
-**Why it waited:** four controls across `GeneratedPostCard`, the day deck and
-post-details, and each wants a different answer. Not reachable while the gate is
-shut, since nothing can be published in the first place.
+Not worth doing yet — there is one connection — and it needs the schema slot if
+it lands as a view or function. Do it before there are enough connections for
+one page of them to matter, or before the `.in()` list gets long enough that
+PostgREST starts caring about URL length.
 
 ---
 

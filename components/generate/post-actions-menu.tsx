@@ -40,7 +40,9 @@ export function PostActionsMenu({
   // to send it pass this (the Content page's day deck), and the row is left
   // out entirely where they don't.
   onOpen?: () => void
-  // Left out on a draft — there's no schedule to undo.
+  // Left out on a draft — there's no schedule to undo — and on a post that has
+  // already gone out, where filing a published post as unwritten would say
+  // something untrue about it (isPostLocked, lib/post-publish.ts).
   onTurnToDraft?: () => void
   onDelete: () => void
 }) {

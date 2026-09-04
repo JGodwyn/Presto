@@ -24,6 +24,7 @@ import {
 } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 import { isNetworkError, NETWORK_ERROR_MESSAGE } from "@/lib/network-error"
+import { isPostLocked } from "@/lib/post-publish"
 import type { Post, PostPlatform, PostStatus } from "@/types/post"
 
 const WRITING_STYLE_FILES_BUCKET = "writing-style-files"
@@ -416,6 +417,158 @@ export async function regeneratePost(
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)
 
   return { ok: true, post: mapPostRow(data), batchContextId }
+}
+
+const draftFollowUpPostSchema = z.object({
+  projectId: z.string().uuid(),
+  // The published post to riff on.
+  id: z.string().uuid(),
+  model: z.string().min(1).max(200),
+  guidance: z.string().trim().max(500).optional(),
+  // The subject for the follow-up, picked in the regenerate modal. Absent
+  // means "stay on whatever the published post was about".
+  topic: z.string().trim().min(1).max(80).optional(),
+})
+
+// Regenerate, on a post that has already gone out.
+//
+// **It must not rewrite the source**, which is the whole reason this exists
+// beside `regeneratePost` rather than inside it: the live post is on someone's
+// timeline and this app cannot change or recall it, so an in-place UPDATE
+// would only make the row and the real post disagree. So this INSERTs a *new
+// draft* instead — a piece that landed well is exactly the one worth writing
+// another angle on, and a draft is the state where that is still editable,
+// re-datable and cancellable.
+//
+// The new post inherits platform, try-out flag and topics from its source and
+// nothing else: no date (it is a draft, by definition), no publish state, and
+// a fresh id. The prompt is the same brief the source was written from, with
+// the published text as `previousContent` — so the model is asked for a new
+// angle on it rather than a paraphrase, exactly as an ordinary reroll is.
+//
+// **Refuses anything that is not live.** This is the published path and only
+// the published path; an unpublished post has `regeneratePost`, which is the
+// cheaper and less surprising thing to do to it. Keeping the guard here means
+// this can never become a quiet second way to duplicate arbitrary posts.
+export async function draftFollowUpPost(
+  input: z.infer<typeof draftFollowUpPostSchema>
+): Promise<
+  | { error: string; reason: GenerationFailureReason }
+  | { ok: true; post: Post }
+> {
+  const parsed = draftFollowUpPostSchema.safeParse(input)
+  if (!parsed.success) {
+    return { error: "Couldn't draft a follow-up.", reason: "unknown" }
+  }
+
+  const supabase = await createClient()
+  const auth = await requireUser(supabase)
+  if (!auth.user) {
+    return auth.offline
+      ? { error: NETWORK_ERROR_MESSAGE, reason: "network" }
+      : { error: "You need to be signed in to generate posts.", reason: "not_signed_in" }
+  }
+  const user = auth.user
+
+  // RLS scopes this to the signed-in user, so someone else's post id reads as
+  // a post that doesn't exist — same contract as regeneratePost.
+  const { data: existing, error: fetchError } = await supabase
+    .from("posts")
+    .select(POST_COLUMNS)
+    .eq("id", parsed.data.id)
+    .eq("project_id", parsed.data.projectId)
+    .maybeSingle()
+
+  if (fetchError || !existing) {
+    return { error: "Couldn't find that post.", reason: "unknown" }
+  }
+
+  const row = existing as PostRow
+  const source = mapPostRow(row)
+
+  // The same predicate the three surfaces use to decide the control is even
+  // offered (lib/post-publish.ts) — asked again here because a client
+  // predicate is a courtesy, never a guarantee.
+  if (!isPostLocked(source)) {
+    return {
+      error: "That post hasn't gone out yet — regenerate it instead.",
+      reason: "unknown",
+    }
+  }
+
+  const instructions = await fetchInstructions(supabase, parsed.data.projectId)
+  if (!instructions) {
+    return {
+      error: "Set up your project's Instructions before generating posts.",
+      reason: "missing_instructions",
+    }
+  }
+
+  const resolvedModel = await resolveModelSelection(supabase, parsed.data.model)
+  if (!resolvedModel) {
+    return {
+      error: "That model isn't available anymore. Pick another one in Settings.",
+      reason: "model_unavailable",
+    }
+  }
+
+  const topic = parsed.data.topic ?? source.topics[0]
+  let content: string
+
+  if ("kind" in resolvedModel) {
+    content = pickDifferentTasteTestContent(source.content)
+  } else {
+    // No batchContextId: a follow-up is a single generation, not part of a
+    // batch run, so there is nothing to read from or contribute to that cache.
+    const context = await resolveGenerationContext(
+      supabase,
+      parsed.data.projectId,
+      user.id,
+      undefined
+    )
+
+    const prompt = buildPostPrompt(instructions, {
+      platform: source.platform,
+      topic,
+      writingStyles: context.writingStyles,
+      references: context.references,
+      previousContent: source.content,
+      guidance: parsed.data.guidance,
+    })
+
+    try {
+      content = await runGeneration(resolvedModel, prompt)
+    } catch (error) {
+      return {
+        error: "Couldn't draft a follow-up. Please try again.",
+        reason: classifyGenerationError(error),
+      }
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("posts")
+    .insert({
+      project_id: parsed.data.projectId,
+      user_id: user.id,
+      platform: source.platform,
+      status: "draft",
+      content,
+      topics: topic ? [topic] : [],
+      scheduled_for: null,
+      is_tryout: source.isTryout,
+    })
+    .select(POST_COLUMNS)
+    .single()
+
+  if (error || !data) {
+    return { error: "Couldn't save the follow-up. Please try again.", reason: "unknown" }
+  }
+
+  revalidatePath(`/projects/${parsed.data.projectId}/generate`)
+  revalidatePath(`/projects/${parsed.data.projectId}/calendar`)
+
+  return { ok: true, post: mapPostRow(data) }
 }
 
 const updatePostSchema = z.object({

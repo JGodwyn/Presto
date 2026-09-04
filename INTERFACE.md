@@ -1292,3 +1292,61 @@ the pill instead of widening the row.
 
 **No Figma export draws either state** — the content exports predate publishing.
 Composed from existing tokens and the card's own `body-md-bold`.
+
+## 9k. A published post is read-only
+
+**From `feat/published-posts`, 2026-09-04.** Publishing works, and what it
+exposed is that the app had no concept of "published" as a *state a post is
+in* — only as a tab it appears on. A live post could still be edited,
+re-dated, moved to another account and regenerated, and none of that changes
+what is public. The row and the real post drift apart silently.
+
+**One predicate decides it: `isPostLocked` (lib/post-publish.ts)**, sibling to
+`canAttemptPublish`, which now asks it too. Four controls across three surfaces
+read it, and a control that locks on one screen and not another reads as a bug,
+so there is exactly one definition. It keys off `publishedAt`, **never off
+`platform`** — X publishing is being built alongside this and inherits the whole
+treatment for nothing.
+
+It counts two states as live: `published_at` set, and the `record_failed:`
+marker (the share went out, the row's own write of it failed). The second is the
+one every surface used to miss.
+
+**Per control:**
+
+| Control | Published |
+| --- | --- |
+| Inline content editor (click / double-tap) | Refused in the handler, and the `cursor-text` affordance goes with it |
+| The date | The heading *is* the moment it went out; the pencil is removed, and the card's "Change date" button with it |
+| Account pill | `nextAccount={null}` → a plain span. It still names the account, it just stops offering to change it |
+| Turn to draft | Row left out of the actions menu; the button on post details stays disabled |
+| Regenerate | **Stays, and drafts a follow-up** |
+
+Nothing is *disabled and left sitting there* except the middle post-details
+action, which keeps its place in a fixed row of four. Everywhere the layout can
+absorb it, the control is gone: a greyed button invites a click that can never
+do anything.
+
+**Delete stays,** unchanged. It removes this app's record and its own copy says
+the live post survives.
+
+**Regenerate → "Draft a follow-up".** Rewriting a published post would only make
+the screen and the timeline disagree, so it writes a *new draft* instead
+(`draftFollowUpPost`) — a piece that landed well is exactly the one worth
+another angle on. Same modal (`RegenerateModal` gained a `mode`, changing only
+the title, the placeholder and the button label), same brief, with the published
+text as `previousContent`. The new post inherits platform, try-out flag and
+topics and nothing else: no date, no publish state, a fresh id.
+
+It is **awaited, not streamed** — post details streams a reroll into its own
+body, and here it must not, because the body still has to show what actually
+went out. The wait lives on the button, and the draft is reached through the
+toast, which carries an "Open the follow-up" action: the draft is dateless, so
+it lands on the Draft tab under today, never on the screen you are looking at.
+
+**The card's header, on both surfaces.** A post published straight from a draft
+never gets a `scheduled_for`, so its heading used to read "Draft" above
+something live on LinkedIn. It now reports the published moment, with
+PaperPlaneTilt in place of the calendar icon. Absent on the live-but-unrecorded
+case, where the moment genuinely isn't known — the status chip says so there
+(see §12c).
