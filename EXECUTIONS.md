@@ -6300,3 +6300,68 @@ the deck card's single full-width button reading "Regenerate" with the
 ArrowClockwise icon. Gates re-run: tsc clean, eslint 17 (baseline), vitest 384,
 build clean.
 
+### Third round — the follow-up runs on the page you land on
+
+Copy and type first: the note is "This will create a draft" at `text-body-lg`
+(there is no bare `text-lg` token — `body-lg` is this app's large body size, one
+step up from the `body-md` it had), and the tooltip lost its em-dash clause:
+"A published post can't be edited here. Regenerating writes a new draft
+instead."
+
+**The real change: Regenerate on a published post now navigates.** It used to
+generate on the server, spin a small icon button for however long that took,
+and finish with a toast carrying a link. Now the click lands you on the new
+draft's own page and the words arrive there.
+
+That needed the row to exist *before* the generation, which inverts what
+`draftFollowUpPost` does: it no longer calls a model at all, it inserts a draft
+and returns in milliseconds. The generation then runs through
+`/api/regenerate-post` — the same streaming route, the same "generating post
+. . ." heading and line-by-line reveal an ordinary reroll already uses on that
+screen. Nothing new was built for the streaming; it was already there.
+
+Three consequences worth knowing:
+
+- **The draft is seeded with the published text.** `posts.content` cannot be
+  empty and something has to go in it. Of the options, the post being followed
+  up is the only one that is still useful if the generation never lands — the
+  draft is then a copy to edit rather than a placeholder to delete. In the happy
+  path it is never seen (see the microtask below).
+- **The brief crosses the navigation in a module store**, `lib/pending-
+  regeneration.ts` — same pattern as lib/section-navigation.ts. Not a query
+  string, because the guidance is the user's own free text and has no business
+  in a URL; not sessionStorage, because this only has to outlive one
+  `router.push`. It is consumed on read, so a re-render, Fast Refresh or a
+  back-navigation cannot fire a second generation, and it degrades to nothing on
+  a hard reload — you get the seeded draft and regenerate it yourself.
+- **The auto-start is in a `queueMicrotask`, and that is not a lint dodge.**
+  Calling `handleRegenerate` straight from the effect body trips
+  `react-hooks/set-state-in-effect` (verified: it took lint from 17 to 18), and
+  the rule is right — it sets a lot of state. A microtask still runs before
+  paint, so the seeded copy never gets a frame on screen before the body blanks
+  for the stream; a `setTimeout` would have painted the copy first.
+
+The success toast is gone from both call sites, and with it the whole toast-
+`action` machinery this branch had added to day-deck — no call site passes one
+any more, so it came back out rather than sitting dead.
+
+**Verified on :3001** against the real published post
+(`urn:li:share:7501717147975561216`), on TasteTest so the owner's BYOK key paid
+for nothing:
+
+- From post details: modal → lands on `/calendar/<new id>`, no toast, and the
+  new row's content is the TasteTest text, *not* the seeded copy — so the
+  regeneration really ran. Exactly one row per click (the consume-once read
+  survives React's development double-invoke).
+- From the day deck: the deck closes, and the new page was caught mid-stream —
+  Regenerate disabled and spinning, heading blank, first words landing.
+- The published source is byte-identical afterwards: content, `published_at` and
+  `provider_post_id` all unchanged.
+
+Both test drafts deleted (313 rows / 3 published — the third published row is
+the owner's own live post, and there is one draft at 19:25 that is theirs, not
+mine, so it was left alone). The stored model preference was flipped to
+TasteTest for the deck test and put back.
+
+Gates: tsc clean, eslint 17 (baseline), vitest 384, build clean.
+

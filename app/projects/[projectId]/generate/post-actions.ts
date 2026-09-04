@@ -423,11 +423,6 @@ const draftFollowUpPostSchema = z.object({
   projectId: z.string().uuid(),
   // The published post to riff on.
   id: z.string().uuid(),
-  model: z.string().min(1).max(200),
-  guidance: z.string().trim().max(500).optional(),
-  // The subject for the follow-up, picked in the regenerate modal. Absent
-  // means "stay on whatever the published post was about".
-  topic: z.string().trim().min(1).max(80).optional(),
 })
 
 // Regenerate, on a post that has already gone out.
@@ -440,25 +435,29 @@ const draftFollowUpPostSchema = z.object({
 // another angle on, and a draft is the state where that is still editable,
 // re-datable and cancellable.
 //
-// The new post inherits platform, try-out flag and topics from its source and
-// nothing else: no date (it is a draft, by definition), no publish state, and
-// a fresh id. The prompt is the same brief the source was written from, with
-// the published text as `previousContent` — so the model is asked for a new
-// angle on it rather than a paraphrase, exactly as an ordinary reroll is.
+// **It does not generate anything, and that is deliberate.** The row has to
+// exist before the user can be taken to it, and taking them to it is the whole
+// point: the generation then streams onto the draft's own page through
+// /api/regenerate-post, the same path an ordinary reroll uses, so they watch it
+// being written instead of watching a spinner on the button they just pressed.
+// This call is therefore a cheap insert and returns in milliseconds.
+//
+// **The draft is seeded with the published text.** `posts.content` cannot be
+// empty, and of the things that satisfy that, the post being followed up is the
+// only one that is useful if the generation never lands: the draft is then a
+// copy to edit rather than a placeholder to delete. In the ordinary path it is
+// never seen — the draft's page blanks the body the moment the stream starts.
 //
 // **Refuses anything that is not live.** This is the published path and only
-// the published path; an unpublished post has `regeneratePost`, which is the
-// cheaper and less surprising thing to do to it. Keeping the guard here means
-// this can never become a quiet second way to duplicate arbitrary posts.
+// the published path; an unpublished post has `regeneratePost`, which rewrites
+// in place. Keeping the guard here means this can never become a quiet second
+// way to duplicate arbitrary posts.
 export async function draftFollowUpPost(
   input: z.infer<typeof draftFollowUpPostSchema>
-): Promise<
-  | { error: string; reason: GenerationFailureReason }
-  | { ok: true; post: Post }
-> {
+): Promise<{ error: string; reason: GenerationFailureReason } | { ok: true; post: Post }> {
   const parsed = draftFollowUpPostSchema.safeParse(input)
   if (!parsed.success) {
-    return { error: "Couldn't draft a follow-up.", reason: "unknown" }
+    return { error: "Couldn't start a new draft.", reason: "unknown" }
   }
 
   const supabase = await createClient()
@@ -483,8 +482,7 @@ export async function draftFollowUpPost(
     return { error: "Couldn't find that post.", reason: "unknown" }
   }
 
-  const row = existing as PostRow
-  const source = mapPostRow(row)
+  const source = mapPostRow(existing as PostRow)
 
   // The same predicate the three surfaces use to decide the control is even
   // offered (lib/post-publish.ts) — asked again here because a client
@@ -496,56 +494,6 @@ export async function draftFollowUpPost(
     }
   }
 
-  const instructions = await fetchInstructions(supabase, parsed.data.projectId)
-  if (!instructions) {
-    return {
-      error: "Set up your project's Instructions before generating posts.",
-      reason: "missing_instructions",
-    }
-  }
-
-  const resolvedModel = await resolveModelSelection(supabase, parsed.data.model)
-  if (!resolvedModel) {
-    return {
-      error: "That model isn't available anymore. Pick another one in Settings.",
-      reason: "model_unavailable",
-    }
-  }
-
-  const topic = parsed.data.topic ?? source.topics[0]
-  let content: string
-
-  if ("kind" in resolvedModel) {
-    content = pickDifferentTasteTestContent(source.content)
-  } else {
-    // No batchContextId: a follow-up is a single generation, not part of a
-    // batch run, so there is nothing to read from or contribute to that cache.
-    const context = await resolveGenerationContext(
-      supabase,
-      parsed.data.projectId,
-      user.id,
-      undefined
-    )
-
-    const prompt = buildPostPrompt(instructions, {
-      platform: source.platform,
-      topic,
-      writingStyles: context.writingStyles,
-      references: context.references,
-      previousContent: source.content,
-      guidance: parsed.data.guidance,
-    })
-
-    try {
-      content = await runGeneration(resolvedModel, prompt)
-    } catch (error) {
-      return {
-        error: "Couldn't draft a follow-up. Please try again.",
-        reason: classifyGenerationError(error),
-      }
-    }
-  }
-
   const { data, error } = await supabase
     .from("posts")
     .insert({
@@ -553,8 +501,8 @@ export async function draftFollowUpPost(
       user_id: user.id,
       platform: source.platform,
       status: "draft",
-      content,
-      topics: topic ? [topic] : [],
+      content: source.content,
+      topics: source.topics,
       scheduled_for: null,
       is_tryout: source.isTryout,
     })
@@ -562,10 +510,9 @@ export async function draftFollowUpPost(
     .single()
 
   if (error || !data) {
-    return { error: "Couldn't save the follow-up. Please try again.", reason: "unknown" }
+    return { error: "Couldn't start a new draft. Please try again.", reason: "unknown" }
   }
 
-  revalidatePath(`/projects/${parsed.data.projectId}/generate`)
   revalidatePath(`/projects/${parsed.data.projectId}/calendar`)
 
   return { ok: true, post: mapPostRow(data) }

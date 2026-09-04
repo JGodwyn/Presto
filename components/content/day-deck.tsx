@@ -3,7 +3,7 @@
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { useRouter } from "next/navigation"
-import { ArrowsOutSimpleIcon, PaperPlaneTilt, X } from "@phosphor-icons/react"
+import { PaperPlaneTilt, X } from "@phosphor-icons/react"
 
 import {
   deletePost,
@@ -39,6 +39,7 @@ import { generationFailureCopy } from "@/lib/ai/failure-copy"
 import { BUILTIN_MODEL_ID } from "@/lib/ai/model-constants"
 import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { setPendingRegeneration } from "@/lib/pending-regeneration"
 import { publishErrorFor } from "@/lib/publish-failure"
 import { canAttemptPublish, isPostLocked } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
@@ -283,13 +284,6 @@ export function DayDeck({
   const [toastExtraInfo, setToastExtraInfo] = React.useState<string | undefined>(
     undefined
   )
-  // Held for the same reason: a button that vanished while the toast was still
-  // animating out would read as the toast changing its mind. Only the
-  // follow-up draft sets one — it is the one thing this deck produces that
-  // lands somewhere the deck cannot show.
-  const [toastAction, setToastAction] = React.useState<
-    { icon: React.ReactNode; label: string; onClick: () => void } | undefined
-  >(undefined)
   // Only the publish confirmation turns this off: a tick beside "Published to
   // LinkedIn" is the toast saying the same thing twice, and per direct request
   // the words carry it alone.
@@ -321,22 +315,14 @@ export function DayDeck({
     setToastVariant("danger")
     setToastMessage(message)
     setToastExtraInfo(extraInfo)
-    setToastAction(undefined)
     setToastShowIcon(true)
     setToastOpen(true)
   }
 
-  const showSuccess = (
-    message: string,
-    options?: {
-      action?: { icon: React.ReactNode; label: string; onClick: () => void }
-      showIcon?: boolean
-    }
-  ) => {
+  const showSuccess = (message: string, options?: { showIcon?: boolean }) => {
     setToastVariant("success")
     setToastMessage(message)
     setToastExtraInfo(undefined)
-    setToastAction(options?.action)
     setToastShowIcon(options?.showIcon ?? true)
     setToastOpen(true)
   }
@@ -878,16 +864,14 @@ export function DayDeck({
   // isPostLocked (lib/post-publish.ts) for what decides which of the two a
   // card offers.
   //
-  // The new draft never belongs to this deck: it has no date, so it lands on
-  // the Draft tab under today, which is a different day and usually a
-  // different tab from whatever is open. So it goes into the page's own post
-  // list (the chips behind the deck update in the same beat) and the toast
-  // carries the only way to reach it — a success message with no route out of
-  // it would be a post the user has to go hunting for.
+  // The insert is cheap and generates nothing, so this closes the deck and
+  // lands on the new draft's own page, where the generation actually streams.
+  // The deck has no model picker, so the brief handed over is the model the
+  // Generate page last ran on — a BYOK user's reroll should stay on their own
+  // key — with no guidance and the post's own topic.
   const handleDraftFollowUp = async (post: Post) => {
-    const model = readPreferredModel(projectId) ?? BUILTIN_MODEL_ID
     const result = await withNetworkStatus(
-      draftFollowUpPost({ projectId, id: post.id, model }),
+      draftFollowUpPost({ projectId, id: post.id }),
     )
     if (result === null) return
     if ("error" in result) {
@@ -902,14 +886,15 @@ export function DayDeck({
     }
 
     const draft = result.post
-    onPostsChange((prev) => [...prev, draft])
-    showSuccess("Drafted a follow-up", {
-      action: {
-        icon: <ArrowsOutSimpleIcon weight="bold" />,
-        label: "Open the follow-up",
-        onClick: () => closeThenOpen(draft.id),
-      },
+    setPendingRegeneration(draft.id, {
+      guidance: "",
+      model: readPreferredModel(projectId) ?? BUILTIN_MODEL_ID,
+      topic: draft.topics[0],
     })
+    // The draft has no date, so it never belongs to this deck. Closing first
+    // means the cards fly home into their chip and *then* the new page
+    // appears, rather than the overlay blinking out mid-flight.
+    closeThenOpen(draft.id)
   }
 
   // Portalled to <body>, and it has to be: GlowPanel carries a clip-path (the
@@ -1171,8 +1156,7 @@ export function DayDeck({
           variant={toastVariant}
           direction="top"
           extraInfo={toastExtraInfo}
-          action={toastAction}
-          showIcon={toastShowIcon && !toastAction}
+          showIcon={toastShowIcon}
         >
           {toastMessage}
         </Toast>

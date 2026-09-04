@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation"
 import {
   ArrowArcLeftIcon,
   ArrowClockwise,
-  ArrowsOutSimpleIcon,
   CalendarDots,
   PaperPlaneTilt,
   CaretLeft,
@@ -58,6 +57,10 @@ import {
 import { isNetworkError } from "@/lib/network-error"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { publishErrorFor } from "@/lib/publish-failure"
+import {
+  setPendingRegeneration,
+  takePendingRegeneration,
+} from "@/lib/pending-regeneration"
 import { canAttemptPublish, isPostLocked } from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
@@ -490,14 +493,21 @@ export function PostDetails({
   }
 
   // Regenerate, once the post is out. It writes a **new draft** rather than
-  // touching this one (draftFollowUpPost) — decision 2 of this branch: a piece
-  // that landed well is exactly the one worth another angle on, and nothing
-  // about the live post moves.
+  // touching this one — decision 2 of this branch: a piece that landed well is
+  // exactly the one worth another angle on, and nothing about the live post
+  // moves.
   //
-  // Awaited rather than streamed, unlike the reroll below. The stream exists
-  // so new text can replace the old text *on this page*, and here it must
-  // not: the body still has to show what actually went out. So the wait lives
-  // on the button, and the finished draft is reached through the toast.
+  // **It hands the whole thing over to the new draft's own page.** The insert
+  // is cheap and returns at once (draftFollowUpPost generates nothing), so this
+  // navigates immediately and the generation streams *there*, through the same
+  // route and the same "generating post . . ." treatment an ordinary reroll
+  // uses. Watching the words arrive beats watching a spinner on the button you
+  // just pressed, and it is why there is no success toast any more: arriving on
+  // the post is the confirmation.
+  //
+  // The brief picked in the modal travels through lib/pending-regeneration.ts —
+  // a module store rather than the URL, since the guidance is the user's own
+  // free text and has no business in an address bar.
   const [isDraftingFollowUp, setIsDraftingFollowUp] = React.useState(false)
   const handleDraftFollowUp = async (
     guidance: string,
@@ -512,9 +522,6 @@ export function PostDetails({
         draftFollowUpPost({
           projectId: currentPost.projectId,
           id: currentPost.id,
-          model,
-          guidance: guidance || undefined,
-          topic,
         })
       )
     } finally {
@@ -533,22 +540,9 @@ export function PostDetails({
       return
     }
 
-    // The draft is dateless, so it lands on the Draft tab under today — never
-    // on this page and rarely on the tab the reader came from. The toast's
-    // action is the only route to it, which is why it has one.
     const draft = result.post
-    const href = `/projects/${currentPost.projectId}/calendar/${draft.id}`
-    router.prefetch(href)
-    setToast({
-      open: true,
-      variant: "success",
-      message: "Drafted a follow-up",
-      action: {
-        icon: <ArrowsOutSimpleIcon weight="bold" />,
-        label: "Open the follow-up",
-        onClick: () => router.push(href),
-      },
-    })
+    setPendingRegeneration(draft.id, { guidance, model, topic })
+    router.push(`/projects/${currentPost.projectId}/calendar/${draft.id}`)
   }
 
   const [regenerateOpen, setRegenerateOpen] = React.useState(false)
@@ -884,6 +878,39 @@ export function PostDetails({
     // line up, and finalizes once revealed has caught up to received.
     streamDoneRef.current = true
   }
+
+  // Arriving as a follow-up: a published post's Regenerate created this draft
+  // and sent us here, and the generation it asked for has not started yet.
+  //
+  // The brief comes from lib/pending-regeneration.ts and is **consumed on
+  // read**, so a re-render, a Fast Refresh or a back-navigation onto this page
+  // cannot fire a second generation. Empty on any other arrival — opening a
+  // draft normally regenerates nothing, which is the point of the store
+  // degrading to nothing rather than persisting.
+  //
+  // Runs once per mounted post: the ref is what makes React 18's double-invoke
+  // in development a no-op here, since the store has already been drained by
+  // the second pass and there is nothing left to find.
+  const followUpStartedRef = React.useRef(false)
+  React.useEffect(() => {
+    if (followUpStartedRef.current) return
+    const request = takePendingRegeneration(post.id)
+    if (!request) return
+    followUpStartedRef.current = true
+    // In a microtask rather than straight from the effect body. Two reasons,
+    // and they agree: `handleRegenerate` sets a lot of state, which is exactly
+    // the cascading render react-hooks/set-state-in-effect exists to stop, and
+    // a microtask still runs before paint — so the draft's seeded copy of the
+    // published post never gets a frame on screen before the body blanks for
+    // the stream. A timeout would paint the copy first.
+    queueMicrotask(() => {
+      void handleRegenerate(request.guidance, request.model, request.topic)
+    })
+    // handleRegenerate is redefined every render and depending on it would
+    // re-run this on every keystroke elsewhere on the page. The store's
+    // consume-once read is the real guard; this only ever needs the id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [post.id])
 
   // The one irreversible, public action on this page. Awaited rather than
   // optimistic — there is nothing true to show until LinkedIn has confirmed

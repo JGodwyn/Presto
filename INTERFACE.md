@@ -1356,11 +1356,22 @@ one ~440px line that lands on the dialog's close button.
 tick beside it is the toast saying the same thing twice. Scoped to that one
 toast, not to success toasts generally.
 
-It is **awaited, not streamed** — post details streams a reroll into its own
-body, and here it must not, because the body still has to show what actually
-went out. The wait lives on the button, and the draft is reached through the
-toast, which carries an "Open the follow-up" action: the draft is dateless, so
-it lands on the Draft tab under today, never on the screen you are looking at.
+**The click navigates, and the generation happens where you land.** The insert
+is cheap — `draftFollowUpPost` calls no model — so the new draft's page opens at
+once and the text streams in *there*, through the same route and the same
+"generating post . . ." treatment an ordinary reroll uses. There is no success
+toast: arriving on the post is the confirmation. The old shape (generate, spin
+the button, toast a link) was replaced because a spinner on a 24px button is not
+a loading state anyone can read.
+
+Two mechanics this rests on. The draft is **seeded with the published text**,
+since `content` cannot be empty and a copy is the only seed still useful if the
+generation fails; it is never seen in the happy path. And the brief picked in
+the modal crosses the navigation through `lib/pending-regeneration.ts`, a
+consume-once module store — not a query string, because guidance is the user's
+own free text. It degrades to nothing on a hard reload, which is the safe
+direction: a lost handoff costs one click, a persisted one could re-fire a
+generation on a post someone only meant to open.
 
 **The card's header, on both surfaces.** A post published straight from a draft
 never gets a `scheduled_for`, so its heading used to read "Draft" above

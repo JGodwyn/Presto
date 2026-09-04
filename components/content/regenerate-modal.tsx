@@ -42,9 +42,9 @@ const MODE_COPY: Record<
   },
   "follow-up": {
     placeholder: "Anything you’d like the new draft to do differently? (Optional)",
-    note: "This will create another post in your drafts",
+    note: "This will create a draft",
     noteTooltip:
-      "A published post can’t be edited here — it’s already live. Regenerating writes a new draft instead.",
+      "A published post can’t be edited here. Regenerating writes a new draft instead.",
   },
 }
 
@@ -222,7 +222,7 @@ export function RegenerateModal({
             with it, but here the sentence is the thing being read and the icon
             is the offer of more. */}
         {copy.note ? (
-          <p className="-mt-dist-md flex items-center gap-dist-sm text-body-md text-text-subtle">
+          <p className="-mt-dist-md flex items-center gap-dist-sm text-body-lg text-text-subtle">
             {copy.note}
             <Tooltip>
               <TooltipTrigger
