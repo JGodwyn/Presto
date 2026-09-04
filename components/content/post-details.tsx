@@ -1031,7 +1031,14 @@ export function PostDetails({
                     variant="success"
                     size="icon-sm"
                     aria-label="Publish post now"
-                    disabled={isPublishing}
+                    // Off while anything is being written into this post.
+                    // Mid-stream the body is a partial post and the row still
+                    // holds the old one, so a send here would put one or the
+                    // other on a real timeline — neither being the thing on
+                    // screen. The deck's card needs no equivalent: it swaps
+                    // itself for GeneratingPostCard while it regenerates, so
+                    // the menu holding its own Publish row isn't rendered.
+                    disabled={isPublishing || isRegenerating || isDraftingFollowUp}
                     onClick={() => setPublishOpen(true)}
                   >
                     {isPublishing ? (

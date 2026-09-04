@@ -232,7 +232,7 @@ export function RegenerateModal({
                     aria-label="Why this creates a draft"
                     className="flex cursor-pointer items-center text-icon-subtle transition-colors duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50"
                   >
-                    <Info className="size-4" />
+                    <Info weight="bold" className="size-4" />
                   </button>
                 }
               />
@@ -240,7 +240,7 @@ export function RegenerateModal({
                   ~440px line by default, which reaches past the dialog and
                   sits on its close button. Every other tooltip in the app is
                   a couple of words, so this is the one that needs a width. */}
-              <TooltipContent className="max-w-64 text-balance whitespace-normal">
+              <TooltipContent className="max-w-64 text-balance whitespace-normal text-center">
                 {copy.noteTooltip}
               </TooltipContent>
             </Tooltip>

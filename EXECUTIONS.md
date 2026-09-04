@@ -6365,3 +6365,30 @@ TasteTest for the deck test and put back.
 
 Gates: tsc clean, eslint 17 (baseline), vitest 384, build clean.
 
+### Fourth round — three small ones
+
+**Publish is off while anything is being written into the post.** Mid-stream the
+body on screen is a partial post and the row still holds the old one, so a send
+would put one or the other on a real timeline — neither being the thing the user
+is looking at. `disabled={isPublishing || isRegenerating || isDraftingFollowUp}`
+on post-details' green button. **The deck's card needed nothing**: it swaps
+itself for `GeneratingPostCard` for the whole regeneration, so the menu holding
+its own "Publish now" row is not rendered at all. Checked rather than assumed.
+
+**The modal's info icon is `weight="bold"`**, and its tooltip text is centred
+(`text-center` alongside the `max-w-64` it already had, on that instance only).
+
+Verified on :3001. The publish lock was measured rather than eyeballed, on a
+scratch draft inserted for the purpose and deleted afterwards: sampling the
+button every 100ms across a TasteTest regeneration gave `ENABLED` before, four
+consecutive `disabled` samples during, and `ENABLED` after. The bold icon and
+the centred three-line tooltip were checked by zooming the rendered modal, and
+the same modal on an *unpublished* draft correctly showed no note line and the
+ordinary "new version" placeholder.
+
+Gates: tsc clean, eslint 17 (baseline), vitest 384, build clean.
+
+**Two drafts in the database are not mine** — 19:25 and 19:45 on 2026-09-04,
+both dateless — and were left alone. Every row this session created for testing
+has been deleted.
+
