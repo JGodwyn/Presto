@@ -1299,3 +1299,128 @@ waiting to happen; make the structure do it. `try/finally` releases on paths
 that do not exist yet. Where an exit already writes the release as part of
 another update, a flag skipping the redundant round trip is fine — that is an
 optimisation on top of a guarantee, not a replacement for one.
+
+### Two constants that must be ordered, set independently
+
+**Symptom.** The scheduler could publish the same post twice to a real
+LinkedIn timeline. Every gate was green and the claim-inside-the-update — the
+thing built specifically to prevent double-posting — was correct.
+
+**Cause.** Two constants in different files: `CLAIM_TIMEOUT_MS` (5 minutes,
+`lib/publish-runner.ts`) and `PUBLISH_GRACE_MINUTES` (15, `lib/publish-due.ts`).
+A claim went stale ten minutes *before* its post aged out of the due window, so
+there was a ten-minute band where a post was both re-claimable and still
+selectable. Add an unchecked write — the success `update` had no `const { error }`
+— and the row could keep `published_at: null` after LinkedIn had accepted,
+which is indistinguishable from never having been sent.
+
+Neither half is a bug alone. A stale-claim window is correct (a crash must not
+strand a post forever); an unchecked write is merely sloppy. Together they are a
+duplicate post on someone's real timeline.
+
+**Rule.** When two constants must hold an ordering, derive one from the other
+rather than setting both and trusting a comment. `CLAIM_TIMEOUT_MS` is now
+`(PUBLISH_GRACE_MINUTES + 1) * 60 * 1000` — the `+ 1` makes the ordering strict,
+so the last tick that can *see* a post is never the tick that can *re-claim* it.
+Two independent numbers can drift back into overlap silently; a derived one
+cannot.
+
+**Corollary, and the more general lesson.** Ask what happens when a write fails
+*after* an irreversible side effect has already succeeded. That is not an error
+path, it is a distinct state — "it happened and we failed to write it down" —
+and it needs its own outcome (`record_failed`), its own message, and above all
+must never be retried. The claim is deliberately *left held* there: an
+unreleased claim delays one post, while a released one publishes it twice.
+Prefer the failure you can undo.
+
+**Testing note.** Both halves were verified by reintroducing each regression
+separately and confirming the new tests fail — 2 failures for the unchecked
+write, 1 for the shortened claim. A test written against a fix, never run
+against the bug, is a test that proves nothing.
+
+### A lease is not a lock
+
+**Symptom.** A fix for a double-publish bug reintroduced the same bug, one code
+path over, while its own tests passed.
+
+**Cause.** The fix left a claim held on a post that was live but unrecorded, and
+its comment said the claim was "deliberately left held". It was not held — it
+was *leased*. The claim predicate re-grants any claim older than
+`CLAIM_TIMEOUT_MS`, so the block expired after sixteen minutes. The scheduler
+never noticed, because a post that old has left its due window; the manual
+"Publish now" button has no such window and would happily re-send.
+
+**Rule.** Before relying on a mechanism to block something, check what *lifts*
+it. A stale-claim window exists precisely so a crashed publish does not strand a
+post forever — which means it is designed to expire, and cannot also be the
+thing that makes a block permanent. Those are opposite requirements and one
+value cannot serve both. The durable block is a written marker with no expiry
+(`publish_error: "record_failed:<urn>"`, excluded by the claim predicate); the
+lease still covers the gap before that marker is attempted.
+
+**Corollary.** When a guard exists on two paths, fixing one and calling it done
+is the default failure. Both publish handlers needed the same `try/finally`;
+both writes in the same function needed the same error check. After fixing an
+instance, grep for the shape rather than the symptom.
+
+### A PostgREST `not.like` on a nullable column excludes every NULL row
+
+**Symptom.** A one-line predicate added to stop a specific post being re-claimed
+instead stopped *every* post being claimed. Publishing died completely and
+silently, reporting "That post is already being published" for every post,
+through both the button and the scheduler. tsc, eslint, 358 tests and the build
+were all green.
+
+**Cause.** `.not("publish_error", "like", "record_failed:%")` renders as a bare
+`NOT (col LIKE …)`, and in SQL that evaluates to NULL — not true — when the
+column is NULL. `publish_error` is NULL on every post that has never failed,
+which is essentially all of them. Measured against the live database: the bare
+form matched **0 of 311** rows; the null-safe form matched all 311.
+
+It was also self-sealing. `publish_error` is only ever written from inside the
+same function whose claim now failed, so no post could ever reach a state that
+made it claimable again.
+
+**Rule.** Any negative filter on a nullable column must spell out the NULL case:
+
+```ts
+.or(`publish_error.is.null,publish_error.not.like.${PREFIX}*`)
+```
+
+Chained `.or()` calls AND together, so this composes with an existing one.
+
+**The deeper lesson, and the reason this shipped past a review.** The test suite
+could not catch it *by construction*: `lib/publish-runner.test.ts` uses a
+hand-rolled Supabase fake that re-implements predicates in JavaScript, where
+`String(null ?? "").startsWith(…)` is false and the claim is therefore granted —
+the opposite of what the database does. **A fake proves your code calls the
+query you meant; it can never prove the query means what you think.** Where the
+two can differ, either assert on the predicate as written (which is what the new
+`the claim predicate is null-safe` test does) or check it against a real
+database. This one was found by running both forms against live PostgREST.
+
+### An optional field silently dropped at a boundary type-checks perfectly
+
+**Symptom.** A fix to make a `record_failed` post read as "published, not
+recorded" worked in isolation and did nothing in the app. The card kept saying
+"Didn't send" under a toast saying the post had published, and changed its story
+on reload.
+
+**Cause.** The helper was correct; the server action never passed it the field.
+`publishErrorFor({ failure, publishedUrn? })` takes the URN as **optional**, so
+an action that returned only `{ failure }` satisfied the type and lost the URN
+in silence. The client then stored `"record_failed"` while the database held
+`"record_failed:<urn>"`, and every reader that prefix-tests the marker
+misclassified it.
+
+**Rule.** When a value must survive a boundary — a server action's return, a
+props hop, a serialization — an *optional* field is not a contract, it is a
+suggestion. Either make it required on the shape that carries it, or pin the
+agreement with a test that constructs what the producer really returns and
+asserts the consumer's answer. A type that permits the bug will not report it.
+
+**Corollary.** Fixing the display of a state is not fixing the state. Three
+surfaces described this one post differently — the toast, the card, and the
+still-enabled "Publish now" button — because each derived its answer from a
+different field. Once a state exists, find every reader before declaring it
+handled.

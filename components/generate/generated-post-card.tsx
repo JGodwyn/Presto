@@ -94,6 +94,18 @@ interface GeneratedPostCardProps {
   // Adds an "Open up" row to the actions menu, for callers that have a page to
   // send the post to. Left out where there isn't one.
   onOpen?: () => void
+  // Rendered at the head of the account/topics row when there is something
+  // wrong with this post — overdue, or a publish that failed. A slot rather
+  // than a `post` prop: this card takes resolved primitives (`account` is
+  // resolved by the caller too), and the one caller that has a whole Post to
+  // hand is the only one that needs it.
+  statusMarker?: React.ReactNode
+  // Adds a "Publish now" row. Left out where the post can't go out
+  // (canAttemptPublish, lib/post-publish.ts) and where the caller has no
+  // publishing path at all — the Generating page passes nothing, since a post
+  // that was written seconds ago hasn't been read yet, let alone approved.
+  // The caller owns the confirmation: this card never sends anything itself.
+  onPublish?: () => void
   // Runs a real generation against this post's own brief and writes the new
   // text back through `content` (GeneratingView owns both the server call and
   // the state) — this card only owns the placeholder it shows while that's in
@@ -150,6 +162,8 @@ export function GeneratedPostCard({
   onDelete,
   onTurnToDraft,
   onOpen,
+  statusMarker,
+  onPublish,
   onRegenerate,
   regenerating = false,
   account,
@@ -415,8 +429,9 @@ export function GeneratedPostCard({
             — but it only becomes a menu at all once there's somewhere to open
             it to. Without that (the Generating page), a draft keeps the plain
             Delete button the export gives it. */}
-        {date || onOpen ? (
+        {date || onOpen || onPublish ? (
           <PostActionsMenu
+            onPublish={onPublish}
             onOpen={onOpen}
             onTurnToDraft={date ? onTurnToDraft : undefined}
             onDelete={onDelete}
@@ -482,6 +497,7 @@ export function GeneratedPostCard({
           request) — the pill holds its own width and the topics take
           whatever's left, scrolling within it. */}
       <div className="flex h-7 shrink-0 items-center gap-dist-sm">
+        {statusMarker}
         {/* Tap-to-cycle (per direct feedback), but only between accounts this
             project has actually connected — see `nextAccount` above for why
             it degrades to a plain span rather than a dead button. The hover

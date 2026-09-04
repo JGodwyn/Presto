@@ -40,6 +40,13 @@ export interface ConnectedSocialAccount {
   // connection was expiring today, forever. fetchSocialAccounts resolves which
   // column that is, so nothing downstream branches on platform.
   expiresAt: string
+  // The scopes LinkedIn actually granted, stored verbatim from the token
+  // exchange — comma-delimited in practice, though it is sent space-delimited
+  // (see lib/linkedin/scopes.ts, which parses both). Not a secret, and the one
+  // thing that says whether a connection predates a scope the app has since
+  // started asking for: grantIsCurrent(scope) is false for exactly those, and
+  // the connected row asks them to reconnect.
+  scope: string
   // A connection can die *before* expiresAt: the member can revoke Presto's
   // access from LinkedIn's own settings, which nothing here is told about. So
   // "is this connection alive" is two questions — has the 60-day token lapsed

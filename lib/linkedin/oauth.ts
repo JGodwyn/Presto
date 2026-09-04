@@ -1,3 +1,4 @@
+import { LINKEDIN_SCOPES } from "@/lib/linkedin/scopes"
 import { isNetworkError } from "@/lib/network-error"
 
 // LinkedIn's OAuth 2.0 / OpenID Connect endpoints and the small amount of
@@ -7,19 +8,8 @@ import { isNetworkError } from "@/lib/network-error"
 // panel maps the codes to copy) — a type-only import is erased at compile
 // time and pulls no code into the bundle.
 //
-// Scopes are sign-in only (`openid profile email`) — everything the connected
-// row shows and nothing more. Publishing needs `w_member_social`, which is
-// deliberately *not* requested: per AGENTS.md's hard publishing constraint,
-// Presto must not be able to post to a live account until that's green-lit.
-//
-// **What adding it later actually costs, per LinkedIn's docs: every existing
-// token, not just a consent screen.** "If you request a different scope than
-// the previously granted scope, all the previous access tokens are
-// invalidated" — so the day publishing is switched on, every connected account
-// in the app has to reconnect, and the UI will need to say so rather than
-// silently 401. Still the right trade for not holding a permission we're
-// forbidden to use, but plan the migration, don't just add a scope string.
-export const LINKEDIN_SCOPES = ["openid", "profile", "email"] as const
+// Scopes live in scopes.ts, not here: the Connections page needs to read them
+// and this file must never reach a client bundle.
 
 const AUTHORIZATION_URL = "https://www.linkedin.com/oauth/v2/authorization"
 const TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken"

@@ -1,3 +1,7 @@
+import {
+  LINKEDIN_PUBLISH_SCOPE,
+  parseGrantedScopes,
+} from "@/lib/linkedin/scopes"
 import { isNetworkError } from "@/lib/network-error"
 
 // The LinkedIn publishing path — built, and deliberately unreachable.
@@ -12,12 +16,10 @@ import { isNetworkError } from "@/lib/network-error"
 // never exist in a client component. Nothing in this file may be imported by
 // one except as a type.
 
-// The scope a share call needs. NOT in LINKEDIN_SCOPES (lib/linkedin/oauth.ts)
-// and must not be added casually: per LinkedIn's docs, requesting a different
-// scope than the one previously granted invalidates *every* access token
-// already issued, so adding it forces every connected account in the app to
-// reconnect. oauth.test.ts pins its absence.
-export const LINKEDIN_PUBLISH_SCOPE = "w_member_social"
+// Re-exported so a reader of the publish path finds the scope it needs
+// without a hop. It is *defined* in scopes.ts, beside the list that requests
+// it — see the note there on what adding it cost.
+export { LINKEDIN_PUBLISH_SCOPE }
 
 // The kill switch, and the "explicit confirm" half of the gate. Absent by
 // default and absent from .env.local.example on purpose: it is not
@@ -47,21 +49,6 @@ export type PublishResult =
   | { ok: true; postUrn: string }
   | { ok: false; failure: PublishFailure }
 
-// LinkedIn *returns* granted scopes comma-delimited ("email,openid,profile")
-// even though they are *sent* space-delimited — confirmed on a live exchange
-// and noted in oauth.ts where the value is stored. Splitting on only one of
-// the two would report a granted scope as missing, which for this particular
-// check would fail open in the wrong direction if the delimiters ever swap, so
-// both are handled and empties dropped.
-export function parseGrantedScopes(raw: string): Set<string> {
-  return new Set(
-    raw
-      .split(/[,\s]+/)
-      .map((scope) => scope.trim())
-      .filter(Boolean)
-  )
-}
-
 export function hasPublishScope(raw: string): boolean {
   return parseGrantedScopes(raw).has(LINKEDIN_PUBLISH_SCOPE)
 }
@@ -84,12 +71,13 @@ export interface PublishableAccount {
   expiresAt: Date
 }
 
-// The gate. Two independent keys, and today neither is turned:
+// The gate. Two independent keys, and the first is still not turned:
 //
 //   1. `PRESTO_ENABLE_LIVE_PUBLISH` is unset, so this returns
 //      "publishing_disabled" — the user's own explicit act, not a code change.
-//   2. Even with it set, no stored token carries w_member_social, because the
-//      scope is never requested. So this returns "scope_not_granted".
+//   2. A connection made before w_member_social was requested (2026-09-02)
+//      carries no such grant, so this returns "scope_not_granted" until the
+//      member reconnects. Key 1 is the one that stays shut by default.
 //
 // They are checked in that order so the reason reported is the one the reader
 // can act on first, and they are deliberately not collapsed into a single
@@ -117,14 +105,16 @@ export function checkPublishGate(
 }
 
 // The share call itself. **Never reachable without passing `checkPublishGate`
-// first** — that is the caller's contract, and publish-actions.ts is the only
-// caller. Kept as its own function rather than inlined so the gate cannot be
-// accidentally reordered after the request.
+// first** — that is the caller's contract. The only caller is
+// lib/publish-runner.ts, which both the "Publish now" action and the cron
+// route go through. Kept as its own function rather than inlined so the gate
+// cannot be accidentally reordered after the request.
 //
 // The request shape follows LinkedIn's Posts API (rest/posts, versioned) and
-// is **unverified against a live call** — by construction, since nothing has
-// ever been allowed to make one. Treat it as the starting point for the first
-// real attempt, not as known-good.
+// **is verified against live calls**: two posts were published on 2026-09-03
+// under an explicit green-light, one by hand and one by a hand-fired scheduler
+// tick. So this is known-good for a plain text share; everything past that
+// (media, articles, visibility other than the default) is still untried.
 async function postShare(
   accessToken: string,
   authorUrn: string,

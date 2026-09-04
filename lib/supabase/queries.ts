@@ -280,7 +280,7 @@ export async function fetchSocialAccounts(
   const { data, error } = await supabase
     .from("social_accounts")
     .select(
-      "id, platform, account_name, account_handle, account_email, avatar_url, connected_at, expires_at, refresh_expires_at, status, last_checked_at"
+      "id, platform, account_name, account_handle, account_email, avatar_url, connected_at, expires_at, refresh_expires_at, scope, status, last_checked_at"
     )
     .eq("project_id", projectId)
     .order("connected_at", { ascending: true })
@@ -301,6 +301,7 @@ export async function fetchSocialAccounts(
     // and the column is null, so expires_at is already the answer. Resolving it
     // here means no consumer has to know which platform it is looking at.
     expiresAt: row.refresh_expires_at ?? row.expires_at,
+    scope: row.scope,
     status: row.status,
     lastCheckedAt: row.last_checked_at,
   }))

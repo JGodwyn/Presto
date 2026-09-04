@@ -738,12 +738,24 @@ From design-sync/regeneratemodalwithtopic.
   reroll doesn't rewrite the column and a post with no topic doesn't gain one
   by being regenerated.
 
-## 10a. Publishing — hard constraint
+## 10a. Publishing — the gate, which replaced the hard constraint
 
-**No UI may trigger a real post.** A publish/share call to a live social account
-is off-limits until the user explicitly green-lights the publishing phase, even
-for an account that connected successfully. Build the buttons; leave them
-unwired, and say so in the component's comment.
+**Superseded 2026-09-02/03**, on the user's explicit green light. This section
+used to read "no UI may trigger a real post — build the buttons, leave them
+unwired". The buttons are wired now, `w_member_social` is requested, a scheduler
+exists, and one real post has been published (EXECUTIONS.md, 2026-09-03).
+
+What replaces it is a runtime gate, not a convention: **`checkPublishGate`
+(lib/linkedin/publish.ts) refuses every publish — button and scheduler alike —
+unless `PRESTO_ENABLE_LIVE_PUBLISH` is exactly "true"**, and that variable is
+deliberately absent from `.env.local.example`, because it is not configuration.
+The refusal is surfaced, never hidden: `canAttemptPublish` (lib/post-publish.ts)
+is blind to the gate on purpose, so the control is offered and the *attempt*
+explains itself.
+
+AGENTS.md's own "Hard constraint — publishing" section still describes the old
+state and needs the user's own hand — it is their standing rule, not this file's
+to rewrite.
 
 ## 11. Ask before
 
@@ -1207,3 +1219,76 @@ when that platform has a length limit — it returns fixed canned posts of
 tweet. The selection falls back as well as the row greying out: the model
 preference is persisted per project, so arriving with TasteTest already selected
 is the common case, and confirming it would start a reroll that cannot succeed.
+
+## 9j. Social connections — a stale grant, which is not a fifth treatment
+
+§9h added a fourth *treatment* (revoked). This is a fifth *thing a row can be*,
+and deliberately not a fifth treatment: a connection granted under an older,
+smaller scope list than the app now asks for. The token is alive and still does
+everything it was granted — so the row keeps its green block, its "Connected
+as …", its Disconnect and its countdown. What changes is one chip.
+
+**Why it isn't another `ConnectionStatus`.** Staleness is orthogonal to
+liveness: a connection can be expiring *and* stale, revoked *and* stale. Folding
+it into that enum would mean inventing a precedence order between a permission
+problem and a date problem, for four combinations nobody has an intuition
+about. It's a separate flag (`grantIsStale`) computed beside `status`, and only
+the *chip* has to resolve a conflict.
+
+**One chip, never two.** Where the row would show "Renew now" (≤ 7 days) and a
+stale grant at the same time, the stale one wins. Both are the same authorize
+redirect, so the click is identical; the copy that survives should be the one
+about a permission the connection doesn't have, since renewing a token that
+still works reads as optional and this doesn't. `RenewChip` is now
+`ReconnectChip`, taking its label and tooltip as props — the two states differ
+only in why they're asking.
+
+- stale:    "Reconnect" — "Reconnect to grant Presto permission to post"
+            (a two-sentence version was tried first and ran ~460px wide, far
+            past the 312px row, laying a bar across the green strip it was
+            annotating — a tooltip here has to fit on one short line)
+- expiring: "Renew now" — unchanged wording from §9a.
+
+**The predicate is `grantIsCurrent(scope)`** (lib/linkedin/scopes.ts), asked
+against `LINKEDIN_SCOPES` rather than against any one scope name. So the state
+is invisible today — every stored grant covers the list — and appears by itself
+the moment a scope is added, for exactly the rows that predate it, and clears
+itself on reconnect. That is the whole migration story for adding
+`w_member_social`: LinkedIn invalidates previously-issued tokens when a
+different scope is requested, and this is what tells the reader why, instead of
+a silent 401 later.
+
+**No Figma frame draws this either**; it is the exported expiring state's chip
+with different copy. Not yet verified in-browser — it cannot render until a
+scope is actually added.
+
+## 12c. Overdue and failed — a marker, not a fourth tab
+
+The Content page has three tabs and keeps them. A queued post that didn't go out
+is still queued, so both of these states are said *on the card* instead:
+
+- **Overdue** — `ClockCountdown`, `text-warning`, the word "Overdue". Its date
+  passed and nothing published it.
+- **Didn't send** — `WarningDiamond`, `text-danger`. An attempt reached LinkedIn
+  and was refused; `posts.publish_error` carries which refusal.
+
+**Failed outranks overdue, and they are never both shown.** A failed post is
+past its moment by definition, but "we tried and it was refused" explains the
+other one and is the state with something to do about it.
+
+**The card gets two words; the post's own page gets the sentence.** Same
+component (`PostStatusMarker`, `withReason`): on a card the only distinction
+that matters is "this didn't go out", and the reason belongs where there is room
+to say what to do about it. Copy lives in `lib/publish-failure.ts` so the toast
+raised by a failed publish and the card's own treatment can never word the same
+failure differently.
+
+**Placement is the account/topics row, not the header.** The header is the
+tightest thing on the card (232px at the deck's 272px width, already truncating
+a date), and that row already leads with the time — which is exactly what the
+marker qualifies: the time says when this was meant to go out, the marker says
+it didn't. With a reason it takes `basis-full` and wraps to its own line above
+the pill instead of widening the row.
+
+**No Figma export draws either state** — the content exports predate publishing.
+Composed from existing tokens and the card's own `body-md-bold`.

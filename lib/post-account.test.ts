@@ -23,6 +23,7 @@ function account(
     avatarUrl: null,
     connectedAt: new Date().toISOString(),
     expiresAt: new Date().toISOString(),
+    scope: "email,openid,profile",
     status: "active",
     lastCheckedAt: null,
     ...overrides,

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import {
   ArrowsOutSimpleIcon,
   DotsThree,
+  PaperPlaneTilt,
   Scribble,
   Trash,
 } from "@phosphor-icons/react"
@@ -23,10 +24,18 @@ import { Menu, MenuItem } from "@/components/ui/menu"
 // (items) is what keeps focus on the trigger while an item is clicked, so
 // the blur that closes the menu only fires for genuine outside clicks.
 export function PostActionsMenu({
+  onPublish,
   onOpen,
   onTurnToDraft,
   onDelete,
 }: {
+  // Sends the post to the live account. Optional, and left out entirely where
+  // the post can't go out at all (canAttemptPublish, lib/post-publish.ts) —
+  // a control that is always going to be refused is worse than no control.
+  // It sits at the top of the menu, above Open up: it is the consequential
+  // one, and it is the only row here that does something irreversible and
+  // public, so it gets a confirmation from the caller before anything is sent.
+  onPublish?: () => void
   // Opens the post's own page. Optional: only the callers that have somewhere
   // to send it pass this (the Content page's day deck), and the row is left
   // out entirely where they don't.
@@ -97,9 +106,23 @@ export function PostActionsMenu({
               onMouseDown={(event) => event.preventDefault()}
               containerClassName="transition-[opacity,translate] duration-150 ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0"
             >
+              {onPublish ? (
+                <MenuItem
+                  role="menuitem"
+                  className="justify-between"
+                  onClick={() => {
+                    onPublish()
+                    setOpen(false)
+                  }}
+                >
+                  Publish now
+                  <PaperPlaneTilt weight="bold" />
+                </MenuItem>
+              ) : null}
               {onOpen ? (
                 <MenuItem
                   role="menuitem"
+                  withDivider={Boolean(onPublish)}
                   className="justify-between"
                   onClick={() => {
                     onOpen()
@@ -113,7 +136,7 @@ export function PostActionsMenu({
               {onTurnToDraft ? (
                 <MenuItem
                   role="menuitem"
-                  withDivider={Boolean(onOpen)}
+                  withDivider={Boolean(onPublish || onOpen)}
                   className="justify-between"
                   onClick={() => {
                     onTurnToDraft()
@@ -127,7 +150,7 @@ export function PostActionsMenu({
               <MenuItem
                 role="menuitem"
                 variant="danger"
-                withDivider={Boolean(onOpen || onTurnToDraft)}
+                withDivider={Boolean(onPublish || onOpen || onTurnToDraft)}
                 className="justify-between"
                 onClick={() => {
                   onDelete()

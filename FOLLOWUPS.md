@@ -75,35 +75,124 @@ protection is disabled on Supabase Auth. That's a dashboard toggle
 
 ---
 
-## 5. Prerequisites for the publishing phase
+## 5. Publishing is built and verified — what is left is deployment
 
-**From:** `feat/connections-page`, 2026-08-21. **Blocked on the user explicitly
-green-lighting publishing** — see AGENTS.md, "Hard constraint — publishing".
-Nothing here should be built speculatively.
+**From:** `feat/linkedin-publish`, 2026-09-03. This entry replaces the old
+"prerequisites" list, which is done: `w_member_social` is requested, the manual
+trigger and the scheduler exist, and **all three paths have been exercised
+against the live API** — a refusal with the gate shut, a manual send
+(`urn:li:share:7501150776556412931`), and a scheduled send the cron made on its
+own (`urn:li:share:7501154742442684416`). See EXECUTIONS.md, 2026-09-02/03.
 
-**Partly built as of 2026-08-31** (`feat/connection-expiry`, explicitly
-authorized): `lib/linkedin/publish.ts` + `publish-actions.ts` hold the share
-path behind a two-key gate that is refused-by-default, and nothing calls them.
-The scope flip below is still the un-taken step, and is still the destructive
-one. The author URN needed no migration after all — it has been stored as
-`social_accounts.provider_account_id` since this branch wrote it.
+`PRESTO_ENABLE_LIVE_PUBLISH` is **unset**, so everything is refused again. It is
+absent from `.env.local.example` on purpose: it is not configuration, it is a
+deliberate act. Note the restart tax — a running server keeps the old env until
+it restarts, so removing the line is not the same as the gate being shut.
 
-Two facts confirmed against LinkedIn's docs that will shape that work:
+### 5.1 Blocked on deployment (nothing here can be done from a laptop)
 
-- **Adding `w_member_social` invalidates every token already issued.** Per
-  LinkedIn: "if you request a different scope than the previously granted scope,
-  all the previous access tokens are invalidated." So switching publishing on is
-  a *migration*, not a scope-string edit: every connected account in the app
-  must reconnect, and the UI has to say so rather than silently 401. The
-  existing expired treatment is the obvious thing to reuse.
-- **Granted scopes come back comma-delimited** (`email,openid,profile`) even
-  though they're sent space-delimited. Anything checking whether a scope was
-  granted must split on both, or it will report a granted scope as missing.
-  Noted in `lib/linkedin/oauth.ts` where the value is stored.
+- **The pg_cron schedule.** Postgres cannot reach `localhost`, so the scheduler
+  only becomes real once there is a deployed origin. Locally it was ticked with
+  curl. The SQL, cadence already decided (one minute):
 
-Also unbuilt by design: **X (Twitter)**, which renders as "Coming soon" with no
-control, and has a `platform` value reserved in the `social_accounts` check
-constraint but no flow behind it.
+  ```sql
+  create extension if not exists pg_cron;
+  create extension if not exists pg_net;
+  select cron.schedule('presto-publish-due', '* * * * *', $$
+    select net.http_get(
+      url := '<deployed origin>/api/cron/publish',
+      headers := jsonb_build_object('Authorization', 'Bearer ' || '<CRON_SECRET>')
+    );
+  $$);
+  ```
+
+  To stop it: `select cron.unschedule('presto-publish-due');`
+- **Production env**: `CRON_SECRET` (generate a fresh one, don't reuse the local
+  value), `SUPABASE_SERVICE_ROLE_KEY`, `MODEL_KEY_ENCRYPTION_KEY` (must match
+  whatever encrypted the stored tokens), `LINKEDIN_CLIENT_ID`/`SECRET`.
+- **Register the production callback URL** with the LinkedIn app —
+  `https://<origin>/api/connections/linkedin/callback`. Only
+  `http://localhost:3000/...` is registered today, which is why the OAuth leg
+  only works there.
+- **The gate itself.** Publishing stays off in production until it is set to
+  exactly `"true"`.
+
+### 5.2 Blocked on the schema lock (`feat/x-connect` holds it)
+
+- **A partial index on `scheduled_for`.** The scheduler queries once a minute;
+  `posts` has only `posts_pkey` and `posts_project_id_idx` today. Cheap now,
+  worth having before the table grows:
+
+  ```sql
+  create index posts_scheduled_for_idx on public.posts (scheduled_for)
+    where published_at is null;
+  ```
+
+  Fold it in with FOLLOWUPS #4, which already collects index work.
+
+### 5.3 Before anyone but the owner can connect
+
+- **The LinkedIn app is almost certainly still in development mode**, in which
+  LinkedIn only lets members who are admins or developers *of the app* complete
+  authorization. Users never create their own app — there is one app and they
+  authorize it — but until it is verified against a LinkedIn Company Page (and
+  both products are added), a stranger is refused at LinkedIn's own screen. The
+  cheapest test is to have one other person try Connect on a deployed build.
+- **Nothing tells a user their connection died.** Tokens last 60 days with no
+  refresh available to a standard app. The owner will notice the chip on
+  Connections; a stranger will not, and their scheduled posts will simply stop,
+  wearing "Didn't send". Needs an email or some out-of-app signal before this
+  has real users.
+- **LinkedIn's rate limits are per-app, shared across all users.** The
+  scheduler's cap of 5 posts per tick is a useful ceiling; a busy app may need
+  more thought.
+
+### 5.4 Left deliberately
+
+- **A failed post is never retried automatically.** It keeps its "Didn't send"
+  marker until a person opens it and publishes again — retrying blind is how one
+  dead connection becomes a stream of failures. If an automatic retry is ever
+  wanted, it needs a bounded count and a reason to believe the cause has passed.
+- **X (Twitter)** still has a `platform` value reserved and no flow behind it;
+  `publishBlockedReason` returns `platform_unsupported` for it by design.
+- **AGENTS.md's "Hard constraint — publishing" section still describes the old
+  world** and needs the user's own hand. INTERFACE.md §10a has been rewritten to
+  describe the gate that replaced it.
+
+---
+
+## 5b. Decide: what a *published* post may still do
+
+**From:** `feat/linkedin-publish`, 2026-09-02. **This is an open question the
+user raised and deliberately parked**, not a bug.
+
+Publishing currently closes two doors on a post: once `published_at` is set,
+post-details disables Regenerate and Move-to-drafts, on the grounds that
+LinkedIn owns the copy people are reading and this screen would otherwise show
+text that isn't what went out. Delete stays, and says the live post survives.
+
+The user's own words: *"later we might need to push it back to being any post
+on a future date or not. i don't know."* So the question left open is whether a
+published post should be re-datable — scheduled again as a *new* post, or
+re-opened for editing — and if so, whether that is a copy or the same row.
+Nothing should change here until that is decided; the current behaviour is the
+conservative reading and is easy to loosen later.
+
+---
+
+## 5c. A published draft still reads "Draft" on its own page
+
+**From:** `feat/linkedin-publish`, 2026-09-03. Small, cosmetic, one line.
+
+post-details' heading is the scheduled date or the word "Draft". A post
+published straight from a draft never gets a date (`scheduled_for` stays null by
+design), so its own page now says **Draft** above a post that is live on
+LinkedIn. The Content page is right about it — it sits on the Published tab
+under the day it went out — so this is only the heading.
+
+Found by publishing one for real. Not fixed here because the obvious fix ("show
+the published date instead") overlaps the question parked in 5b about what a
+published post is allowed to be, and that should be decided once.
 
 ---
 
@@ -444,3 +533,77 @@ comes back over 280, the switch is refused and the user is told "Still too long
 for X" — they must regenerate again themselves. Deliberate for now (an automatic
 retry loop spends tokens without asking), but if it turns out to be common, a
 single silent retry before reporting would be the obvious fix.
+
+---
+
+## 17. A refusal that records nothing re-selects on every tick
+
+**From:** `feat/linkedin-publish`, 2026-09-03. **This is a decision, not a bug.**
+
+The cron's due query excludes `publish_error is not null`, so a *recorded*
+failure is skipped. But the gate refusals — `publishing_disabled`,
+`scope_not_granted`, `token_expired` — return `recorded: false` and leave the row
+untouched, so they come back every tick. Being oldest, they occupy the entire
+`PUBLISH_BATCH_LIMIT` of 5 and starve newer posts behind them.
+
+That is currently *every* connection, since adding `w_member_social` invalidated
+every token issued before it.
+
+**The decision:** should a scope refusal mark the post as failed (it wears the
+"Didn't send" marker, and a person must act), or should the *account* be excluded
+from the due query while its grant is stale (posts wait quietly for a reconnect)?
+The first is visible but blames the post for the connection's problem; the second
+is quieter but can hide a broken connection indefinitely.
+
+**Why it waited:** not reachable while `PRESTO_ENABLE_LIVE_PUBLISH` is unset —
+every post refuses identically, so nothing is starved. Inventing a policy here
+without the decision would have been the wrong kind of initiative.
+
+---
+
+## 18. A published post is still editable
+
+**From:** `feat/linkedin-publish`, 2026-09-03. **Product decision.**
+
+A post that has gone out still offers the inline editor, the date pencil and the
+account pill, and Regenerate is exposed on the Published tab in the day deck.
+Rewriting a post that is already public does not change what is public — the row
+and the timeline simply drift apart.
+
+**Do:** decide per control. Plausibly: content and account become read-only once
+`publishedAt` is set; the date becomes a display of when it went out; Regenerate
+disappears or becomes "draft a follow-up". `isOverdue`/`hasFailed` already exist
+to distinguish the states.
+
+**Why it waited:** four controls across `GeneratedPostCard`, the day deck and
+post-details, and each wants a different answer. Not reachable while the gate is
+shut, since nothing can be published in the first place.
+
+---
+
+## 19. The client/server bundle guard only checks one hop
+
+**From:** `feat/linkedin-publish`, 2026-09-04.
+
+`lib/ai/no-client-sdk.test.ts` regexes for a *direct* `import … from "<server
+module>"` inside files marked `"use client"`. A client component importing a
+pure module that itself imports a server one is invisible to it.
+
+That is not hypothetical: putting `RECORD_FAILED_PREFIX` in `lib/publish-runner`
+and importing it from `lib/publish-failure` — which three client components read
+— would have pulled Supabase and the LinkedIn share call into the browser
+bundle, with the guard green. Caught by diffing a real build, not by the test.
+
+This branch made the gap wider by adding `lib/linkedin/publish`,
+`lib/linkedin/oauth`, `lib/supabase/service` and `lib/publish-runner` to
+`SERVER_ONLY`.
+
+**Do:** resolve each client component's import graph transitively (handling the
+`@/` alias, relative paths and extension resolution) rather than one hop. A
+cheaper stopgap: assert on built output — grep `.next/static/chunks` for
+`service_role` / `api.linkedin.com` after a build — though that needs a build,
+so it belongs in a separate script rather than the unit suite.
+
+**Why it waited:** it is a change to a shared test harness that every branch
+depends on, and the immediate hole is closed. Best done when nothing is in
+flight.

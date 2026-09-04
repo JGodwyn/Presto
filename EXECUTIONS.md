@@ -4661,6 +4661,462 @@ that makes `posts.status` disappear — it is vestigial now and marked as such i
 `types/post.ts`, but dropping a column is not additive and no branch should own
 that while others are in flight.
 
+---
+
+## 2026-09-02 — `feat/linkedin-publish`: the reconnect state that has to exist before the scope flip
+
+**Task.** Publishing itself is built and gated on `main` (`lib/linkedin/publish.ts`,
+`publish-actions.ts`). The one un-taken step is requesting `w_member_social`.
+Per LinkedIn, requesting a different scope than the one previously granted
+invalidates every access token already issued — so the flip is a *migration*,
+and the user's call was: **build the reconnect UX first, flip the scope after.**
+This entry is the first half. `LINKEDIN_SCOPES` is unchanged.
+
+1. **`lib/linkedin/scopes.ts` (new).** `LINKEDIN_SCOPES` moved here out of
+   `oauth.ts`, and `parseGrantedScopes` out of `publish.ts`. Both of those
+   modules are server-only at runtime — one reads the client secret, the other
+   makes the share call — and the Connections page is a client component that
+   now needs to read the scope list. Same trap as `lib/ai/model-constants.ts`:
+   a client importing either would pull it into the bundle. The new module is
+   pure and imports nothing.
+2. **`grantIsCurrent(raw)`** is the predicate: does a stored grant still cover
+   everything `LINKEDIN_SCOPES` asks for. Deliberately *not* "does it have
+   `w_member_social`" — asked against the list, the UI needs no edit when the
+   list changes, and no connection is ever prompted for a scope we don't
+   request. Today it is true for every row; the moment a scope is added it goes
+   false for every row granted under the old list, which is the migration
+   catching itself.
+3. **`scope` is now on `ConnectedSocialAccount`** (types/social-account.ts) and
+   in `fetchSocialAccounts`'s select. Not a secret — unlike
+   `encrypted_access_token`, which stays out of every select that can reach a
+   browser.
+4. **`connected-account-row.tsx`** gained a fifth case. It is *not* a fifth
+   `ConnectionStatus`: staleness is orthogonal to liveness (the token still
+   works for what it was granted), so folding it into that enum would have
+   invented a precedence puzzle with expiry and revocation. It's a flag,
+   `grantIsStale`, and it keeps the green block and swaps the countdown's chip.
+   `RenewChip` generalised to `ReconnectChip` (label + tooltip as props) —
+   both states are the same authorize redirect and differ only in why they ask.
+   One chip, never two: a stale grant wins over the expiry warning, because
+   renewing a token that already works reads as optional and this doesn't.
+5. **Tests.** `lib/linkedin/scopes.test.ts` — the delimiter cases moved over
+   from publish.test.ts, plus `grantIsCurrent`: a superset grant passes, any
+   missing requested scope fails, and the simulated add-a-scope case (the row
+   granted under `LINKEDIN_SCOPES.slice(0, -1)`) fails without naming which
+   scope was added. `publish.test.ts` keeps the two cases about the publish
+   scope itself. `post-account.test.ts`'s factory carries the new field.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `eslint` (changed files) | clean |
+| `vitest` | 259 passed / 24 files |
+
+**Not verified in-browser.** The chip cannot render until a scope is added, so
+seeing it means temporarily extending `LINKEDIN_SCOPES` with a probe value and
+reloading Connections. Both the edit and creating a browser tab were denied by
+the sandbox this session, so the UI state is unverified — the predicate and the
+wiring are covered by tests, the rendering is not.
+
+**Still to do on this branch, in order:** register the *Share on LinkedIn*
+product on the LinkedIn app (without it the authorize leg dies with
+`unauthorized_scope_error`); add `w_member_social` to `LINKEDIN_SCOPES` and
+invert `oauth.test.ts`'s absence assertion; reconnect **on :3000** (the only
+registered redirect URI — see LEARNINGS) and confirm the consent screen names
+posting and the exchange returns the scope. `PRESTO_ENABLE_LIVE_PUBLISH` stays
+unset throughout: an actual live post is a separate green-light.
+
+### Same task, second half — the scope flip itself
+
+The *Share on LinkedIn* product turned out to be already added to the LinkedIn
+app, which was the only thing I'd named as blocking. So, per the sequencing the
+user chose (reconnect UX first, flip after), the flip went in the same session.
+
+6. **`w_member_social` is now requested.** `LINKEDIN_PUBLISH_SCOPE` moved from
+   `publish.ts` into `scopes.ts` (the one place that decides what's requested
+   should be the place that names it; `publish.ts` re-exports it, so the
+   publish path still reads as self-contained) and joined `LINKEDIN_SCOPES`.
+   **`PRESTO_ENABLE_LIVE_PUBLISH` is untouched and still unset** — the gate's
+   first key refuses every publish regardless, and AGENTS.md's constraint is
+   unchanged: holding the permission is not using it.
+7. **The guard test moved rather than went away.** `oauth.test.ts`'s "asks for
+   sign-in scopes only" — which pinned the scope's *absence* — is now "asks for
+   the scopes the app declares", asserting the URL matches `LINKEDIN_SCOPES`
+   exactly, so a scope still can't reach an authorization request without being
+   declared first. What stops a live post is `checkPublishGate`, pinned in
+   publish.test.ts, and that is untouched.
+8. **A test I'd written an hour earlier failed, correctly.** `grantIsCurrent`'s
+   "accepts what a live connection actually carries" case asserted that
+   `email,openid,profile` is current — true when written, false the moment the
+   scope was added. It's now "rejects the sign-in-only grant every
+   pre-2026-09-02 connection carries", which is the migration stated as an
+   assertion. The scope-agnostic case (`LINKEDIN_SCOPES.slice(0, -1)`) stays,
+   so the predicate is still pinned for the *next* time the list changes.
+
+**Verified in-browser** (:3002, the worktree's own port — rendering only, no
+OAuth leg, which needs :3000): the real LinkedIn connection now renders the
+stale treatment — green block, "Connected as Godwin John", "Expires in 59 days"
+still in subtle grey (it isn't expiring), and a "Reconnect" chip where the
+"Renew now" chip would sit. The "1 connection active" badge still counts it,
+which is right: it's alive, it just can't post.
+
+**One thing the screenshot caught that the tests couldn't**: the first tooltip
+copy ("This connection was set up before Presto asked for these permissions.
+Reconnect to grant them.") rendered as a single ~460px line across a 312px row,
+laying a bar over the green strip it was annotating. Shortened to "Reconnect to
+grant Presto permission to post", matching the Renew chip's tooltip length.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `eslint` (changed files) | clean |
+| `vitest` | 259 passed / 23 files; `lib/ai/generate.test.ts` times out on live Gemini quota, as on `main` (FOLLOWUPS §12) |
+
+**Left for you:** reconnect the account **on :3000** — the only registered
+redirect URI — and confirm the consent screen names posting and the row's chip
+clears itself. Until then the connection keeps working for everything except
+publishing, which is refused twice over anyway.
+
+### Verified live, 2026-09-02 15:30 UTC
+
+The user reconnected and was shown a consent screen asking to grant the app
+permission — which is the tell that the new scope was actually requested, since
+LinkedIn skips consent for a re-authorisation that asks for nothing new.
+
+| | before | after |
+|---|---|---|
+| `scope` | `email,openid,profile` | `email,openid,profile,w_member_social` |
+| `connected_at` | 2026-09-01 13:53 | 2026-09-02 15:30 |
+| `expires_at` | 2026-10-31 | 2026-11-01 |
+
+The delimiter is comma, as documented — the value is stored verbatim and
+`parseGrantedScopes` handles both, so nothing depended on which one came back.
+The connected row cleared itself: no chip, "Expires in 60 days" in subtle grey.
+`grantIsCurrent` is now true for the only row in the table, which is the
+migration completing.
+
+**Two false starts worth recording**, both from the same wrong assumption:
+
+- I reported ":3000 is the main checkout, so the flip isn't live there". It is
+  not — **:3000 was being served by this worktree's own dev server** (`Dir:`
+  in the "Another next dev server is already running" error names this
+  directory), which is also why `next dev -p 3002` refused to start a second
+  one. The flip was live on :3000 the whole time. Check the running server's
+  `Dir:`, not the port, before reasoning about which branch a page is serving.
+- An earlier reconnect attempt left the row untouched — same `connected_at` to
+  the millisecond. The callback rewrites `scope`/`connected_at`/`expires_at` on
+  every upsert, so an unchanged row is proof the flow never reached the
+  callback, and a *partially* updated row would mean something else entirely.
+  That triple is the cheapest way to tell "didn't run" from "ran and failed".
+
+**The gate is unchanged and still shut.** With the scope now granted,
+`checkPublishGate` refuses on key 1 (`publishing_disabled`) rather than key 2 —
+`PRESTO_ENABLE_LIVE_PUBLISH` is unset, nothing calls `publishPost`, and turning
+that key is a separate green-light per AGENTS.md.
+
+### Publish trigger, part 1 — the predicate, the menu row, the deck
+
+Green-lit to build the whole path: trigger, failure states, scheduler, and one
+real live post. `PRESTO_ENABLE_LIVE_PUBLISH` stays unset until that last step.
+
+1. **`lib/post-publish.ts`** — `canAttemptPublish` / `publishBlockedReason`, one
+   predicate for three surfaces (menu, post page, and the scheduler later), so a
+   control can't appear in one place and not another. Mirrors `publishPost`'s
+   own refusals for the things a client can see: already published (checked
+   first — the only state where offering the control could produce a *second*
+   live post), try-out, unsupported platform, platform not connected.
+   **Deliberately blind to the gate**: `PRESTO_ENABLE_LIVE_PUBLISH` and the
+   granted scope are server-only, and hiding the control when publishing is off
+   would make a refusal invisible rather than explained. An expired or revoked
+   connection still gets the control, because "reconnect it and try again" is
+   more useful than a missing button. Pinned by lib/post-publish.test.ts.
+2. **`PostActionsMenu`** gained an optional `onPublish` — "Publish now",
+   PaperPlaneTilt, first row, dividers recomputed from what's actually above.
+   `GeneratedPostCard` passes it through and now renders a menu when
+   `date || onOpen || onPublish`. The Generating page passes nothing: a post
+   written seconds ago hasn't been read yet, let alone approved.
+3. **`publishPost` returns `publishedAt`** alongside the URN. The caller patches
+   its own copy with it; a client stamping its own `new Date()` would disagree
+   with the row by the round trip, which at a day boundary files the post under
+   the wrong day on the Content page.
+4. **The day deck** wires it: `ConfirmationModal` (publishing is the one action
+   here that is irreversible *and* public, and the copy names the account it
+   goes out as), then an **awaited** call — not the optimistic shape every other
+   action here uses, because flying the card home on a hope would show
+   "published" for a post that never went out. On success the post leaves the
+   Queued tab for Published, so it departs through the same `leaveDeck` flight
+   as a date change, asked through `keyForPost` rather than assumed. On failure
+   the action's own sentence is shown as-is (the gate, an expired connection and
+   LinkedIn refusing are different problems with different fixes) and
+   `publishError` is mirrored locally so the failed treatment turns on without a
+   refetch. The deck's toast gained a `success` variant for this.
+
+tsc clean; eslint clean on the touched files (the 10 remaining errors are
+`main`'s own baseline in generate-calendar-column.tsx / generating-view.tsx).
+
+### Publish trigger, part 2 — the post's own page, and a bug the browser caught
+
+5. **post-details.tsx** gets the same control: a `success`-green PaperPlaneTilt
+   leading the action row (Regenerate already owns `brand`, and the two must not
+   read as the same weight when one is irreversible and public), its own
+   `ConfirmationModal` naming the account, and an awaited send.
+6. **A published post can no longer be regenerated or moved back to drafts.**
+   Once it is live, LinkedIn owns the copy people are reading and nothing here
+   can change or recall it — so the two actions that would make this screen lie
+   are disabled, each saying why in its tooltip. Delete stays, with its own copy
+   for that case: it removes Presto's record, the live post survives.
+7. **The refusal path, verified in-browser on :3000** — the whole point of
+   building it before the key is turned. Publish → confirm → danger toast
+   "Publishing to a live account is switched off for this app.", and the row
+   afterwards: `published_at`, `publish_started_at` and `publish_error` all
+   still null. The gate refuses before the claim *and* before the token is
+   decrypted, so nothing was sent and nothing was written.
+8. **That screenshot caught a real bug in the handler**, which tests would not
+   have: both clients patched `publishError` on *any* error, including a
+   refusal the server never recorded — so a post the database considers
+   untouched would have shown the failed treatment until the next refetch.
+   `publishPost` now returns `recorded: true` only on the branch that actually
+   wrote `publish_error` (an attempt that reached LinkedIn), plus the `failure`
+   code, and both call sites mirror only that. **A refusal and a failed attempt
+   are different states and the client cannot tell them apart from a string** —
+   which is the general lesson, and why the action returns a code at all.
+
+### Overdue and failed, said on the card
+
+`isOverdue` and `hasFailed` have had tests since the publishing schema landed
+and nothing rendered them: a post whose date slid past looked exactly like one
+due next Tuesday, and one LinkedIn refused looked exactly like one nothing had
+tried yet.
+
+9. **`components/content/post-status-marker.tsx`** — one marker, three surfaces
+   (Kanban card, deck card, post page). **Failed outranks overdue** and they are
+   never both shown: a failed post is past its moment by definition, but "we
+   tried and LinkedIn said no" is the fact that explains the other one and the
+   one with something to do about it. No Figma export draws either state (the
+   content exports predate publishing), so it is composed from tokens.
+10. **`lib/clock.ts`, and why it exists.** Only the overdue half needs a clock,
+    and the Content page deliberately *stopped* threading a `now` down when tab
+    membership stopped depending on it (see calendar/page.tsx) — re-introducing
+    the prop would have brought back the `react-hooks/purity` exception it
+    dropped, through MonthBoard and KanbanColumn, neither of which otherwise
+    cares. So: a module store on a 60s tick read through
+    `useSyncExternalStore`, same shape as network-status and section-navigation.
+    Its **server snapshot is 0**, so nothing is overdue during the server render
+    and the marker resolves on hydration; the cached snapshot is what keeps
+    useSyncExternalStore from looping, and the interval only runs while
+    something is subscribed. Pinned by lib/clock.test.ts.
+11. **`lib/publish-failure.ts`** — the failure copy moved out of
+    publish-actions.ts so the server's toast and the card's own treatment can't
+    describe the same failure differently, and so a client can read it without
+    dragging the share call into the bundle. `publishFailureMessage` degrades a
+    code it doesn't recognise (the column has no constraint, and a row could
+    carry one from an older build) to something true rather than "undefined".
+12. **`GeneratedPostCard` takes a `statusMarker` slot**, not a `post`: that card
+    takes resolved primitives (`account` is resolved by its caller too), and the
+    deck is the only caller with a whole Post to hand. The Generating page
+    passes nothing, which is right — a post written seconds ago is neither.
+
+**Verified in-browser on :3000.** Overdue: opened 1 July's deck (a past day) —
+the card shows an amber "Overdue" at the head of its account row. Failed: set
+`publish_error = 'token_expired'` on that one post, confirmed the post page
+reads "**Didn't send** — That connection has expired. Reconnect it and try
+again." on its own line above the pill, with the failed marker winning over the
+overdue one on a post that is both — then **set the column straight back to
+null** (confirmed: `publish_error`, `published_at`, `publish_started_at` all
+null again). No other row was touched.
+
+**A false alarm worth writing down**: the first screenshot of the Content page
+showed the Kanban view with no markers, which read as a bug. It was the
+documented pre-hydration frame — the stored "Show as" value can't be known until
+hydration, so Kanban renders for a frame on a project saved as Calendar. The
+markers were absent because the board wasn't mounted, not because they failed.
+Check `document.body.innerText` before concluding anything from a first paint.
+
+tsc clean; eslint clean on the touched files; vitest 271 passed (the one failure
+is lib/ai/generate.test.ts's live Gemini quota, as on `main`).
+
+### The scheduler — built, not armed
+
+The user's rule, verbatim: *"don't publish anything overdue. let the scheduler
+run on posts for the future. the user should either change date on overdue posts
+to the future or publish manually."* Transport: Supabase pg_cron.
+
+13. **`lib/publish-runner.ts` — one implementation of "publish this post".**
+    Extracted from publish-actions.ts, which is now a 97-line wrapper around it.
+    The two callers arrive completely differently — the button as the signed-in
+    user through a server action, the cron as *nobody*, on a service-role client
+    — but everything after "which post" is identical, and it is the part that
+    must not be duplicated: the claim is what stops a post going out twice, and
+    a second copy that drifts by one condition is a double post on a real
+    timeline. It takes the Supabase client rather than making one, which is what
+    lets it serve both, and it does **no access control of its own** beyond
+    scoping every query to `(id, project_id)` — stated at the top of the file,
+    because handed a service-role client it will publish whatever it is pointed
+    at.
+14. **`lib/publish-due.ts` — the backlog rule, and why it isn't "publish what's
+    due".** 60 posts were already past their date, the oldest by two months; a
+    scheduler that sent what was due would have put all 60 on a real timeline
+    the moment it was armed. But "not overdue" can't mean "exactly now" either,
+    or a tick that sees a post 40 seconds late sends nothing, ever. So: a
+    **grace window** of 3 ticks (15 min at a 5-min cadence) — long enough to
+    survive two missed runs, short enough that nothing surprising goes out — and
+    anything older is backlog, permanently, by design. Plus a **batch cap of 5**,
+    which is a bound on the blast radius of any mistake in that arithmetic.
+    Pinned by lib/publish-due.test.ts, including the real 30 June date.
+15. **`lib/supabase/service.ts`** — the first use of `SUPABASE_SERVICE_ROLE_KEY`,
+    which has sat declared and unused in `.env.local.example` since the AI-models
+    work. It bypasses RLS entirely, so the file carries the three rules for
+    touching it and the cron's `where` clause is written as the security
+    boundary it now is. FOLLOWUPS #3 argued against reaching for service role
+    casually; this is the case it wasn't arguing about — there is no session to
+    scope to and no user to ask.
+16. **`app/api/cron/publish/route.ts`** — Bearer `CRON_SECRET`, **refusing
+    outright when the secret is unset** rather than running open (a missing
+    secret is a deployment mistake, and the safe reading is "nobody may run
+    this"). Both failures return an indistinguishable 404. Selection excludes
+    `publish_error is not null`: a failed post is never retried on its own,
+    since retrying blind is how one broken connection becomes a stream of
+    failures — it wears the "Didn't send" marker until a person decides.
+    Sequential, not `Promise.all`: one account, one rate limit, and the ordering
+    the query just established is worth keeping. Returns a JSON run summary
+    (window, due, published, failed, per-post outcome).
+
+**It is a dry run in its current state**, and deliberately: every send goes
+through the same `checkPublishGate`, so with `PRESTO_ENABLE_LIVE_PUBLISH` unset
+the endpoint reports what it *would* have sent and sends nothing.
+
+**Blocked on two things, both the user's:** `SUPABASE_SERVICE_ROLE_KEY` is not
+set in `.env.local` (only the example lists it), and the dev server has been up
+since 13:00 so it hasn't loaded the `CRON_SECRET` this branch added. Confirmed
+the route itself is live and refusing correctly: the response body is this
+handler's own `{"error":"Not found"}` JSON, not Next's HTML 404.
+
+**Not applied: the pg_cron schedule.** `feat/x-connect` holds the schema lock
+(`./scripts/worktree.sh schema-owner`), and this touches the shared remote
+project. The SQL, for when the lock frees:
+
+```sql
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+select cron.schedule('presto-publish-due', '* * * * *', $$
+  select net.http_get(
+    url := '<deployed origin>/api/cron/publish',
+    headers := jsonb_build_object('Authorization', 'Bearer ' || '<CRON_SECRET>')
+  );
+$$);
+```
+
+Note it must point at a **deployed** origin — Postgres cannot reach localhost,
+so the schedule is only meaningful once this is deployed. Locally the endpoint
+is exercised with curl, which is how the dry run below was run.
+
+tsc clean; eslint clean on the new files; vitest 281 passed across lib/.
+
+### Cadence: one minute, and grace pinned apart from it
+
+Per direct decision after talking through event-driven alternatives.
+
+**Why not fire a job per post at its exact time.** pg_cron's syntax has no year
+field, so "09:30 on 3 September" recurs annually and each job has to unschedule
+itself; an external delayed-message scheduler (QStash, Inngest) does it properly
+but is a new third-party dependency. Both share the real objection: they add a
+second source of truth that must track every date change, draft toggle and
+delete — four write paths — and their failure mode is **"silently never sent"**,
+where polling's is "a few seconds late". Polling asks the database what is true
+right now, so an edit needs no coordination at all.
+
+- `PUBLISH_TICK_MINUTES` 5 → **1**. A post scheduled for 09:00 goes out by
+  09:01. 1,440 runs a day, each one query returning nothing on almost all of
+  them.
+- `PUBLISH_GRACE_MINUTES` is now **its own constant at 15**, not `tick * 3`.
+  That derivation quietly tied the safety margin to the cadence: dropping the
+  tick would have shrunk grace from 15 minutes to 3, and a four-minute deploy
+  would then strand a post in the backlog permanently. The two numbers answer
+  different questions — how precise, and how forgiving. A test pins them apart.
+
+**Still outstanding, and now more relevant:** `posts` has **no index on
+`scheduled_for`** — only `posts_pkey` and `posts_project_id_idx`. At one query a
+minute that wants a partial index (`where published_at is null`). Additive, but
+it is the shared remote database and `feat/x-connect` holds the schema lock;
+FOLLOWUPS #4 already collects index work for when nothing is in flight.
+
+### The first live post — `postShare` verified, 2026-09-03 05:35 UTC
+
+`lib/linkedin/publish.ts` carried a standing caveat: the request shape was
+"**unverified against a live call** — by construction, since nothing has ever
+been allowed to make one. Treat it as the starting point for the first real
+attempt, not as known-good." That is now resolved.
+
+**Process, since this is the one irreversible thing in the app.** Picked a
+127-character *draft* (dateless, so it also exercised the draft→Published path),
+showed the user its exact text, and got explicit confirmation on that specific
+content before arming anything. Then: added `PRESTO_ENABLE_LIVE_PUBLISH=true` to
+.env.local, user restarted the dev server, pressed Publish through the real UI,
+and removed the key immediately afterwards.
+
+**The request shape was right first time.** No changes to `postShare` were
+needed: `rest/posts` with `LinkedIn-Version: 202608`, commentary-only,
+`PUBLIC` / `MAIN_FEED`, `lifecycleState: PUBLISHED`, and the post's URN read off
+the `x-restli-id` response header (the body is empty on a 201).
+
+| | |
+|---|---|
+| `provider_post_id` | `urn:li:share:7501150776556412931` |
+| `published_at` | 2026-09-03 05:35:07 UTC |
+| `publish_started_at` | null — claim released |
+| `publish_error` | null |
+| `scheduled_for` | still null |
+
+**What it confirmed beyond the API call**, all in one send: the success toast;
+the publish control disappearing and Regenerate / Add-to-calendar going disabled
+on a live post; the claim being taken and released; and — the one that could
+only be checked with a real published draft — a dateless post landing on the
+**Published tab under today** rather than vanishing, via `groupingTimestamp`'s
+`publishedAt ?? scheduledFor ?? createdAt`.
+
+**The gate is out of .env.local but the running server still holds it in memory**
+until it is restarted: env is read at startup. Until that restart, :3000 can
+still publish.
+
+**Deliberately not exercised:** the cron endpoint while armed. With the gate open
+it would have sent anything that came due in the previous 15 minutes, which was
+not what the user confirmed. The sandbox blocked that curl on its own, which was
+the right call.
+
+### The scheduler published a post on its own, 2026-09-03 05:50 UTC
+
+The last unobserved behaviour: a post going out *because its time arrived*
+rather than because someone clicked. Confirmed with the user on the specific
+content first, as with the manual send.
+
+Setup: a draft was given `scheduled_for = now() + 2 minutes` (SQL, so the moment
+was exact), the gate was armed, the dev server restarted to load it, and — since
+pg_cron cannot reach localhost — one tick was fired by hand with curl. Before
+firing, the window was checked: **1.2 minutes past due, and exactly one post
+inside the 15-minute window**, so the tick could not take anything else with it.
+
+The run summary, verbatim:
+
+```json
+{"ranAt":"2026-09-03T05:50:52.020Z","livePublishEnabled":true,
+ "window":{"from":"05:35:52Z","to":"05:50:52Z","graceMinutes":15},
+ "due":1,"published":1,"failed":0,
+ "results":[{"postId":"bf73f2f0…","ok":true,"postUrn":"urn:li:share:7501154742442684416"}]}
+```
+
+The row afterwards: `status` published, `published_at` 05:50:52, the URN stored,
+the claim released, no error, and `scheduled_for` **kept** — a scheduled post
+keeps the date it was scheduled for, unlike the manual draft send which stays
+dateless. The gate was removed from .env.local immediately after.
+
+**What this closes.** Every path through publishing has now been exercised
+against the live API: the refusal (gate shut), the manual send, and the
+scheduled send. The service-role client, the due window, the batch query and the
+claim all ran for real. What remains untested is only what cannot be tested from
+a laptop — pg_cron itself, which needs a deployed origin.
+
+Note the same restart tax applies as before: `.env.local` is clean, but a
+running server keeps the old env until it is restarted.
 ## 2026-09-02 — feat/x-connect: X (Twitter) OAuth, protocol + token layers
 
 Branch `feat/x-connect`, worktree port 3003, holds the schema lock. Building the
@@ -5160,3 +5616,310 @@ this for X" rather than relying on the refused-switch modal to offer it.
     Gemini API and is currently rate-limited, per FOLLOWUPS §12.
 
     Scope was deliberately not widened, per the review.
+
+### Merged `main` after `feat/x-connect` landed, 2026-09-03
+
+Second in the merge order, as instructed. Three conflicts, exactly as predicted:
+
+- **`.env.local.example`** — two tail appends. X's credentials now sit beside
+  LinkedIn's; `CRON_SECRET` and the note on `PRESTO_ENABLE_LIVE_PUBLISH` follow
+  both.
+- **`lib/supabase/queries.ts`** — both sides added columns to
+  `fetchSocialAccounts`. Kept both: the select carries `account_handle`,
+  `refresh_expires_at` *and* `scope`, and the mapping keeps x-connect's
+  `refresh_expires_at ?? expires_at` resolution (X's access token lapses in two
+  hours; the refresh horizon is the real one) alongside `scope`.
+- **`components/content/day-deck.tsx`** — the only real work, and smaller than
+  it looked: git auto-merged both sides' state, handlers and dialogs, leaving a
+  single conflicted import. What needed a human eye was everything it merged
+  *without* conflict, which was checked rather than trusted — `handlePublish`
+  sits before x-connect's `refusesPost`/`handleSocialChange`, the card carries
+  both sides' props (`statusMarker`/`onPublish` and
+  `regenerating`/`onSocialChange`), and the publish confirmation and the
+  blocked-switch dialog coexist.
+
+Two comment artifacts fixed, both from the auto-merge rather than either
+branch: the "Platform and isTryout move together" note had been orphaned onto
+x-connect's `refusesPost` helper and was folded back into
+`commitSocialChange`'s own comment, and an import list came through as
+`nextAllowedPostAccount,  nextPostAccount,` on one line.
+
+`lib/post-publish.test.ts`'s account factory needed `accountHandle: null` —
+x-connect widened `ConnectedSocialAccount`, and tsc caught it.
+
+**The seam between the two branches, checked deliberately.** X posts now exist,
+and publishing must not touch them: `publishBlockedReason` returns
+`platform_unsupported` for an X post **even when an X account is connected**
+(that check runs before `not_connected`), and the cron's own selection query
+filters `platform = linkedin`. Both were already pinned —
+lib/post-publish.test.ts covers the first, the query the second — so no new test
+was needed. Length limits can't reach publishing either: `PLATFORM_LENGTH_LIMITS`
+defines only X, and X can't be published.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 errors — `main`'s own baseline, all in files this branch never touched (switch.tsx, generate-calendar-column.tsx, create-project-modal.tsx, onboarding-context.tsx, project-sidebar.tsx, generating-view.tsx) |
+| `npx vitest run --exclude lib/ai/generate.test.ts` | 346 passed / 29 files (excluded per FOLLOWUPS §12 — live Gemini quota, ~90s) |
+| `npm run build` | clean, `/api/cron/publish` present as a dynamic route |
+
+**Still undefined: "the interleaving test."** It matches nothing in the repo
+before or after x-connect landed, and x-connect added no test by that name
+(build-prompt, post-length, x/oauth, x/token, post-account). The mixed-platform
+seam it most plausibly refers to is covered above. Flagged rather than invented.
+
+---
+
+## 2026-09-03 — `feat/linkedin-publish`: close the review blocker
+
+Picked up after `main` was merged in (`8150b8c`) but the blocker itself was
+still open — verified directly rather than assumed: both halves were byte-for-
+byte as the reviewer left them, with no uncommitted work and no stash.
+
+**The blocker — the scheduler could double-post to a real timeline.** Two facts
+combined: `CLAIM_TIMEOUT_MS` (5 min) was shorter than `PUBLISH_GRACE_MINUTES`
+(15), so a claim went stale ten minutes before its post left the due window; and
+the success write was awaited with no error check, so a failed write left
+`published_at: null` — indistinguishable from a post that never went out. A
+later tick would re-claim and re-send it.
+
+Fixed both halves, because either alone still leaves a live double-post path:
+
+- `CLAIM_TIMEOUT_MS` is now **derived**: `(PUBLISH_GRACE_MINUTES + 1) * 60_000`.
+  The `+ 1` makes the ordering strict rather than merely equal, so the last tick
+  that can see a post is never the tick that can re-claim it. Two independent
+  constants could drift back into overlap; a derived one cannot.
+- The success write's error is checked, and produces a new **`record_failed`**
+  outcome. The post is live and the row does not say so, which is a distinct
+  state, not a publish failure. It is never retryable, the claim is deliberately
+  **left held** (an unreleased claim delays one post; a released one publishes it
+  twice), the URN is carried out on the outcome, surfaced in the cron summary and
+  `console.error`'d — it is the only surviving record that the post is live.
+  Its user-facing message says the post *published* rather than that it failed:
+  telling someone their post failed while it sits on their timeline is the one
+  wrong answer.
+
+**New `lib/publish-runner.test.ts`** (6 tests) with a Supabase stand-in shaped to
+the four chains the runner builds. **Both halves were verified against the bug,
+not just the fix**: reintroducing the unchecked write fails 2 tests,
+reintroducing the 5-minute claim fails 1.
+
+**Also fixed, from the same review:**
+
+- **One bad token no longer halts publishing for everyone.** `decryptApiKey`
+  throws *after* the claim is taken, and the cron loop had no `try`. Now wrapped
+  per post, so one corrupt token strands its own post rather than 500ing the
+  route and stopping every other project on every tick.
+- **`CRON_SECRET` is compared with `timingSafeEqual`.** It was `!==`, which
+  short-circuits at the first differing byte — exactly the measurement the
+  comment claimed the length pre-check prevented. The misleading comment is gone.
+- **The publish modal can no longer become permanently unclosable.** Its dismiss
+  guard is `if (!open && !publishing)`, so a throw that left `publishing` true
+  locked it with no way out but a reload. Now `try/finally`.
+- **`no-client-sdk.test.ts` now guards the new server-only modules** —
+  `lib/linkedin/publish`, `lib/linkedin/oauth`, `lib/supabase/service` and
+  `lib/publish-runner`. `lib/linkedin/scopes` is deliberately dependency-free so
+  the Connections page can import *it* instead; nothing enforced that until now.
+
+**Deliberately not done — both need a decision, not a fix.** Logged as
+FOLLOWUPS §17 and §18: refusals that record nothing re-select every tick and
+occupy the whole `limit(5)` (fixing it means choosing whether a scope refusal
+marks a post failed), and a published post is still editable, regenerable and
+re-datable (what those controls *should* do on a live post is a product call).
+Neither is reachable while the gate is shut.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 errors — compared against `main`'s own run, identical |
+| `npm run test` | 352 passed / 30 files, excluding `lib/ai/generate.test.ts` (FOLLOWUPS §12) |
+| `npm run build` | clean |
+
+**Unchanged and re-confirmed:** `PRESTO_ENABLE_LIVE_PUBLISH` still absent from
+`.env.local` and `.env.local.example`, `checkPublishGate` still refuses on it
+first, no migration, no `vercel.json`, no cron registration.
+
+---
+
+## 2026-09-03 (later) — second review round: three holes in the fix above
+
+The `/integrate` review held the branch again. Two of the three findings were in
+the fix commit itself (`d222c83`), and both were right.
+
+**1. `record_failed` did not actually block anything.** The comment claimed the
+claim was "deliberately left held", but a claim is a *lease*: the claim
+predicate re-grants any claim older than `CLAIM_TIMEOUT_MS`, so holding it only
+delayed a second publish by sixteen minutes. The cron never noticed — the post
+has left its due window by then — but **the manual "Publish now" path does not
+look at the date at all** (verified: no `scheduled_for`, `isDueNow` or
+`dueWindow` anywhere in publish-actions.ts), so a person clicking it later would
+have re-sent a post already on their timeline. The first fix reproduced the
+exact bug it was written to close, one path over.
+
+Now durable rather than time-based: a `record_failed:<urn>` marker is written to
+`publish_error` (a smaller write than the one that just failed — no
+`published_at`, so it cannot trip the published-needs-a-provider-id constraint)
+and the claim predicate gains `.not("publish_error", "like", "record_failed:%")`,
+which never expires. The URN lives inside the marker, so the only durable record
+that the post is live is also the thing preventing it being sent twice. The claim
+is still held as well, covering the window before the marker write is attempted.
+
+**2. The failure branch's release write was still unchecked** — the identical
+omission the fix had just repaired on the success write two blocks below, in the
+same function. It cannot duplicate anything (nothing was published on that path)
+but it would leave the post wearing "Overdue" with no "Didn't send" marker and no
+reason. Checked now, and `recorded` reports what actually happened.
+
+**3. `try/finally` was added to one of two publish handlers.** `day-deck.tsx` got
+it; `post-details.tsx:802` has the same `if (!open && !isPublishing)` dismiss
+guard and the same permanently-unclosable-modal failure. Fixed.
+
+**And one that was nobody's fix but the merge's:**
+`connected-account-row.tsx` called `grantIsCurrent(account.scope)` for **every**
+account, but that asks a LinkedIn question — `LINKEDIN_SCOPES.every(...)`, now
+including `w_member_social`. An X row stores `users.read tweet.read
+offline.access` and can never satisfy it, and reconnecting X grants X's scopes
+again. So every connected X account would have worn a permanent "Reconnect to
+grant Presto permission to post" chip, for a permission X is not asked for and
+that no user action could clear. X shipped on `main` while this branch was open,
+so the two only met at the merge — the one finding here that misfires with the
+publish gate shut and no cron armed. New `isGrantStale(platform, scope)` in
+scopes.ts is now what call sites use.
+
+**Tests: 358 passing (was 352).** Three new in publish-runner.test.ts (the
+permanent marker, refusal long after the lease would have lapsed, the release
+write's own failure) and three in scopes.test.ts for `isGrantStale`. Each was
+verified against its regression, not just the fix: restoring the lease-only
+version fails 2, unchecking the release write fails 1. The fake's chain needed
+`.not` added — it broke loudly rather than passing against the new predicate,
+which is the behaviour a fake has to have.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 errors — `main`'s baseline |
+| `npm run test` | 358 passed / 30 files, excluding `lib/ai/generate.test.ts` |
+| `npm run build` | clean |
+
+**Lower-severity, left alone deliberately:** `lib/linkedin/oauth.ts:176`'s
+`scope: body.scope ?? LINKEDIN_SCOPES.join(" ")` fallback now asserts a
+`w_member_social` grant that may not have been made — textually unchanged, but
+its meaning moved with this diff. Real, low-likelihood (LinkedIn does return
+`scope`), and it belongs with the §17 decision about how a stale grant should be
+treated rather than being patched blind. Also unchanged: `lib/clock.ts:25`'s
+stale `now`, and the success toast that unmounts with the deck when publishing a
+day's last post.
+
+---
+
+## 2026-09-03 (third round) — the fix that silently killed publishing
+
+The review held the branch a third time, on a finding in my own previous commit,
+and it was the most serious one yet.
+
+**The `.not(… like …)` claim predicate excluded every post.** `NOT (col LIKE …)`
+is NULL, not true, for a NULL column, and `publish_error` is NULL on every post
+that has never failed. So the guard written to stop *one* post being re-claimed
+stopped *all* of them: publishing was entirely, silently dead through both the
+button and the cron, reporting "already being published" for every post. Verified
+two ways against the live database — raw SQL (0 of 311 rows pass the bare form,
+311 pass the null-safe one) and a probe through real supabase-js/PostgREST
+(baseline 311, bare `.not` **0**, null-safe `.or` **311**, and a marked row still
+correctly blocked at 0, so the block keeps its teeth).
+
+Now `.or("publish_error.is.null,publish_error.not.like.record_failed:*")`.
+Chained `.or()` calls AND together, so it composes with the stale-claim one.
+
+**Why 358 green tests said nothing.** The fake in publish-runner.test.ts
+re-implements predicates in JavaScript, where the NULL case reads as "not
+blocked" — the opposite of the database. A fake proves the code calls the query
+you meant; it cannot prove the query means what you think. Added **`the claim
+predicate is null-safe`**, which records the filter calls and asserts no negative
+filter on `publish_error` exists without an explicit `is.null` arm — verified to
+fail when the bare `.not` form is restored. That is the part a fake can speak to
+honestly.
+
+**And I nearly repeated the ai-models bundle bug in the same commit.** Putting
+`RECORD_FAILED_PREFIX` in publish-runner.ts and importing it from
+publish-failure.ts — which client components read — would have pulled the runner,
+Supabase and the share call into the browser. The constant now lives in
+publish-failure.ts (pure, already client-safe) and the runner imports and
+re-exports it. Verified against a real build: client chunks contain no
+`service_role` and no `api.linkedin.com`; the single `w_member_social` hit is
+lib/linkedin/scopes.ts, which is deliberately client-safe and present on `main`
+too. Chunks 3.4M, unchanged.
+
+**Also fixed, from the same review:** a `record_failed` post showed "Didn't send"
+over *"This post didn't go out. Try publishing it again."* — for a post live on
+the timeline, inviting exactly the re-publish the marker prevents. Now
+`publishFailedLabel()` returns "Sent, not recorded" and the message says the post
+published. `publishErrorFor()` makes the client's optimistic patch match the
+marker the server actually writes, URN included, so the card does not change its
+story on reload.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 — `main`'s baseline |
+| `npm run test` | 359 passed / 30 files, excluding `lib/ai/generate.test.ts` |
+| `npm run build` | clean, client bundle verified free of server modules |
+
+---
+
+## 2026-09-04 — fourth round: the copy fix that never reached the client
+
+Held again, on a defect in the previous commit, and the reviewer was right.
+
+**`publishErrorFor()` was correct and unreachable.** The server action's error
+branch was typed `{ error; failure?; recorded? }` with no `publishedUrn`, and
+its return discarded `outcome.publishedUrn`. **TypeScript could not catch it**:
+`publishedUrn` is optional on `publishErrorFor`'s structural parameter, so
+dropping it type-checks perfectly. The client therefore mirrored a bare
+`"record_failed"` while the row held `"record_failed:<urn>"`, and every reader
+misclassified it — the card said "Didn't send" over *"This post didn't go out.
+Try publishing it again"* beneath a toast saying the post had published, then
+changed its story on reload. Both call sites were affected; both correctly
+guarded on `result.recorded`, and neither received the URN.
+
+Fixed by threading `publishedUrn` through `PublishPostResult`, with a comment on
+the field saying why it must cross that boundary.
+
+**A third contradictory message, from the same root.** `publishBlockedReason`
+keys on `publishedAt`, which is null on this path, so "Publish now" stayed
+enabled on a post already live; clicking it hit the claim predicate and returned
+*"That post is already being published"*. It now also returns
+`already_published` for a `record_failed` marker — the marker is the only thing
+that can see this state.
+
+**New `lib/publish-failure.test.ts` (7 tests)** pinning the thing the type system
+cannot: that what the client mirrors equals what the server wrote. One test
+deliberately asserts the *broken* shape misclassifies, documenting why the field
+has to be passed rather than leaving a future reader to rediscover it.
+
+**Two stale comments corrected in `lib/linkedin/publish.ts`.** They still said
+the share call was "unverified against a live call — by construction, since
+nothing has ever been allowed to make one", and that publish-actions.ts was the
+only caller. Both false since 2026-09-03: two posts are live, and the caller is
+publish-runner.ts, reached from the action *and* the cron. A stale "nothing has
+ever published" in the file that owns the gate is the wrong direction to be
+wrong in. Now records that a plain text share is verified and that media,
+articles and non-default visibility are not.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 — `main`'s baseline |
+| `npm run test` | **366** passed / 31 files, excluding `lib/ai/generate.test.ts` |
+| `npm run build` | clean; client chunks 3.4M, zero hits for `service_role`, `api.linkedin.com`, `SUPABASE_SERVICE_ROLE_KEY`, `LINKEDIN_CLIENT_SECRET`, `CRON_SECRET` |
+
+**Correction to an earlier entry:** the `w_member_social` string in a client
+chunk is *not* "present on main too" — `lib/linkedin/scopes.ts` is new on this
+branch. It is still correct and harmless: a public OAuth scope identifier, ~40
+bytes, pulled in because the Connections row imports `isGrantStale` from that
+module. The claim that it predated the branch was wrong.
+
+**One item added to FOLLOWUPS (§19):** `no-client-sdk.test.ts` only inspects
+*direct* imports in `"use client"` files, so a two-hop path into a server module
+is invisible — which is exactly how the `publish-failure` → `publish-runner`
+import nearly shipped Supabase and the share call into the browser. This branch
+widened the blast radius by adding three modules to `SERVER_ONLY`.
