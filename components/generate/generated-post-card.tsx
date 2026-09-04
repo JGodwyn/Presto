@@ -9,6 +9,7 @@ import { GeneratingPostCard } from "@/components/generate/generating-post-card"
 import { PostActionsMenu } from "@/components/generate/post-actions-menu"
 import { DateTimePickerDialog } from "@/components/shared/date-time-picker-dialog"
 import { PostAccountPill } from "@/components/shared/post-account-pill"
+import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { getCaretOffsetFromPoint } from "@/lib/caret"
 import { formatDate } from "@/lib/format-date"
@@ -19,18 +20,16 @@ import { cn } from "@/lib/utils"
 
 const CARD_CORNER_RADIUS = 16 // rad-lg
 
-// How wide a fade-to-transparent runs in from each side of the topics row —
-// same masking technique as the calendar's skip-dates carousel
-// (generate-calendar-column.tsx's EDGE_FADE_PX): a CSS mask, not overflow,
-// so a chip scrolling through fades out instead of getting sliced by a hard
-// edge. The right fade is this card's own p-pad-lg (16px) — the row bleeds
-// out to exactly that padding and no further. The left is half that: the
-// topics now sit beside the platform pill rather than spanning the card, so
-// a 16px fade there would reach back under the pill. Kept in sync by hand
-// with the row's own pl-2/-ml-2 and pr-4/-mr-4 (Tailwind needs literals).
+// How far the topics row dissolves at each end, once there is actually
+// something left to scroll to there — the same scroll-aware fade the Kanban
+// card uses (hooks/use-scroll-fade.ts), not the static mask this row used to
+// carry. The right fade is this card's own p-pad-lg (16px), since the row
+// bleeds out to exactly that padding and no further; the left is half that,
+// because the topics sit beside the account pill and a 16px fade there would
+// reach back under it. Kept in sync by hand with the row's own pl-2/-ml-2 and
+// pr-4/-mr-4 (Tailwind needs literals).
 const EDGE_FADE_LEFT_PX = 8
 const EDGE_FADE_RIGHT_PX = 16
-const EDGE_FADE_MASK = `linear-gradient(to right, transparent, black ${EDGE_FADE_LEFT_PX}px, black calc(100% - ${EDGE_FADE_RIGHT_PX}px), transparent)`
 
 // Same fade-instead-of-hard-cutoff idea as the topics row above, applied
 // vertically to the content box: it scrolls (mouse wheel/trackpad/drag) the
@@ -179,6 +178,11 @@ export function GeneratedPostCard({
 }: GeneratedPostCardProps) {
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({
     cornerRadius: CARD_CORNER_RADIUS,
+  })
+  const { ref: topicsRef, onScroll: onTopicsScroll } = useScrollFade({
+    axis: "x",
+    start: EDGE_FADE_LEFT_PX,
+    end: EDGE_FADE_RIGHT_PX,
   })
 
   // The placeholder stands in for this card for exactly as long as the real
@@ -530,7 +534,8 @@ export function GeneratedPostCard({
             same amount. Right goes the full 16px to the card's inner edge;
             left only 8px, since past that it would reach under the pill. */}
         <div
-          style={{ maskImage: EDGE_FADE_MASK, WebkitMaskImage: EDGE_FADE_MASK }}
+          ref={topicsRef}
+          onScroll={onTopicsScroll}
           className={cn(
             "-mr-4 -ml-2 flex h-7 min-w-0 flex-1 items-center gap-dist-sm overflow-x-auto pr-4 pl-2",
             HIDE_NATIVE_SCROLLBAR_CLASSNAME
@@ -542,7 +547,15 @@ export function GeneratedPostCard({
               size="md"
               selected={false}
               retired={activeTopics ? !activeTopics.has(topic) : false}
-              className="shrink-0"
+              // max-w-none undoes Chip's own max-w-full, and it is the whole
+              // fix for topics vanishing on a narrow card. Capped at 100% of
+              // this row, a chip *shrinks to fit* instead of overflowing — so
+              // the row never has anything to scroll, the fade never engages,
+              // and the label truncates. On the day deck's 272px card, with
+              // the status chip and the account pill ahead of it, that left
+              // roughly 40px and rendered as an empty pill. Hugging its label
+              // instead is what lets the row overflow and scroll at all.
+              className="max-w-none shrink-0"
             >
               {topic}
             </Chip>

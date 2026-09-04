@@ -1494,3 +1494,46 @@ constant.
 free parameter — it's capped by the smallest gutter between the blurred region
 and anything that must stay sharp. Here `dist-xl` (24px) to the sidebar allowed
 `dist-lg` (16px), leaving 8px of clearance.
+
+## A `max-w-full` chip shrinks instead of overflowing, so its row can never scroll
+
+**Symptom.** Two reports that read as separate bugs: topic chips truncating on
+the post card, and topic pills rendering *completely empty* on the day deck's
+cards — while the same post's topics showed fine on its own page.
+
+**Cause, one for both.** `components/ui/chip.tsx` carries `max-w-full` plus a
+`truncate`d label. Inside a horizontally-scrolling row that is itself
+`flex-1 min-w-0`, that cap is measured against the row — so when the row is
+squeezed, the chip **shrinks to fit it** rather than overflowing. Nothing
+overflows, so `scrollWidth === clientWidth`, so the row has nothing to scroll
+and the scroll-fade never engages; the label just ellipsises down to nothing.
+Measured on the deck's 272px card: 65px left for topics after the status chip
+and account pill, chip rendered at 41px, scrollWidth equal to clientWidth. With
+`max-w-none` the same chip is 161.6px and the row scrolls.
+
+**Rule.** A chip in a scrolling row must hug its content (`max-w-none
+shrink-0`). `max-w-full` only makes sense where the chip is expected to *fit* —
+a wrapping list — and is actively harmful anywhere the row is meant to overflow.
+An "empty pill" is the tell: the element is present at its padding-plus-border
+width with the label squeezed to zero.
+
+**Corollary for debugging:** if a scroll-fade "isn't working", check
+`scrollWidth` against `clientWidth` before suspecting the fade. A fade that
+never fires because nothing overflows looks identical to a broken hook.
+
+## A programmatic `scrollLeft` from `javascript_tool` won't fire a scroll handler
+
+**Symptom.** Setting `element.scrollLeft = 999` in an eval moved the element
+(the value read back correctly, clamped to its max) but the scroll-driven mask
+never updated — in that eval or in a later one. It looked exactly like
+`useScrollFade`'s `onScroll` was not attached.
+
+**Cause.** Chrome aligns scroll events to `requestAnimationFrame`, and **every
+`javascript_tool` eval backgrounds the tab**, which suspends rAF. The scroll
+happens; the event announcing it never gets dispatched.
+
+**Rule.** Scroll-driven behaviour has to be exercised with `computer`'s `scroll`
+(or a real drag), which foregrounds the tab — then measured. This is the same
+trap already documented for Motion animations and `setInterval` under an eval,
+one API wider than it was written: it isn't only rAF-driven *animation* that
+freezes, it's anything the browser schedules on a frame, scroll events included.

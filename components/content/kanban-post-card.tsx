@@ -7,6 +7,7 @@ import { PostAccountPill } from "@/components/shared/post-account-pill"
 import { Chip } from "@/components/ui/chip"
 import { useScrollFade } from "@/hooks/use-scroll-fade"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { hasFailed } from "@/lib/content-grouping"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { resolvePostAccount } from "@/lib/post-account"
 import { formatClockTime } from "@/lib/time-of-day"
@@ -70,19 +71,43 @@ export function KanbanPostCard({
       // capture past its 4px threshold and the click never lands.
       className="flex w-full shrink-0 cursor-pointer flex-col gap-dist-md rounded-rad-lg bg-surface-4 p-pad-lg text-left transition-[scale] duration-150 ease-out outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
     >
+      {/* When it was meant to go out, and whether it did — above the post
+          rather than below it (per direct request). The column above already
+          names the day, so the time is the only thing telling one card in a
+          column from another, and putting it first means it lines up down the
+          column, scannable. A draft has neither, and the row simply doesn't
+          render: an empty 28px band over every card would cost the stack a
+          line of height for nothing.
+
+          The condition mirrors what PostStatusMarker itself will draw rather
+          than asking it: overdue implies a schedule, so `scheduled` already
+          covers that half, and `hasFailed` is the only way the marker appears
+          on a post with no time beside it. */}
+      {scheduled || hasFailed(post) ? (
+        <span className="flex shrink-0 items-center gap-dist-md">
+          {scheduled ? (
+            <span className="shrink-0 text-body-md-bold text-text-subtle">
+              {formatClockTime(scheduled)}
+            </span>
+          ) : null}
+          <PostStatusMarker post={post} />
+        </span>
+      ) : null}
+
       {/* Two lines, then an ellipsis — the export's own 48px/2-line box. */}
       <span className="line-clamp-2 text-body-lg text-text-bold">
         {post.content}
       </span>
 
-      {/* Same row shape as the full card: the platform pill, then the topics.
-          Both are display-only here, so the pill is a span rather than the
-          tap-to-cycle button it is there.
+      {/* Who it goes out as, and what it's about — the card's foot, under the
+          post itself (per direct request). Both are display-only here, so the
+          pill is a span rather than the tap-to-cycle button it is on the full
+          card.
 
           Scrolls rather than clipping, so a long topic list is reachable
           instead of cut off mid-chip, with the fade dissolving whatever runs
           past either end. Its own pointer handling stops here: this row sits
-          inside a card that is itself a button inside a drag-scrolled board,
+          inside a card that is itself a link inside a drag-scrolled board,
           and a horizontal drag over it should scroll the row, not the row and
           the board together. */}
       <span
@@ -90,23 +115,10 @@ export function KanbanPostCard({
         onScroll={onTopicsScroll}
         onPointerDown={(event) => event.stopPropagation()}
         className={cn(
-          "flex items-center gap-dist-md overflow-x-auto",
+          "flex shrink-0 items-center gap-dist-md overflow-x-auto",
           HIDE_NATIVE_SCROLLBAR_CLASSNAME
         )}
       >
-        {/* The time leads this row rather than sitting in a header of its
-            own: the column above already names the day, so the time is the
-            only thing telling one card in a column from another — and first
-            in the row means it lines up down the column, scannable, without
-            costing the card a line of height. A draft has none. */}
-        {scheduled ? (
-          <span className="shrink-0 text-body-md-bold text-text-subtle">
-            {formatClockTime(scheduled)}
-          </span>
-        ) : null}
-        {/* Straight after the time, which is what it qualifies: the time says
-            when this was meant to go out, and the marker says it didn't. */}
-        <PostStatusMarker post={post} />
         <PostAccountPill
           account={account}
           // Display-only here: the whole card is a single link to the post's
@@ -120,7 +132,11 @@ export function KanbanPostCard({
             size="md"
             selected={false}
             retired={!activeTopics.has(topic)}
-            className="shrink-0"
+            // max-w-none for the same reason as the full card's topics row:
+            // Chip's own max-w-full makes a chip shrink to fit rather than
+            // overflow, so the row would have nothing to scroll and a long
+            // topic would truncate away to an empty pill instead.
+            className="max-w-none shrink-0"
           >
             {topic}
           </Chip>

@@ -6058,3 +6058,67 @@ steps 1→2: panel/card edges dissolve into the canvas on all sides, sidebar's
 pixel-gradient stays crisp with no bleed into the gutter, callout card sharp
 and correctly aligned to its nav item after the step change. Gates: tsc,
 eslint, vitest (372), `next build` all clean.
+
+## 2026-09-04 — Overdue chip, and post cards' time/account/topics rows
+
+Four items, three of which turned out to share one root cause.
+
+**1. "Overdue" is now the exported chip** (design-sync/overdue-chip-design).
+`components/content/post-status-marker.tsx` went from icon + coloured text to a
+warning-tinted chip: `surface-warning-light` fill, `border-warning` stroke-lg,
+rad-md squircle, pad-sm/pad-xs, 28px tall, `body-md-bold` in `text-warning`.
+Structurally the same box as `components/ui/chip.tsx` in a different palette,
+which is what lets it sit in a row beside real topic chips.
+
+- **The icon is gone because the export has none.** The frame keeps a
+  `dist-sm` item gap despite drawing a single text child, so an icon was
+  plausibly once there; the screenshot is text-only, so text-only it is.
+- **The failed half is not exported**, and is now the same chip in the app's
+  danger tones. The two occupy the same slot and mean the same kind of thing;
+  leaving one an icon-and-text line beside a chip would have read as two
+  unrelated treatments.
+- **`withReason` (post-details) can't be a chip** — a chip holding a sentence
+  stretches into a banner. The chip stays a chip and the reason sits beside it
+  as ordinary text, the pair keeping the `basis-full` row it already had.
+- Verified against the export in-browser: 28px tall, `rgb(255,251,219)` fill,
+  2px `rgb(224,168,0)` stroke, `rgb(163,122,0)` text, 700/14px/20px, 4px 8px
+  padding, squircle clip-path present. Width comes out 77.6px against the
+  frame's 74 — Figma's INSIDE stroke overlaps the padding where a CSS border on
+  a hug-width box adds to it. Chip.tsx has the identical 4px characteristic, and
+  matching its sibling matters more here than matching the frame.
+
+**2 + 3 are the same bug: `Chip`'s own `max-w-full`.** The report was two
+symptoms — topics truncating on the post card, and *empty* topic pills on the
+day-deck cards — and they are one mechanism. Capped at 100% of its row, a chip
+**shrinks to fit instead of overflowing**. So the row never has anything to
+scroll, the scroll-fade never engages, and the label ellipsises away. Measured
+on the deck's 272px card: the topics box had 65px (the status chip and account
+pill ahead of it take the rest), and the chip for "Product management" rendered
+41px wide with `scrollWidth === clientWidth` — i.e. an empty pill that could not
+be scrolled to reveal anything, which is exactly what was reported. Passing
+`max-w-none` at both call sites is the whole fix: after it, the same chip is
+161.6px in a 65px box, `scrollWidth` 186, and scrolls.
+
+Also swapped that row's **static mask for `useScrollFade`** (item 2's "just like
+the kanban view"): each edge now fades by the distance actually left to scroll
+there, so a resting chip is never dimmed. Verified with a real wheel scroll —
+at max scroll the fade is on the left and gone on the right.
+
+**Measurement note.** A programmatic `element.scrollLeft = …` from
+`javascript_tool` moves the element but **does not update the fade**: Chrome
+aligns scroll events to rAF, and an eval backgrounds the tab, which suspends it.
+The first read looked like a broken hook. `computer`'s scroll action foregrounds
+the tab and behaves correctly. Same family as the existing note about rAF and
+Motion animations under `javascript_tool`.
+
+**4. Kanban card is two rows now** (`components/content/kanban-post-card.tsx`):
+time + status above the post, account + topics below it, replacing the single
+scrolling row that held all four. The top row renders on `scheduled ||
+hasFailed(post)` rather than asking PostStatusMarker whether it will draw
+anything — overdue implies a schedule, so `scheduled` covers that half, and
+`hasFailed` is the only way the marker appears with no time beside it. A draft
+with neither gets no row at all: an empty band would still cost the stack a
+`dist-md` gap.
+
+Verified in-browser on :3000 across Kanban, the day deck and a post's own page.
+Gates: tsc, eslint, vitest (372), `next build` all clean.
