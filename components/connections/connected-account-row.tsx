@@ -64,6 +64,7 @@ function ConnectedAccountRow({
   label,
   now,
   pending,
+  canReconnect = true,
   onDisconnect,
   onReconnect,
 }: {
@@ -71,6 +72,14 @@ function ConnectedAccountRow({
   label: string
   now: Date
   pending: boolean
+  // False for a platform that has been withdrawn (X — see PLATFORMS in
+  // connections-panel.tsx). The row still renders, because a live connection
+  // with a stored token must not become invisible, but every control that
+  // would *make* a connection goes: no Reconnect, no Renew, no stale-grant
+  // chip. A dead one offers Disconnect instead, which is the only thing left
+  // that can actually be done about it — an authorize redirect for a platform
+  // the app no longer offers is a dead end wearing a button.
+  canReconnect?: boolean
   onDisconnect: () => void
   onReconnect: () => void
 }) {
@@ -102,7 +111,8 @@ function ConnectedAccountRow({
   // connected X account — for a permission X was never asked for, and which
   // reconnecting could not clear. Both platforms now have a real answer: X's
   // grants predating tweet.write (2026-09-04) are genuinely stale.
-  const grantIsStale = !isDead && isGrantStale(account.platform, account.scope)
+  const grantIsStale =
+    canReconnect && !isDead && isGrantStale(account.platform, account.scope)
 
   return (
     <div className="flex flex-col gap-dist-md">
@@ -118,7 +128,7 @@ function ConnectedAccountRow({
           platform={account.platform}
           label={label}
           action={
-            isDead ? (
+            isDead && canReconnect ? (
               <Button
                 variant="success"
                 size="sm"
@@ -231,6 +241,7 @@ function ConnectedAccountRow({
               tooltip="Reconnect to grant Presto permission to post"
             />
           ) : (
+            canReconnect &&
             status === "expiring" && (
               <ReconnectChip
                 pending={pending}

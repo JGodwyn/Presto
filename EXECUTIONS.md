@@ -6469,3 +6469,44 @@ Gates: tsc clean, lint at main's 17-error baseline, vitest 416 passed across 34
 files, build clean. Both locks mutation-tested — putting X back on
 `PUBLISHABLE_PLATFORMS` fails 5 tests, putting `tweet.write` back in `X_SCOPES`
 fails 4.
+
+### X connecting withdrawn too
+
+Per direct request — "I don't want there to be an option to connect an X account
+at all" — X's Connect button on the Connections page is replaced by plain
+"Coming soon" text. That is a one-line change (`available: false` in
+`PLATFORMS`, connections-panel.tsx) and it **restores the Figma export's own
+treatment**: "Connect / Base" drew X as "Coming soon", and it only became a
+button when connecting shipped.
+
+None of the connecting code is deleted, per the same request — the OAuth routes,
+`lib/x/oauth.ts`, `lib/x/token.ts` and the disconnect action are untouched and
+still work. Flipping `available` back to `true` re-opens it.
+
+**An account connected before the withdrawal keeps its row but loses every
+control that would make a connection.** `ConnectedAccountRow` gained
+`canReconnect` (default true): with it false there is no Reconnect, no "Renew
+now", and no stale-grant chip, and a *dead* connection offers **Disconnect**
+where it would otherwise offer Reconnect. Keeping the row matters — a live
+connection with a stored token must not become invisible — but an authorize
+redirect for a platform the app no longer offers is a dead end wearing a button.
+
+Verified on **:3002**: X renders as "Coming soon" beside LinkedIn's live
+Disconnect. The withdrawn-but-connected path has no data to exercise it (the
+owner disconnected X in the meantime), so it was checked by forcing LinkedIn
+`available: false` and `isDead` true in the component — the row went to the
+danger treatment with Disconnect and no chips, as intended — then reverted.
+
+**Consequence worth knowing:** the Generate page's account pill already disables
+an unconnected platform (`buildAccountOptions`, components/generate/
+account-options.tsx), so with no X connection possible, X is permanently
+disabled there too. No change was needed for that; it falls out.
+
+**X posts were kept.** Eight exist, none published, and nothing about them
+breaks: `lib/post-account.ts` falls back to the platform label when a platform
+isn't connected, so their cards read "X" rather than an account name, and every
+tab, filter and dashboard figure still counts them. Deleting is irreversible and
+buys nothing — and they are what a future X publish would be tested against.
+Two are *scheduled*, so they sit in Queued and will read Overdue without ever
+going out; that is flagged in FOLLOWUPS rather than silently changed, since
+turning someone's scheduled posts into drafts is their call.

@@ -654,6 +654,21 @@ Tests in both files will fail first and say so, which is the point. The
 send as the proof, and **the tweet id belongs in EXECUTIONS.md** the way the
 LinkedIn URNs are.
 
+**Connecting X is withdrawn as well** (`available: false` in `PLATFORMS`,
+components/connections/connections-panel.tsx) — the Connect button is plain
+"Coming soon" text, which is what the Figma export drew before connecting
+shipped. The flow itself is intact; one line re-opens it. Note the Generate
+page's account pill disables an unconnected platform on its own, so X is
+disabled there too with no code of its own.
+
+**Two X posts are scheduled and can never go out.** They sit in Queued and will
+read "Overdue" forever. Turning them into drafts, or moving them to LinkedIn, is
+a call for whoever owns the content — left alone deliberately rather than
+rewritten. Six more X posts are drafts, which are harmless. None is published.
+Also note some existing X posts run to ~1,459 characters, well over the 280 the
+app now enforces at publish time: they predate the limit, and would be refused
+rather than truncated.
+
 **Nothing has ever been published to X**, so `lib/x/publish.ts`'s success path
 is the one thing here never exercised end to end. Everything up to X receiving
 the request is (see EXECUTIONS, 2026-09-04); the 201-and-parse-the-id branch has
