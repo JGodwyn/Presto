@@ -1,7 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { ArrowClockwise, CalendarDots, Scribble, Trash } from "@phosphor-icons/react"
+import {
+  ArrowClockwise,
+  CalendarDots,
+  PaperPlaneTilt,
+  Scribble,
+  SpinnerGap,
+  Trash,
+} from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { Chip } from "@/components/ui/chip"
@@ -110,6 +117,23 @@ interface GeneratedPostCardProps {
   // the state) — this card only owns the placeholder it shows while that's in
   // flight, so it just awaits whatever this resolves to.
   onRegenerate: () => Promise<void>
+  // This post has gone out and can no longer be changed here (isPostLocked,
+  // lib/post-publish.ts). The provider owns the copy people are reading, so
+  // every control that would make this card and the live post disagree is
+  // shut: no double-tap editing, no date picker, no account switching, and no
+  // Turn-to-draft row in the menu. Delete stays — it removes this app's record
+  // and says so.
+  locked?: boolean
+  // When it went out, which takes the header's date slot. A post published
+  // straight from a draft never gets a `scheduled_for`, so without this its
+  // card reads "Draft" above something that is live. Absent on a post that is
+  // live-but-unrecorded (the `record_failed:` marker), where the moment
+  // genuinely isn't known — the status chip is what says so there.
+  publishedAt?: Date
+  // Regenerate's replacement on a locked post: it drafts a *new* post rather
+  // than rewriting the published one (draftFollowUpPost). Optional, so a
+  // caller with nowhere to put a new draft simply gets no button.
+  onDraftFollowUp?: () => Promise<void>
   // A reroll started somewhere other than this card's own button — the
   // too-long-to-switch dialog is the only one today. Without it that reroll
   // shows no feedback at all (this card owns the placeholder, and never learns
@@ -165,6 +189,9 @@ export function GeneratedPostCard({
   onPublish,
   publishComingSoon,
   onRegenerate,
+  locked = false,
+  publishedAt,
+  onDraftFollowUp,
   regenerating = false,
   account,
   nextAccount,
@@ -185,6 +212,12 @@ export function GeneratedPostCard({
     start: EDGE_FADE_PX,
     end: EDGE_FADE_PX,
   })
+
+  // What the header line reports. Once a post is out, the moment that matters
+  // is when it *went* out — and a post published straight from a draft has no
+  // `scheduled_for` at all, so reading `date` alone would put "Draft" above
+  // something live (FOLLOWUPS §5c, the same defect the post's own page had).
+  const headerDate = publishedAt ?? date
 
   // The placeholder stands in for this card for exactly as long as the real
   // generation call is in flight — no timer of its own, so a slow model keeps
@@ -211,6 +244,21 @@ export function GeneratedPostCard({
       // Deleting a post mid-regenerate unmounts this card while the call is
       // still out — nothing left to flip back.
       if (isMountedRef.current) setIsRegenerating(false)
+    }
+  }
+
+  // Drafting a follow-up deliberately does *not* raise the placeholder above.
+  // Nothing about this card is being rewritten — a new post is being written
+  // somewhere else — so swapping this one for a "generating" shell would say
+  // the opposite of what is happening. The button carries the wait instead.
+  const [isDrafting, setIsDrafting] = React.useState(false)
+  const handleDraftFollowUp = async () => {
+    if (isDrafting || !onDraftFollowUp) return
+    setIsDrafting(true)
+    try {
+      await onDraftFollowUp()
+    } finally {
+      if (isMountedRef.current) setIsDrafting(false)
     }
   }
 
@@ -288,6 +336,10 @@ export function GeneratedPostCard({
 
   const handleCardDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (isEditing) return
+    // The one control that has no visible affordance to remove, so the lock
+    // has to be enforced here: a published post's text is not editable,
+    // because editing it changes nothing about what is public.
+    if (locked) return
     // Every existing action on this card (delete, the "..." menu, the
     // social pill, add-to-calendar/change-date, regenerate) is a <button> —
     // a single check covers all of them rather than enumerating each one,
@@ -397,8 +449,12 @@ export function GeneratedPostCard({
             automatic minimum is its content, which would otherwise push the
             actions button out of the card instead of truncating. */}
         <div className="flex min-w-0 items-center gap-dist-sm">
-          {date ? (
-            <CalendarDots className="size-5 shrink-0 text-icon-subtle" weight="bold" />
+          {headerDate ? (
+            publishedAt ? (
+              <PaperPlaneTilt className="size-5 shrink-0 text-icon-subtle" weight="bold" />
+            ) : (
+              <CalendarDots className="size-5 shrink-0 text-icon-subtle" weight="bold" />
+            )
           ) : (
             <Scribble className="size-5 shrink-0 text-icon-subtle" weight="bold" />
           )}
@@ -416,15 +472,15 @@ export function GeneratedPostCard({
               nothing. */}
           <span className="flex min-w-0 items-baseline gap-dist-sm">
             <span className="truncate text-body-lg-bold text-text-bold">
-              {date ? formatDate(date) : "Draft"}
+              {headerDate ? formatDate(headerDate) : "Draft"}
             </span>
-            {date ? (
+            {headerDate ? (
               <>
                 <span aria-hidden className="shrink-0 text-body-lg text-text-subtle">
                   •
                 </span>
                 <span className="shrink-0 text-body-lg text-text-subtle">
-                  {formatClockTime(date)}
+                  {formatClockTime(headerDate)}
                 </span>
               </>
             ) : null}
@@ -434,12 +490,12 @@ export function GeneratedPostCard({
             — but it only becomes a menu at all once there's somewhere to open
             it to. Without that (the Generating page), a draft keeps the plain
             Delete button the export gives it. */}
-        {date || onOpen || onPublish || publishComingSoon ? (
+        {headerDate || onOpen || onPublish || publishComingSoon ? (
           <PostActionsMenu
             onPublish={onPublish}
             publishComingSoon={publishComingSoon}
             onOpen={onOpen}
-            onTurnToDraft={date ? onTurnToDraft : undefined}
+            onTurnToDraft={date && !locked ? onTurnToDraft : undefined}
             onDelete={onDelete}
           />
         ) : (
@@ -532,7 +588,10 @@ export function GeneratedPostCard({
             that far. */}
         <PostAccountPill
           account={account}
-          nextAccount={nextAccount}
+          // A published post goes out as whoever it went out as. Passing null
+          // is what makes the pill a plain span rather than a dead button —
+          // it still names the account, it just no longer offers to change it.
+          nextAccount={locked ? null : nextAccount}
           onSelect={onSocialChange}
           className="max-w-40 shrink-0"
         />
@@ -560,24 +619,52 @@ export function GeneratedPostCard({
         ))}
       </div>
 
-      <div className="flex shrink-0 items-center gap-dist-sm">
-        <Button
-          variant={date ? "brand" : "success"}
-          size="sm"
-          className="flex-1"
-          onClick={() => setPickerOpen(true)}
-        >
-          {date ? "Change date" : "Add to calendar"}
-        </Button>
-        <Button
-          variant="brand-secondary"
-          size="icon-sm"
-          aria-label="Regenerate post"
-          onClick={() => void handleRegenerate()}
-        >
-          <ArrowClockwise weight="bold" />
-        </Button>
-      </div>
+      {/* A locked card's row collapses to one button, and the date control is
+          gone rather than disabled: the post is out, so there is no date left
+          to set and a greyed "Change date" would only invite a click that can
+          never do anything. Regenerate keeps its place but changes what it
+          means — it drafts a follow-up (a new post) instead of rewriting one
+          that is already public. With nowhere to put that draft
+          (`onDraftFollowUp` unset) the row disappears entirely. */}
+      {locked ? (
+        onDraftFollowUp ? (
+          <div className="flex shrink-0 items-center gap-dist-sm">
+            <Button
+              variant="brand"
+              size="sm"
+              className="flex-1"
+              disabled={isDrafting}
+              onClick={() => void handleDraftFollowUp()}
+            >
+              {isDrafting ? (
+                <SpinnerGap weight="bold" className="animate-spin" />
+              ) : (
+                <ArrowClockwise weight="bold" />
+              )}
+              {isDrafting ? "Regenerating…" : "Regenerate"}
+            </Button>
+          </div>
+        ) : null
+      ) : (
+        <div className="flex shrink-0 items-center gap-dist-sm">
+          <Button
+            variant={date ? "brand" : "success"}
+            size="sm"
+            className="flex-1"
+            onClick={() => setPickerOpen(true)}
+          >
+            {date ? "Change date" : "Add to calendar"}
+          </Button>
+          <Button
+            variant="brand-secondary"
+            size="icon-sm"
+            aria-label="Regenerate post"
+            onClick={() => void handleRegenerate()}
+          >
+            <ArrowClockwise weight="bold" />
+          </Button>
+        </div>
+      )}
 
       <DateTimePickerDialog
         open={pickerOpen}

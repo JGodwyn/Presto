@@ -17,7 +17,11 @@ import {
 } from "@phosphor-icons/react"
 import { TextMorph } from "torph/react"
 
-import { deletePost, updatePost } from "@/app/projects/[projectId]/generate/post-actions"
+import {
+  deletePost,
+  draftFollowUpPost,
+  updatePost,
+} from "@/app/projects/[projectId]/generate/post-actions"
 import { publishPost } from "@/app/projects/[projectId]/generate/publish-actions"
 import { RegenerateModal } from "@/components/content/regenerate-modal"
 import { StreamedLine } from "@/components/content/streamed-line"
@@ -54,7 +58,12 @@ import { isNetworkError } from "@/lib/network-error"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { publishErrorFor } from "@/lib/publish-failure"
 import {
+  setPendingRegeneration,
+  takePendingRegeneration,
+} from "@/lib/pending-regeneration"
+import {
   canAttemptPublish,
+  isPostLocked,
   publishComingSoon,
   publishComingSoonLabel,
 } from "@/lib/post-publish"
@@ -172,14 +181,32 @@ export function PostDetails({
   // stays (it removes Presto's record, and its own copy says the live post
   // survives), and the publish control is gone by construction, since
   // canAttemptPublish refuses an already-published post.
-  const isPublished = currentPost.publishedAt !== null
+  // The one predicate three surfaces share (lib/post-publish.ts). It covers
+  // the ordinary published post *and* the one that is live at LinkedIn with a
+  // failed `published_at` write — reading `publishedAt` alone here would have
+  // left every control open on the second.
+  const isPublished = isPostLocked(currentPost)
   const canPublish = canAttemptPublish(currentPost, accounts)
   // A third state between "publish" and "nothing": the platform's publisher is
   // built and switched off (X — see PUBLISHABLE_PLATFORMS in
   // lib/post-publish.ts). Shown disabled rather than hidden, because an X post
   // sitting beside a LinkedIn one with no trace of the control reads as broken
   // rather than pending.
+  //
+  // Orthogonal to `isPublished` above, and the precedence is settled where the
+  // control renders: a post that has gone out shows no control at all, since
+  // nothing is pending for it.
   const comingSoon = publishComingSoon(currentPost, accounts)
+  // When it went out. The heading reports this instead of the schedule once a
+  // post is live: a post published straight from a draft never gets a
+  // `scheduled_for`, so the heading used to read "Draft" above something on
+  // someone's timeline (FOLLOWUPS §5c). Null on the live-but-unrecorded case,
+  // where the moment genuinely isn't known — the status marker says so there.
+  const publishedAt = currentPost.publishedAt
+    ? new Date(currentPost.publishedAt)
+    : undefined
+  // What the heading line actually shows.
+  const headingDate = publishedAt ?? scheduled
 
   const { ref: contentFadeRef, onScroll: onContentScroll } = useScrollFade()
   // A separate instance for the streaming view specifically: during the
@@ -204,6 +231,10 @@ export function PostDetails({
     // the same split the offline toast uses: what happened on the toast, what
     // to do about it underneath.
     extraInfo?: string
+    // Overrides the default below. Only the publish confirmation sets it: a
+    // tick beside "Published to LinkedIn" is the toast saying the same thing
+    // twice, and per direct request the words carry it alone.
+    showIcon?: boolean
   }>({ open: false, variant: "danger", message: "" })
 
   const showError = (message: string, extraInfo?: string) =>
@@ -320,6 +351,9 @@ export function PostDetails({
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
 
   const handleContentClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    // Nothing on this box says "editable", so the lock has to be enforced
+    // here: rewriting a published post changes nothing about what is public.
+    if (isPublished) return
     const el = event.currentTarget
     const caret = getCaretOffsetFromPoint(event.clientX, event.clientY)
     caretOffsetRef.current =
@@ -471,6 +505,59 @@ export function PostDetails({
         else setToast((prev) => ({ ...prev, open: false }))
       }
     })
+  }
+
+  // Regenerate, once the post is out. It writes a **new draft** rather than
+  // touching this one — decision 2 of this branch: a piece that landed well is
+  // exactly the one worth another angle on, and nothing about the live post
+  // moves.
+  //
+  // **It hands the whole thing over to the new draft's own page.** The insert
+  // is cheap and returns at once (draftFollowUpPost generates nothing), so this
+  // navigates immediately and the generation streams *there*, through the same
+  // route and the same "generating post . . ." treatment an ordinary reroll
+  // uses. Watching the words arrive beats watching a spinner on the button you
+  // just pressed, and it is why there is no success toast any more: arriving on
+  // the post is the confirmation.
+  //
+  // The brief picked in the modal travels through lib/pending-regeneration.ts —
+  // a module store rather than the URL, since the guidance is the user's own
+  // free text and has no business in an address bar.
+  const [isDraftingFollowUp, setIsDraftingFollowUp] = React.useState(false)
+  const handleDraftFollowUp = async (
+    guidance: string,
+    model: string,
+    topic: string | undefined
+  ) => {
+    setRegenerateOpen(false)
+    setIsDraftingFollowUp(true)
+    let result: Awaited<ReturnType<typeof draftFollowUpPost>> | null
+    try {
+      result = await withNetworkStatus(
+        draftFollowUpPost({
+          projectId: currentPost.projectId,
+          id: currentPost.id,
+        })
+      )
+    } finally {
+      setIsDraftingFollowUp(false)
+    }
+
+    if (result === null) return
+    if ("error" in result) {
+      if (result.reason === "network") reportNetworkIssue()
+      else {
+        const { message, extraInfo } = generationFailureCopy(result.reason, {
+          message: result.error,
+        })
+        showError(message, extraInfo)
+      }
+      return
+    }
+
+    const draft = result.post
+    setPendingRegeneration(draft.id, { guidance, model, topic })
+    router.push(`/projects/${currentPost.projectId}/calendar/${draft.id}`)
   }
 
   const [regenerateOpen, setRegenerateOpen] = React.useState(false)
@@ -807,6 +894,39 @@ export function PostDetails({
     streamDoneRef.current = true
   }
 
+  // Arriving as a follow-up: a published post's Regenerate created this draft
+  // and sent us here, and the generation it asked for has not started yet.
+  //
+  // The brief comes from lib/pending-regeneration.ts and is **consumed on
+  // read**, so a re-render, a Fast Refresh or a back-navigation onto this page
+  // cannot fire a second generation. Empty on any other arrival — opening a
+  // draft normally regenerates nothing, which is the point of the store
+  // degrading to nothing rather than persisting.
+  //
+  // Runs once per mounted post: the ref is what makes React 18's double-invoke
+  // in development a no-op here, since the store has already been drained by
+  // the second pass and there is nothing left to find.
+  const followUpStartedRef = React.useRef(false)
+  React.useEffect(() => {
+    if (followUpStartedRef.current) return
+    const request = takePendingRegeneration(post.id)
+    if (!request) return
+    followUpStartedRef.current = true
+    // In a microtask rather than straight from the effect body. Two reasons,
+    // and they agree: `handleRegenerate` sets a lot of state, which is exactly
+    // the cascading render react-hooks/set-state-in-effect exists to stop, and
+    // a microtask still runs before paint — so the draft's seeded copy of the
+    // published post never gets a frame on screen before the body blanks for
+    // the stream. A timeout would paint the copy first.
+    queueMicrotask(() => {
+      void handleRegenerate(request.guidance, request.model, request.topic)
+    })
+    // handleRegenerate is redefined every render and depending on it would
+    // re-run this on every keystroke elsewhere on the page. The store's
+    // consume-once read is the real guard; this only ever needs the id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [post.id])
+
   // The one irreversible, public action on this page. Awaited rather than
   // optimistic — there is nothing true to show until LinkedIn has confirmed
   // the post exists — and the only thing here that asks before it runs.
@@ -866,6 +986,7 @@ export function PostDetails({
       message: `Published to ${PLATFORM_LABELS[currentPost.platform]}`,
       action: undefined,
       extraInfo: undefined,
+      showIcon: false,
     })
   }
 
@@ -938,7 +1059,24 @@ export function PostDetails({
                         ? publishComingSoonLabel(currentPost.platform)
                         : "Publish post now"
                     }
-                    disabled={isPublishing || comingSoon}
+                    // Two unrelated reasons to be off, and both must hold.
+                    //
+                    // Off while anything is being written into this post:
+                    // mid-stream the body is a partial post and the row still
+                    // holds the old one, so a send here would put one or the
+                    // other on a real timeline — neither being the thing on
+                    // screen. The deck's card needs no equivalent: it swaps
+                    // itself for GeneratingPostCard while it regenerates, so
+                    // the menu holding its own Publish row isn't rendered.
+                    //
+                    // And off permanently for a platform whose publisher is
+                    // switched off, which is the coming-soon state above.
+                    disabled={
+                      isPublishing ||
+                      isRegenerating ||
+                      isDraftingFollowUp ||
+                      comingSoon
+                    }
                     onClick={
                       comingSoon ? undefined : () => setPublishOpen(true)
                     }
@@ -958,6 +1096,12 @@ export function PostDetails({
               </TooltipContent>
             </Tooltip>
           ) : null}
+          {/* Regenerate, on a published post as much as any other — same
+              control, same label, same icon (per direct request). What it
+              *produces* differs: rewriting this one would only make the page
+              and the live post disagree, so it writes a new draft instead.
+              That is said inside the modal, where there is room to say it,
+              rather than by renaming the button out here. */}
           <Tooltip>
             <TooltipTrigger
               render={
@@ -965,10 +1109,10 @@ export function PostDetails({
                   variant="brand"
                   size="icon-sm"
                   aria-label="Regenerate post"
-                  disabled={isRegenerating || isPublished}
+                  disabled={isRegenerating || isDraftingFollowUp}
                   onClick={() => setRegenerateOpen(true)}
                 >
-                  {isRegenerating ? (
+                  {isRegenerating || isDraftingFollowUp ? (
                     <SpinnerGap weight="bold" className="animate-spin" />
                   ) : (
                     <ArrowClockwise weight="bold" />
@@ -976,11 +1120,7 @@ export function PostDetails({
                 </Button>
               }
             />
-            <TooltipContent>
-              {isPublished
-                ? "Already published — rewriting it here wouldn't change the live post"
-                : "Regenerate"}
-            </TooltipContent>
+            <TooltipContent>Regenerate</TooltipContent>
           </Tooltip>
           {/* The export's own labels: "Move to drafts" on a dated post. The
               drafts screen shows a calendar icon here instead — its label prop
@@ -1077,9 +1217,9 @@ export function PostDetails({
                       morphs on its own when the schedule changes. */}
                   <h1 className="flex items-baseline gap-dist-md text-heading-sm font-display text-text-bold">
                     <TextMorph duration={HEADING_MORPH_DURATION} ease={STRONG_EASE_OUT}>
-                      {scheduled ? formatDate(scheduled) : "Draft"}
+                      {headingDate ? formatDate(headingDate) : "Draft"}
                     </TextMorph>
-                    {scheduled ? (
+                    {headingDate ? (
                       <>
                         <span aria-hidden className="text-text-subtle">
                           •
@@ -1089,7 +1229,7 @@ export function PostDetails({
                             duration={HEADING_MORPH_DURATION}
                             ease={STRONG_EASE_OUT}
                           >
-                            {formatClockTime(scheduled)}
+                            {formatClockTime(headingDate)}
                           </TextMorph>
                         </span>
                       </>
@@ -1098,24 +1238,31 @@ export function PostDetails({
                   {/* Not a content edit — this pencil is the date action:
                   reschedule a dated post, or give a draft its first date.
                   Same picker as the button above; this is just the quicker
-                  way to reach it. */}
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label={scheduled ? "Change date" : "Add to calendar"}
-                          onClick={() => setPickerOpen(true)}
-                          className="flex cursor-pointer items-center text-icon-subtle transition-[color,scale] duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
-                        >
-                          <PencilSimple weight="bold" className="size-6" />
-                        </button>
-                      }
-                    />
-                    <TooltipContent>
-                      {scheduled ? "Change date" : "Add to calendar"}
-                    </TooltipContent>
-                  </Tooltip>
+                  way to reach it.
+
+                  Gone once the post is out, rather than disabled: the heading
+                  beside it is no longer a schedule at all — it is the moment
+                  the post went live — and a pencil next to that offers to
+                  edit something that has already happened. */}
+                  {isPublished ? null : (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            aria-label={scheduled ? "Change date" : "Add to calendar"}
+                            onClick={() => setPickerOpen(true)}
+                            className="flex cursor-pointer items-center text-icon-subtle transition-[color,scale] duration-150 ease-out outline-none hover:text-icon-bold focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
+                          >
+                            <PencilSimple weight="bold" className="size-6" />
+                          </button>
+                        }
+                      />
+                      <TooltipContent>
+                        {scheduled ? "Change date" : "Add to calendar"}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </>
               )}
             </div>
@@ -1144,8 +1291,13 @@ export function PostDetails({
                   : currentPost,
                 accounts
               )}
+              // Null makes the pill a plain span: it still names the account
+              // this went out as, it just no longer offers to change it. A
+              // published post's account is a fact, not a setting.
               nextAccount={
-                isRegenerating ? null : nextPostAccount(currentPost, accounts)
+                isRegenerating || isPublished
+                  ? null
+                  : nextPostAccount(currentPost, accounts)
               }
               onSelect={handleSocialChange}
               className="max-w-60"
@@ -1211,7 +1363,11 @@ export function PostDetails({
                     exit={{ opacity: 0, filter: "blur(8px)" }}
                     transition={{ duration: 0.3, ease: STRONG_EASE_OUT_TUPLE }}
                     className={cn(
-                      "absolute inset-0 cursor-text overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
+                      "absolute inset-0 overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
+                      // The only affordance this box has. Dropped once the
+                      // post is live, so the pointer stops promising an edit
+                      // that handleContentClick now refuses.
+                      isPublished ? undefined : "cursor-text",
                       HIDE_NATIVE_SCROLLBAR_CLASSNAME
                     )}
                   >
@@ -1272,8 +1428,12 @@ export function PostDetails({
         // The platform this reroll writes for: the one a refused switch is
         // waiting on, or the post's own when it is an ordinary regenerate.
         targetPlatform={pendingSwitch?.platform ?? currentPost.platform}
+        mode={isPublished ? "follow-up" : "regenerate"}
+        isPending={isDraftingFollowUp}
         onConfirm={(guidance, model, topic) =>
-          void handleRegenerate(guidance, model, topic, pendingSwitch ?? undefined)
+          isPublished
+            ? void handleDraftFollowUp(guidance, model, topic)
+            : void handleRegenerate(guidance, model, topic, pendingSwitch ?? undefined)
         }
       />
 
@@ -1379,7 +1539,7 @@ export function PostDetails({
               onOpenChange={(open) => setToast((prev) => ({ ...prev, open }))}
               variant={toast.variant}
               direction="top"
-              showIcon={!toast.action}
+              showIcon={toast.showIcon ?? !toast.action}
               action={toast.action}
               extraInfo={toast.extraInfo}
             >

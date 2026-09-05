@@ -59,16 +59,9 @@ export function publishBlockedReason(
 ): PublishBlockedReason | null {
   // Checked first: an already-published post is the one state where offering
   // the control could produce a *second* live post, and the reason a reader
-  // most expects to see named.
-  if (post.publishedAt !== null) return "already_published"
-
-  // Live at the provider, but the row's own `published_at` write failed — so
-  // the check above cannot see it and only the marker can. Without this the
-  // control stays enabled on a post that is already on someone's timeline; the
-  // claim predicate refuses the attempt, but the user is told "that post is
-  // already being published", which is the third different story one post gets
-  // told about itself. See RECORD_FAILED_PREFIX in lib/publish-failure.ts.
-  if (isRecordFailure(post.publishError)) return "already_published"
+  // most expects to see named. Asked through `isPostLocked` so this and the
+  // read-only treatment below can never disagree about which posts are out.
+  if (isPostLocked(post)) return "already_published"
 
   // A "Try out" post was written against a stand-in account. It borrows a real
   // platform value, so without this it would resolve to the member's genuine
@@ -130,4 +123,40 @@ export function canAttemptPublish(
   accounts: ConnectedSocialAccount[]
 ): boolean {
   return publishBlockedReason(post, accounts) === null
+}
+
+// May this post still be changed here? **No, once it is live.**
+//
+// The provider owns the copy people are reading, and nothing in this app can
+// edit or recall it — so a screen that still offers the content editor, the
+// date pencil or the account pill is offering to make the row and the real
+// post drift apart silently. Four controls across three surfaces ask this
+// question (post-details, the day deck, the generated card and its actions
+// menu), which is why it is one predicate rather than four readings of
+// `publishedAt`.
+//
+// Two states count as live, and both are here so no caller has to remember
+// the second:
+//
+//   published_at set        the ordinary case, recorded by publishOnePost
+//   record_failed: marker   the share went out and the row's own write of it
+//                           failed, so `published_at` is still null and only
+//                           the marker knows (lib/publish-failure.ts). A post
+//                           in this state is just as public as the first.
+//
+// Deliberately platform-agnostic: it reads `publishedAt`, never `platform`.
+// X publishing is being built alongside this and inherits the whole treatment
+// for free — a post that has gone out is a post that has gone out.
+//
+// The sibling of `canAttemptPublish` above, and `publishBlockedReason` asks it
+// too: "may this go out" and "may this still change" must agree about what
+// "already out" means, and one function is how that is guaranteed rather than
+// hoped for. Regenerate is the one control this does *not* simply switch off —
+// it drafts a follow-up instead, since riffing on a post that landed well
+// changes nothing about the live one (`draftFollowUpPost`,
+// app/projects/[projectId]/generate/post-actions.ts).
+export function isPostLocked(
+  post: Pick<Post, "publishedAt" | "publishError">
+): boolean {
+  return post.publishedAt !== null || isRecordFailure(post.publishError)
 }
