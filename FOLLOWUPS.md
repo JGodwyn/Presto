@@ -656,3 +656,75 @@ when the predicate changes.
 Collapsing them into one is a minute's work for whoever next owns that file. It
 was left alone deliberately: rewriting another branch's tests in the middle of a
 reconciliation merge is the wrong moment to do it.
+
+---
+
+## Review findings from landing `feat/x-publish` (none blocked the merge)
+
+**From:** `/integrate`, 2026-09-05. Six findings from the review pass, each
+verified against the code rather than taken from the report. None blocks
+anything today; they are listed worst-first.
+
+**The "coming soon" tooltip on post details can never open.** `Button`'s base
+class carries `disabled:pointer-events-none` (components/ui/button.tsx), and
+post-details.tsx sets `disabled={… || comingSoon}` on the paper-plane, so the
+trigger receives no hover and Base UI's Tooltip never fires. The comment above
+it and INTERFACE.md §10b both assert the opposite ("A disabled button still
+receives hover, so the tooltip works") — that claim is wrong and should be
+corrected wherever it appears. The `aria-label` still carries the reason, so
+screen readers are fine; it is sighted users who get a greyed-out icon with no
+explanation, which is the entire justification for rendering it disabled rather
+than hidden. The deck's menu row already solves this by putting the reason in
+the label. Fix: do the same, or wrap the button in a hoverable span and use
+`aria-disabled` instead of `disabled`.
+
+**Eligibility is per project, but skipping is per account.** `partitionSchedulable
+Accounts` pushes `account.projectId`, so a project holding one healthy connection
+and one broken connection still lands in `eligibleProjectIds` through the healthy
+row. Today the cron's two `.eq("platform", "linkedin")` filters mean only LinkedIn
+accounts are ever partitioned and only LinkedIn posts selected, so it cannot
+bite. **It bites the moment either filter is widened** — the same change that
+turns X scheduling on — and it bites in exactly the way `accountSkipReason` exists
+to prevent: the posts are selected, each attempt fails at the gate, `publish_error`
+is written, and the due query's `.is("publish_error", null)` then excludes them
+from every later tick. `canSendOnPlatform`'s new `PUBLISHABLE_PLATFORMS` keying is
+right and does close the fail-open it describes; this is a *second* fail-open one
+layer up that the comment doesn't cover. Fix: make eligibility `(projectId,
+platform)` pairs and filter the due query on both.
+
+**`published_without_urn` leaves the client's lock off.** The runner writes
+`publish_error = "record_failed:"` (bare prefix, colon included) but returns
+`failure: "record_failed"` with no `publishedUrn`, so the client's
+`publishErrorFor` falls through to the bare code and patches `"record_failed"` —
+no colon. `isRecordFailure` is a `startsWith("record_failed:")` test, so it is
+false, `isPostLocked` is false, and the card shows "Didn't send" while re-offering
+Publish and the content editor for a post that is live. A second publish is
+refused by the claim filter, so there is no double-post, but the UI lies until a
+reload. **Pre-existing on `main`** in identical shape — `feat/x-publish` only
+added the `platform` field to that return. Fix: derive the marker from
+`failure === "record_failed"` rather than from the presence of a URN.
+
+**`PLATFORM_LABELS[platform]` is unguarded.** `posts.platform` is plain text, and
+post-publish.test.ts documents that a row can carry something outside
+`PostPlatform` (its "mastodon" case). Such a post returns `platform_unsupported`,
+so `publishComingSoon` is true for it and the details page renders "Publishing to
+**undefined** is coming soon"; `fillProvider` gives "Couldn't reach undefined."
+the same way. Fix: fall back to a generic noun, or make `publishComingSoon` false
+for a platform with no label.
+
+**Two comments now contradict their own test.** `lib/social-scopes.ts`'s `case
+"x"` and the mirrored comment in connected-account-row.tsx both say an X grant
+predating `tweet.write` is stale. `tweet.write` was added and removed from
+`X_SCOPES` on the same day, so `xGrantIsCurrent` passes every read-only grant —
+and social-scopes.test.ts pins exactly that ("has no stale X grant while X asks
+only for read scopes"). Stale comments in the one file whose job is preventing
+the permanent-stale-chip bug.
+
+**`rate_limited` and `token_unavailable` are documented retryable and recorded
+terminal.** Both are described in publish-failure.ts as worth another attempt,
+but the runner writes them into `publish_error` and the cron's due query filters
+`.is("publish_error", null)` — so such a post is never retried by the scheduler
+and sits permanently "Didn't send". Unreachable today (X is off, and
+`network`/`publish` already have this shape), but the new codes make a promise
+nothing keeps. Fix: exclude the retryable codes from the cron's exclusion filter,
+or stop recording them as terminal.
