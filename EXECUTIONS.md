@@ -6867,3 +6867,150 @@ the account pill, since X is no longer connected.
 
 Gates: tsc clean, `npm run lint` at main's 17-error baseline, vitest **429**
 passed across 34 files (excluding `lib/ai/generate.test.ts`), `next build` clean.
+---
+
+## 2026-09-05 — `fix/publish-lock`: enforce the lock on the server
+
+Cut from `main` at `7ab1594` rather than done as housekeeping, because
+`feat/x-publish` is in flight and rebasing onto that same commit — putting these
+changes on `main` would have moved the target under it a second time.
+
+Both defects came from the `/code-review` pass that returned after
+`feat/published-posts` had already merged.
+
+**1. The read-only lock was client-only.** `isPostLocked` appeared exactly once
+in the server actions — inside `draftFollowUpPost`, asserting a post *is* locked.
+`updatePost`, `regeneratePost` and `app/api/regenerate-post` had no guard at all,
+so the branch's central guarantee was a hidden button.
+
+Fixed at three call sites, and **as a condition on the statement rather than a
+check before it**. The reported race is precisely the check-then-act gap: the
+details page holds a load-time snapshot, so if the scheduler publishes while it
+is open, a fetch-then-update still sees an unpublished row. `updatePost` now
+carries `.is("published_at", null).or(UNLOCKED_PUBLISH_ERROR_FILTER)` on the
+update itself and reads `.select()` to learn whether anything matched; a miss is
+then told apart from a missing post by a second read, so a published post gets an
+answer that explains itself. `regeneratePost` and the route already fetch the row
+first, so they check `isPostLocked` directly and refuse with a message pointing
+at the follow-up draft.
+
+`UNLOCKED_PUBLISH_ERROR_FILTER` (lib/post-publish.ts) spells out the NULL arm,
+which is load-bearing rather than defensive: a bare `not.like` renders as
+`NOT (col LIKE …)`, NULL for a NULL column, which silently excludes every post
+that has never failed — the mistake that once disabled publishing outright.
+Verified against the live database: 299 posts, 3 published, **296 admitted by the
+filter**, and a genuinely published row refused (0).
+
+**Also fixed while in that statement:** `updatePost`'s write was scoped by `id`
+alone, with no `project_id` — the same class already closed in `publishPost`.
+RLS scopes to the user, but one person owns several projects.
+
+**2. Two predicates for one question.** The scheduler skipped an account on
+`isGrantStale` (every requested scope, `email` included) while the send is
+authorised by `hasPublishScope` (only `w_member_social`). An account granted
+`w_member_social` but not `email` published perfectly well by hand and was
+excluded from the scheduler permanently, with no reconnect that could clear it.
+`accountSkipReason` now asks the send's own question via `canSendOnPlatform`;
+`isGrantStale` keeps its real job, prompting a reconnect on the Connections row.
+Non-LinkedIn platforms return `true` rather than `false` — no publisher means no
+publish scope to require, and `false` would read as "this connection is broken"
+for one that is fine.
+
+The stale comment above that check, which explained the old `isGrantStale`
+choice, was removed rather than left contradicting the code beneath it.
+
+**Every new test was run against the bug it claims to catch**: restoring the old
+`isGrantStale` gate fails the new scheduler test; the lock tests pin both
+`publishedAt` and the `record_failed:` marker, and the filter test pins the NULL
+arm by name.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 — `main`'s baseline |
+| `npm run test` | **392** passed / 31 files, excluding `lib/ai/generate.test.ts` (FOLLOWUPS §12) |
+| `npm run build` | clean |
+
+**Coordination:** `feat/x-publish` was told not to touch `lib/publish-due.ts`
+beyond repointing its `isGrantStale` import, which this branch has now removed
+from that file entirely — so that import line simply goes. Both branches touch
+`lib/post-publish.ts`; this branch only appends, so the overlap should be small.
+
+## 2026-09-05 — Merging `main` again after `fix/publish-lock`
+
+Two behind, three conflicts, plus one design change that only became reachable
+because of what this branch does.
+
+### The conflicts
+
+- **`lib/publish-due.ts` — took `main` wholesale.** `fix/publish-lock` replaced
+  `isGrantStale` in `accountSkipReason` with `canSendOnPlatform`, because the
+  scheduler was asking "is this grant complete?" (every requested scope, `email`
+  included) while the send is authorised by `hasPublishScope` alone. My only
+  change to this file had been repointing the `isGrantStale` import; that import
+  is gone entirely now, which supersedes it. `isGrantStale` keeps its real job on
+  the Connections row. Verified the file is byte-identical to `main` before
+  making the change below.
+- **`lib/post-publish.ts` / `.test.ts`** — imports only; both sides' bodies
+  auto-merged. The merged `publishBlockedReason` checks the lock, the platform
+  *and* the length, in that order.
+
+### The fail-open, closed
+
+`canSendOnPlatform` read `if (platform !== "linkedin") return true`. Correct
+today — X has no publisher, so there is no publish scope to require, and `false`
+would read as "this connection is broken" for one that is fine.
+
+**But the only thing making it safe was `.eq("platform", "linkedin")` in the
+cron's due query — a different file, and the one this branch is positioned to
+relax.** The moment X can publish, that `true` becomes a fail-open: an X account
+with no publish scope enters `eligibleProjectIds`, its posts are selected, the
+send fails downstream and `publish_error` marks them "Didn't send" permanently
+rather than skipping cleanly and retrying after a reconnect — the exact outcome
+`accountSkipReason` exists to prevent.
+
+It now reads `PUBLISHABLE_PLATFORMS`, so the registry that decides whether a
+platform can publish is the same one that decides whether to check its scope.
+The per-platform answers live in `PUBLISH_SCOPE_CHECKS`, a **`Record`, not a
+`Partial<Record>`** — a new `PostPlatform` will not compile until it declares
+what its send needs. Being in that map is not permission; it is the answer for
+when permission arrives.
+
+**The arm is verified to engage, which is the whole point.** Adding `x` to
+`PUBLISHABLE_PLATFORMS` with the old predicate leaves an unscoped X account
+schedulable (the new test fails); with the new one, the pre-existing test "does
+not call an X connection's grant stale" fails instead — correctly, because an X
+grant without `tweet.write` then *should* be skipped. That test now carries a
+note saying its failure is the arm engaging rather than a regression, so nobody
+widens the predicate to keep it green.
+
+### The duplicated predicate, collapsed
+
+`lib/publish-runner.ts` carried an inline copy of the null-safe
+`publish_error` filter that is now `UNLOCKED_PUBLISH_ERROR_FILTER`. Two copies
+of the string whose last drift disabled publishing outright, so they are one
+now. Guarded from both ends: dropping the `is.null` arm from the shared constant
+fails the constant's own test *and* the runner's "claim predicate is null-safe"
+test, which asserts on the query as written.
+
+### Not mine to fix, noted instead
+
+`lib/post-publish.test.ts` has **two `describe("isPostLocked")` blocks** — one
+from `feat/published-posts`, one from `fix/publish-lock`, the second a subset of
+the first expressed with bare literals. Both already on `main` before this merge;
+the duplication is noise rather than a defect, and rewriting another branch's
+tests during a reconciliation is the wrong moment. FOLLOWUPS entry added.
+
+### Verified
+
+Each new assertion run against the bug it claims to catch (four mutations, all
+caught). **In-browser on :3002**: an X draft still shows the disabled "Publishing
+to X is coming soon"; a published post still has no publish control and a
+*disabled* date button — checked for `disabled`, not just for the label, after a
+first probe that read labels alone made the lock look absent. (A stray
+`contenteditable` match on that page turned out to be a browser extension's own
+webhook input, not the app.)
+
+Gates: tsc clean, `npm run lint` at main's 17-error baseline, vitest **439**
+passed across 34 files (excluding `lib/ai/generate.test.ts` — live Gemini quota,
+FOLLOWUPS §12), `next build` clean.

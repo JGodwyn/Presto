@@ -1654,3 +1654,33 @@ resolution belongs in the *importing* file, not by restoring the old export.
 Re-adding `isGrantStale` to `lib/linkedin/scopes.ts` would have compiled just as
 well and quietly reinstated the LinkedIn-only version — the exact bug the move
 existed to fix, now with a passing build on top of it.
+### A predicate that hides a control is not a predicate that refuses a write
+
+**Symptom.** A branch whose whole purpose was "a published post is read-only"
+shipped with the guarantee holding only in the browser. `updatePost`,
+`regeneratePost` and the regenerate route all accepted an edit to a post that
+was live on someone's timeline.
+
+**Cause.** One good predicate (`isPostLocked`) was written and then used only
+where the *UI* asks whether to draw a control. The single server-side use was in
+`draftFollowUpPost`, asserting the opposite direction. Everything else inherited
+the guarantee by assumption.
+
+There is a real race behind it, not just a theoretical hole: the post-details
+page holds a load-time snapshot, so if the scheduler publishes while that page
+is open, every control stays live against a post that has since gone out.
+
+**Rule.** When a rule protects something irreversible, the server enforces it
+and the UI merely reflects it. And enforce it **inside the statement**, not as a
+read followed by a write: a fetch-then-update re-opens the same race it was
+meant to close, because the row can change between the two. A conditional
+`UPDATE … WHERE <still unlocked>` with `.select()` lets the database decide, and
+the absence of a returned row *is* the refusal.
+
+**Corollary — one question, one predicate.** The same branch had two answers to
+"may this account publish": the scheduler asked `isGrantStale` (every requested
+scope, `email` included) while the send asked `hasPublishScope` (only
+`w_member_social`). An account missing `email` published by hand and was
+excluded from the scheduler forever. Two predicates for one question always
+drift; the fix is for the second caller to ask the first one's question, not to
+keep them in sync by hand.

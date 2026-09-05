@@ -7,7 +7,10 @@ import {
   type PublishResult,
 } from "@/lib/linkedin/publish"
 import { exceedsPlatformLimit } from "@/lib/post-length"
-import { PUBLISHABLE_PLATFORMS } from "@/lib/post-publish"
+import {
+  PUBLISHABLE_PLATFORMS,
+  UNLOCKED_PUBLISH_ERROR_FILTER,
+} from "@/lib/post-publish"
 import { PUBLISH_GRACE_MINUTES } from "@/lib/publish-due"
 import {
   RECORD_FAILED_PREFIX,
@@ -260,7 +263,11 @@ export async function publishOnePost(
     // silently killed publishing outright: every claim returned nothing and
     // every post reported "already being published". Measured against the live
     // database at 0 of 311 rows. The null-safe form passes 311.
-    .or(`publish_error.is.null,publish_error.not.like.${RECORD_FAILED_PREFIX}*`)
+    //
+    // Shared with `updatePost`'s own lock rather than written twice: this
+    // string is one edit away from re-creating that outage, and two copies of
+    // it are two chances to make it. Same predicate, same reason, one source.
+    .or(UNLOCKED_PUBLISH_ERROR_FILTER)
     .select("id")
     .maybeSingle()
 

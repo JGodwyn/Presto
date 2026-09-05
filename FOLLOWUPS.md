@@ -639,3 +639,20 @@ callback on the X app**, which is why the reconnect had to be done on :3003.
 Worth registering every worktree port (3001-3005) once, or the next branch that
 touches X connecting hits the same wall and reads it as a scope problem — see
 LEARNINGS.
+
+---
+
+## `lib/post-publish.test.ts` has two `isPostLocked` describes
+
+**From:** noticed while merging `main` into `feat/x-publish`, 2026-09-05. Not a
+defect — both blocks pass, and they agree.
+
+`feat/published-posts` added one (using the `post()` factory) and
+`fix/publish-lock` added another (bare object literals) covering the same four
+cases. Both landed on `main` independently, so neither branch saw the other's.
+The cost is a duplicated `describe` name in the reporter and two places to edit
+when the predicate changes.
+
+Collapsing them into one is a minute's work for whoever next owns that file. It
+was left alone deliberately: rewriting another branch's tests in the middle of a
+reconciliation merge is the wrong moment to do it.

@@ -10,6 +10,8 @@ import {
   skipReason,
   type SchedulableAccount,
 } from "@/lib/publish-due"
+import { PUBLISHABLE_PLATFORMS } from "@/lib/post-publish"
+import { hasXPublishScope } from "@/lib/x/scopes"
 
 const NOW = new Date("2026-09-02T12:00:00Z")
 
@@ -102,6 +104,23 @@ function connection(
 }
 
 describe("accountSkipReason", () => {
+  // The scheduler and the send used to ask different questions: this gated on
+  // `isGrantStale` (every requested scope, `email` included) while the send is
+  // authorised by `hasPublishScope` (only `w_member_social`). So an account
+  // that published perfectly well by hand was excluded from the scheduler
+  // forever, with nothing to reconnect that would fix it.
+  it("schedules an account that can publish but is missing an unrelated scope", () => {
+    expect(
+      accountSkipReason(connection({ scope: "openid,w_member_social" }), NOW)
+    ).toBeNull()
+  })
+
+  it("still skips an account that cannot publish at all", () => {
+    expect(
+      accountSkipReason(connection({ scope: "email,openid,profile" }), NOW)
+    ).toBe("scope_not_granted")
+  })
+
   it("passes a healthy, current, unexpired LinkedIn connection", () => {
     expect(accountSkipReason(connection(), NOW)).toBeNull()
   })
@@ -143,7 +162,13 @@ describe("accountSkipReason", () => {
   // LinkedIn's scope list means nothing to an X row, so asking `grantIsCurrent`
   // of one is false forever. If that leaked in here, every X connection would
   // be excluded from the scheduler permanently, with no reconnect able to
-  // clear it. `isGrantStale` is what keeps the platform check inside.
+  // clear it. The platform check inside `canSendOnPlatform` is what prevents it.
+  //
+  // **This test is coupled to X having no publisher, and is meant to be.** Add
+  // `x` to PUBLISHABLE_PLATFORMS and it fails — correctly, because an X grant
+  // without `tweet.write` then *should* be skipped. That failure is the arm
+  // engaging, not a regression: update this case rather than widening the
+  // predicate to keep it green.
   it("does not call an X connection's grant stale", () => {
     expect(
       accountSkipReason(
@@ -151,6 +176,42 @@ describe("accountSkipReason", () => {
         NOW
       )
     ).toBeNull()
+  })
+
+  // **Why that passes, and what would make it stop.** X has no publisher —
+  // it is absent from PUBLISHABLE_PLATFORMS — so there is no publish scope to
+  // require and nothing to skip the account for. The predicate reads that
+  // registry rather than the platform's name, which is the whole point: the
+  // old `platform !== "linkedin"` form was safe only because of a condition in
+  // a *different* file (the cron's own `.eq("platform", "linkedin")`), so
+  // relaxing that query — the one change standing between X and a live
+  // scheduler — would have silently turned this into a fail-open.
+  //
+  // Asserted through the registry rather than restated, so the day X is added
+  // to it this reads correctly instead of pinning a stale answer.
+  it("only waives the scope check for platforms with no publisher", () => {
+    for (const platform of ["linkedin", "x"] as const) {
+      const publishable = PUBLISHABLE_PLATFORMS.includes(platform)
+      const withoutPublishScope = accountSkipReason(
+        connection({ platform, scope: "" }),
+        NOW
+      )
+
+      // A platform that can publish must refuse a grant with no publish scope;
+      // one that cannot has nothing to refuse it for.
+      expect(withoutPublishScope).toBe(
+        publishable ? "scope_not_granted" : null
+      )
+    }
+  })
+
+  // The map behind it is complete by type (`Record<PostPlatform, …>`), so a new
+  // platform cannot reach the scheduler without declaring what its send needs.
+  // This pins the answer for the platform that would otherwise be waived: were
+  // X added to PUBLISHABLE_PLATFORMS tomorrow, the arm is already correct.
+  it("knows what an X send would require, before X can send", () => {
+    expect(hasXPublishScope("users.read tweet.read offline.access")).toBe(false)
+    expect(hasXPublishScope("users.read tweet.write")).toBe(true)
   })
 })
 

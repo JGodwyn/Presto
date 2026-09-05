@@ -13,7 +13,8 @@ import { resolveModelSelection } from "@/lib/ai/resolve-model"
 import { pickDifferentTasteTestContent } from "@/lib/ai/taste-test"
 import { NETWORK_ERROR_MESSAGE } from "@/lib/network-error"
 import type { PostRow } from "@/lib/supabase/queries"
-import { fetchInstructions, POST_COLUMNS } from "@/lib/supabase/queries"
+import { fetchInstructions, mapPostRow, POST_COLUMNS } from "@/lib/supabase/queries"
+import { isPostLocked } from "@/lib/post-publish"
 import { createClient } from "@/lib/supabase/server"
 
 // The post-details page's Regenerate — this app's first Route Handler,
@@ -86,6 +87,16 @@ export async function POST(request: Request) {
 
   if (fetchError || !existing) {
     return errorResponse("Couldn't find that post.", 404)
+  }
+
+  // The streaming twin of regeneratePost, and it needs the same refusal: a
+  // published post is not rewritten. This route is reachable directly, so the
+  // UI hiding the control decides nothing here.
+  if (isPostLocked(mapPostRow(existing as PostRow))) {
+    return errorResponse(
+      "That post has already gone out — draft a follow-up instead.",
+      409
+    )
   }
 
   const instructions = await fetchInstructions(supabase, parsed.data.projectId)

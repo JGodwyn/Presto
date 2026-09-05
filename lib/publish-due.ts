@@ -1,4 +1,7 @@
-import { isGrantStale } from "@/lib/social-scopes"
+import { hasPublishScope } from "@/lib/linkedin/publish"
+import { PUBLISHABLE_PLATFORMS } from "@/lib/post-publish"
+import { hasXPublishScope } from "@/lib/x/scopes"
+import type { PostPlatform } from "@/types/post"
 
 // Which scheduled posts the scheduler may send, and — far more importantly —
 // which it must leave alone.
@@ -146,11 +149,47 @@ export interface SchedulableAccount {
 // never selected in the first place.
 export type AccountSkipReason = "scope_not_granted" | "token_expired" | "revoked"
 
-// `isGrantStale` rather than `grantIsCurrent`, and the difference matters:
-// the platform check is inside it. LinkedIn's scope list means nothing to an X
-// row, and asking it there is false for every X account that will ever exist
-// (see lib/linkedin/scopes.ts) — which would exclude every X connection from
-// the scheduler permanently, with a reconnect that could never clear it.
+// What each platform's *send* requires of a grant — the scheduler's copy of the
+// question `checkPublishGate` and `checkXPublishGate` ask at the point of
+// sending. Deliberately narrower than `isGrantStale`, which is true whenever
+// any requested scope is missing (`email` included) and belongs to the
+// Connections row, not to this decision.
+//
+// **`Record`, not `Partial<Record>`, and that is the point.** A new entry in
+// `PostPlatform` will not compile until it declares what its send needs, so a
+// platform can never reach the scheduler with no question attached. Being in
+// this map is not permission to send — `PUBLISHABLE_PLATFORMS` decides that
+// — it is only the answer for when permission arrives.
+const PUBLISH_SCOPE_CHECKS: Record<PostPlatform, (scope: string) => boolean> = {
+  linkedin: hasPublishScope,
+  x: hasXPublishScope,
+}
+
+// Whether a stored grant carries what *publishing* needs on this platform.
+//
+// **Keyed off `PUBLISHABLE_PLATFORMS`, not a platform name**, and that is a
+// deliberate change from `platform !== "linkedin"`. That form was correct only
+// because of a condition in a different file — the cron's own
+// `.eq("platform", "linkedin")` — so relaxing that query, which is the one
+// change standing between X and a live scheduler, would have turned this into a
+// fail-open: an X account with no publish scope would enter
+// `eligibleProjectIds`, its posts would be selected, the send would fail
+// downstream, and `publish_error` would mark them "Didn't send" permanently
+// instead of skipping cleanly and retrying after a reconnect. Exactly the
+// outcome `accountSkipReason` exists to prevent.
+//
+// A platform with no publisher has nothing to require, and `true` is right
+// there: `false` would read as "this connection is broken" for one that is
+// perfectly fine, and would skip it for a permission the app never asks for.
+// The difference now is that "has no publisher" is read from the registry that
+// actually decides it, so adding a platform there *arms* this check rather than
+// silently leaving it open.
+function canSendOnPlatform(platform: string, scope: string): boolean {
+  if (!PUBLISHABLE_PLATFORMS.includes(platform as PostPlatform)) return true
+
+  return PUBLISH_SCOPE_CHECKS[platform as PostPlatform](scope)
+}
+
 export function accountSkipReason(
   account: SchedulableAccount,
   now: Date
@@ -158,7 +197,21 @@ export function accountSkipReason(
   // Checked first: a revoked grant is dead whatever else is true of it, and
   // it is the one state waiting cannot resolve.
   if (account.status === "revoked") return "revoked"
-  if (isGrantStale(account.platform, account.scope)) return "scope_not_granted"
+  // **The question here is "can this connection send?", not "is this grant
+  // complete?"** — and those are different. `isGrantStale` is true whenever any
+  // requested scope is missing, including `email`, which has nothing to do with
+  // posting and exists for the connected row's display. Gating the scheduler on
+  // it meant an account granted `w_member_social` but not `email` published
+  // perfectly well by hand and was excluded from the scheduler forever, since
+  // the send itself is authorised by `hasPublishScope` — only
+  // `w_member_social`. Two predicates for one question, disagreeing.
+  //
+  // Now the scheduler asks exactly what the gate asks, so a post that could be
+  // sent by hand is never silently skipped. `isGrantStale` keeps its own job:
+  // telling the Connections row to prompt a reconnect.
+  if (!canSendOnPlatform(account.platform, account.scope)) {
+    return "scope_not_granted"
+  }
 
   const expiresAt = Date.parse(account.expiresAt)
   // An unparseable expiry is treated as expired rather than ignored: the safe

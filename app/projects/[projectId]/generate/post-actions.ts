@@ -24,7 +24,7 @@ import {
 } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 import { isNetworkError, NETWORK_ERROR_MESSAGE } from "@/lib/network-error"
-import { isPostLocked } from "@/lib/post-publish"
+import { isPostLocked, UNLOCKED_PUBLISH_ERROR_FILTER } from "@/lib/post-publish"
 import type { Post, PostPlatform, PostStatus } from "@/types/post"
 
 const WRITING_STYLE_FILES_BUCKET = "writing-style-files"
@@ -349,6 +349,18 @@ export async function regeneratePost(
     return { error: "Couldn't find that post.", reason: "unknown" }
   }
 
+  // A published post is not rewritten — draftFollowUpPost exists for exactly
+  // this, and creates a new draft instead. Checked on the server because the
+  // UI hiding the control is a courtesy, never a guarantee: this action is
+  // reachable directly, and the page's own copy of the post can be stale by the
+  // time someone clicks.
+  if (isPostLocked(mapPostRow(existing as PostRow))) {
+    return {
+      error: "That post has already gone out — draft a follow-up instead.",
+      reason: "unknown",
+    }
+  }
+
   const instructions = await fetchInstructions(supabase, parsed.data.projectId)
   if (!instructions) {
     return {
@@ -571,9 +583,53 @@ export async function updatePost(
   if (patch.content !== undefined) update.content = patch.content
   if (patch.isTryout !== undefined) update.is_tryout = patch.isTryout
 
-  const { error } = await supabase.from("posts").update(update).eq("id", parsed.data.id)
+  // Scoped to the project as well as the id, like its siblings. RLS scopes to
+  // the caller's own rows, but one person owns several projects, so `id` alone
+  // would let project B's page edit project A's post.
+  //
+  // The lock is part of the statement rather than a check before it: a
+  // published post must not be rewritten, and the details page holds a
+  // load-time snapshot — so if the scheduler publishes while that page is open,
+  // a fetch-then-update would still see an unpublished row and overwrite
+  // content that is already live. Here the database decides, and `.select()`
+  // reports whether anything actually matched.
+  const { data: updated, error } = await supabase
+    .from("posts")
+    .update(update)
+    .eq("id", parsed.data.id)
+    .eq("project_id", parsed.data.projectId)
+    .is("published_at", null)
+    .or(UNLOCKED_PUBLISH_ERROR_FILTER)
+    .select("id")
+    .maybeSingle()
 
   if (error) {
+    return { error: "Couldn't save your changes. Please try again." }
+  }
+
+  // Nothing matched: the post is gone, or it has gone out. Told apart with a
+  // second read so a published post gets an answer that explains itself rather
+  // than "couldn't save".
+  if (!updated) {
+    const { data: existing } = await supabase
+      .from("posts")
+      .select("published_at, publish_error")
+      .eq("id", parsed.data.id)
+      .eq("project_id", parsed.data.projectId)
+      .maybeSingle()
+
+    if (
+      existing &&
+      isPostLocked({
+        publishedAt: existing.published_at,
+        publishError: existing.publish_error,
+      })
+    ) {
+      return {
+        error: "That post has already gone out, so it can't be changed.",
+      }
+    }
+
     return { error: "Couldn't save your changes. Please try again." }
   }
 

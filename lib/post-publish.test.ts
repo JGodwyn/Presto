@@ -6,6 +6,7 @@ import {
   isPostLocked,
   publishBlockedReason,
   publishComingSoon,
+  UNLOCKED_PUBLISH_ERROR_FILTER,
 } from "@/lib/post-publish"
 import { RECORD_FAILED_PREFIX } from "@/lib/publish-failure"
 import type { Post } from "@/types/post"
@@ -210,5 +211,57 @@ describe("isPostLocked", () => {
       expect(isPostLocked(locked)).toBe(true)
       expect(publishBlockedReason(locked, [account()])).toBe("already_published")
     }
+  })
+})
+
+// The lock has to hold on the server, not only in the UI. The reported race:
+// the post-details page keeps a load-time snapshot, so if the scheduler
+// publishes while that page is open, every control is still live and an edit
+// rewrites `posts.content` while the LinkedIn copy is untouched — exactly the
+// drift the read-only treatment exists to prevent. A hidden button decides
+// nothing; the server action has to refuse.
+describe("UNLOCKED_PUBLISH_ERROR_FILTER", () => {
+  it("spells out the NULL case, which is what makes it match normal posts", () => {
+    // A bare `not.like` renders as `NOT (col LIKE …)`, which is NULL — not
+    // true — for a NULL column, so it silently excludes every post that has
+    // never failed. That mistake once disabled publishing outright.
+    expect(UNLOCKED_PUBLISH_ERROR_FILTER).toContain("publish_error.is.null")
+    expect(UNLOCKED_PUBLISH_ERROR_FILTER).toContain(
+      `publish_error.not.like.${RECORD_FAILED_PREFIX}*`
+    )
+  })
+
+  it("names the same marker isPostLocked tests for, so the two cannot drift", () => {
+    const marker = `${RECORD_FAILED_PREFIX}urn:li:share:1`
+
+    expect(isPostLocked({ publishedAt: null, publishError: marker })).toBe(true)
+    expect(UNLOCKED_PUBLISH_ERROR_FILTER).toContain(RECORD_FAILED_PREFIX)
+  })
+})
+
+describe("isPostLocked", () => {
+  it("locks a published post", () => {
+    expect(
+      isPostLocked({ publishedAt: "2026-09-05T00:00:00Z", publishError: null })
+    ).toBe(true)
+  })
+
+  it("locks a post that went out but could not be recorded", () => {
+    expect(
+      isPostLocked({
+        publishedAt: null,
+        publishError: `${RECORD_FAILED_PREFIX}urn:li:share:1`,
+      })
+    ).toBe(true)
+  })
+
+  it("leaves an ordinary failure editable, since it never went out", () => {
+    expect(
+      isPostLocked({ publishedAt: null, publishError: "token_expired" })
+    ).toBe(false)
+  })
+
+  it("leaves an untouched post editable", () => {
+    expect(isPostLocked({ publishedAt: null, publishError: null })).toBe(false)
   })
 })
