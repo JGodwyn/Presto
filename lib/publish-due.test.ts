@@ -102,6 +102,23 @@ function connection(
 }
 
 describe("accountSkipReason", () => {
+  // The scheduler and the send used to ask different questions: this gated on
+  // `isGrantStale` (every requested scope, `email` included) while the send is
+  // authorised by `hasPublishScope` (only `w_member_social`). So an account
+  // that published perfectly well by hand was excluded from the scheduler
+  // forever, with nothing to reconnect that would fix it.
+  it("schedules an account that can publish but is missing an unrelated scope", () => {
+    expect(
+      accountSkipReason(connection({ scope: "openid,w_member_social" }), NOW)
+    ).toBeNull()
+  })
+
+  it("still skips an account that cannot publish at all", () => {
+    expect(
+      accountSkipReason(connection({ scope: "email,openid,profile" }), NOW)
+    ).toBe("scope_not_granted")
+  })
+
   it("passes a healthy, current, unexpired LinkedIn connection", () => {
     expect(accountSkipReason(connection(), NOW)).toBeNull()
   })
