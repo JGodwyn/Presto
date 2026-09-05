@@ -6180,6 +6180,376 @@ The height stays set outright rather than derived from padding: `body-md`'s
 line-height is 20px, so restoring `py-pad-xs` would put the chip straight back
 at 28. `items-center` splits the remaining 4px.
 
+## 2026-09-04 — Publishing to X (`feat/x-publish`, port 3002)
+
+**Green-light.** The owner was asked directly on 2026-09-04 and green-lit live
+posting to X, including a real send to their own account to prove the path — the
+same authorisation LinkedIn got on 2026-09-03. Scope: this branch's publishing
+work only. Not scheduling, not a cron, not any deployed environment.
+`PRESTO_ENABLE_LIVE_PUBLISH` stays unset by default and is set briefly, by hand,
+for the verification send.
+
+### Scopes first, because they decide what everything else can do
+
+`X_SCOPES` was `users.read tweet.read offline.access` and lived in
+`lib/x/oauth.ts`, which reads the client secret and therefore may not be
+imported by a client component. The Connections page has to read the list (to
+tell a stale grant apart from a current one), so the list moved out first:
+
+- **`lib/scope-grant.ts`** (new, pure, imports nothing) — `parseGrantedScopes`
+  and `grantCovers`. The delimiter quirk it handles (LinkedIn returns commas,
+  sends spaces; X uses spaces) is not LinkedIn's alone, so it stopped living in
+  `lib/linkedin/scopes.ts`, which now re-exports it.
+- **`lib/x/scopes.ts`** (new, pure) — `X_SCOPES` with `tweet.write` added,
+  `X_PUBLISH_SCOPE`, `xGrantIsCurrent`, `hasXPublishScope`. `lib/x/oauth.ts`
+  re-exports `X_SCOPES` so its own callers and test are unmoved.
+- **`lib/social-scopes.ts`** (new, pure) — `isGrantStale(platform, scope)`,
+  moved out of `lib/linkedin/scopes.ts` and widened to X. It could not stay
+  there: `grantIsCurrent` compares against LinkedIn's strings, and the branch
+  that keeps it away from X rows was the fix for a bug that shipped once (a
+  permanent "Reconnect to grant permission to post" chip on every X row, for a
+  permission X was never asked for). A switch with a test on it, not an
+  `=== "linkedin"` at the call site.
+
+### `lib/x/publish.ts`, mirroring the LinkedIn one
+
+Same shape, same two load-bearing parts, one real difference.
+
+- **Gate first, twice.** `checkXPublishGate` refuses on
+  `PRESTO_ENABLE_LIVE_PUBLISH` *before* the scope, and is checked in
+  `publish-runner.ts` (before a token is obtained) as well as inside
+  `publishTweet` (before the request). Both kept.
+- **`published_without_urn` carried over.** X returns the tweet id in the
+  response body (`{ data: { id } }`) rather than a header, so the *shape*
+  differs and the hazard does not: a 2xx with no id means the tweet exists and
+  cannot be named. An unreadable body counts as absent for the same reason —
+  the tweet exists either way, so "I can't parse this" must never be reported as
+  "it didn't go out". Both hold the claim and write the permanent marker.
+- **The one real difference: X's gate has no expiry key.** LinkedIn's 60-day
+  token cannot be renewed, so a lapsed one is a refusal. X's lasts two hours and
+  is renewed on almost every call, so `social_accounts.expires_at` is stale by
+  design — gating on it would refuse virtually every publish with "that
+  connection has expired". Liveness comes from what a refresh actually returns:
+  `xTokenFailure` maps `getLiveXAccessToken`'s answer into the shared
+  vocabulary. A test pins the *absence* of the expiry check, so adding one "for
+  symmetry" fails there rather than in production.
+- New failure code `token_unavailable` for the two X-only cases that are not a
+  verdict on the post (credentials unset, X unreachable mid-refresh).
+  Deliberately not `token_expired`, which tells the user to reconnect, and not
+  `publish`, which says X looked at the post and said no.
+
+### The runner's dispatch, and the token ordering
+
+`lib/publish-runner.ts:113`'s `platform !== "linkedin"` refusal became a
+narrowing (`publishablePlatform`) plus a two-branch `sendPost`. Everything
+around it — claim, `record_failed` marker, `recorded` — is untouched and stays
+platform-agnostic; `sendPost` normalises X's `postId` to `postUrn` so nothing
+below the call site has two shapes to handle. The account read is now
+`.eq("platform", platform)` and selects `id`, which X needs.
+
+**X's token is fetched after the claim, not before**, and that ordering is the
+point: its refresh tokens are rotating and single-use, so obtaining one for a
+post another request already claimed spends a token for nothing — and the
+rotation lands on the row regardless of whether this attempt publishes. A test
+pins it.
+
+### Copy that named the wrong provider
+
+Publishing to X through code written for LinkedIn produced "LinkedIn wouldn't
+accept this post" for a failed tweet, "Published to LinkedIn" for a successful
+one, and "the post stays up on LinkedIn" when deleting one. Every message that
+names a provider is now a template with a `{provider}` placeholder, filled from
+the post's own platform:
+
+- `PUBLISH_FAILURE_MESSAGES` → `PUBLISH_FAILURE_TEMPLATES`. **Renamed on
+  purpose**: had the name stayed, any caller reading a value straight out of it
+  would have gone on compiling while showing `{provider}` to a user.
+- `publishFailureMessage(code, platform)` — platform **required**, not optional.
+  An optional field at a boundary is a suggestion rather than a contract, which
+  is exactly how a URN went missing between this module and the server action
+  once already (LEARNINGS).
+- `PublishOutcome` carries `platform` for the same reason, `null` only where the
+  answer genuinely isn't known (the post row couldn't be read, or carries a
+  platform with no publisher).
+- The messages that are about the *connection* — "reconnect it and try again" —
+  stay provider-free on purpose, and a test pins that they read identically on
+  both platforms.
+
+### Two things deliberately not done
+
+- **The cron still selects `platform = 'linkedin'` only.** X publishing works
+  through the runner, but scheduling it was not green-lit: the authorisation
+  covers a person clicking Publish, not a timer doing it for them. Widening that
+  one condition is the whole change when it is asked for. FOLLOWUPS entry added.
+- **No schema change.** The tweet id goes in the existing `provider_post_id`.
+
+### Gates before the live send
+
+tsc clean; `npm run lint` at main's 17-error baseline; vitest 411 passed across
+34 files (excluding `lib/ai/generate.test.ts`, live Gemini quota); `next build`
+clean.
+
+**Every new test was run against the bug it claims to catch** — the rule from
+LEARNINGS' run of four green-but-wrong defects. Nine mutations, all caught:
+missing-id treated as a plain failure (2 tests fail), gate order swapped (1),
+unreadable body given an invented id (1), `revoked` flattened to `publish` (1),
+dispatch pinned to LinkedIn (3), account read hardcoded to LinkedIn (1), token
+failure flattened (1), X's `published_without_urn` flattened (1), unknown
+platform allowed through (1).
+
+### A hole the brief's 280-character item exposed
+
+"Confirm an over-length post is still refused before it reaches X" turned out
+not to be true of the publish path at all. `exceedsPlatformLimit` was applied
+only where a post is **moved** to a platform (post-details, the deck, the
+generating grid) — so it cannot see a post that was written for X and came back
+over the limit, or one edited past it afterwards. Either reaches X, is refused
+with a 403 indistinguishable from a duplicate or a rate limit, and spends a
+request from a posting budget shared across every user of the app.
+
+Closed on both sides, in the shape the codebase already uses for this: a
+`too_long` refusal in `publishOnePost` (before the claim, so the post stays
+exactly as publishable as it was) and in `publishBlockedReason`, so the control
+isn't offered for a round trip that can only fail. Grouped with the checks about
+the post rather than with the gate, since it needs no connection to answer.
+The count over-counts links by design (lib/post-length.ts) — it can refuse a
+post X would have taken, which is the safe direction.
+
+### Live verification on :3002, at `127.0.0.1` (not `localhost` — see LEARNINGS)
+
+Everything short of the request itself was proven first, since none of it spends
+from X's shared posting budget. The dev server was restarted with
+`PRESTO_ENABLE_LIVE_PUBLISH=true` **in its own process environment**, not in
+`.env.local` — that file is a symlink shared with the main checkout and the
+other live worktree, so writing the switch there would have opened the gate for
+all three. Killing the process is the un-setting.
+
+1. **Connections page**: the X row shows the "Reconnect" chip (its stored grant
+   is `users.read tweet.read offline.access`, which no longer covers the list);
+   LinkedIn, whose grant is current, does not. The per-platform `isGrantStale`
+   working in both directions on one screen.
+2. **Post page**: the account pill and the confirmation both name the real
+   account (`@gdwn__`), and "Publish now" is offered at 271 characters.
+3. **Gate key 1**, switch off → *"Publishing to a live account is switched off
+   for this app."* Row untouched.
+4. **Gate key 2**, switch on, read-only grant → *"This connection doesn't have
+   permission to post. Reconnect the account and try again."* No token fetched,
+   no request made.
+5. **The over-length refusal, reproduced as the real hole rather than a
+   contrived one**: rendered the page with a 67-character post (so the client
+   guard passes), lengthened the row to 421 characters behind the open page,
+   then published. → *"This post is longer than X allows. Shorten it and try
+   again."* — naming X, not LinkedIn. `publish_started_at` still null
+   afterwards, so the claim was never even taken: a refusal leaves the post
+   exactly as publishable as it was.
+
+### The reconnect, and two things that were not what they looked like
+
+**The Reconnect button failed at X with "You weren't able to give access to the
+App" — and it was not the scope.** The obvious reading was that `tweet.write`
+had been requested before the X app's own permission was flipped. It wasn't:
+loading the *old, read-only* authorize URL against :3002 produced the identical
+error, and the *write* scope against :3003 produced a normal consent screen
+listing "Post and repost for you". The variable was the port —
+`http://127.0.0.1:3002/api/connections/x/callback` is not among the X app's
+registered callbacks, and a worktree gets whatever port `/branch` assigned it.
+Moved this worktree's dev server to **:3003**, which is registered, for the
+OAuth leg and the send. See LEARNINGS.
+
+Reconnected: scope is now `tweet.write users.read tweet.read offline.access`
+(note X returns them space-delimited and reordered — `parseGrantedScopes`
+handles both), `connected_at` restamped, refresh token present, and the
+"Reconnect" chip cleared off the X row on its own.
+
+**Then the real send came back `402 {"detail":"credits depleted","title":
+"Payment Required"}`.** The publish path did everything right — refreshed the
+two-hour token, sent the request with `tweet.write`, took and released the
+claim, recorded the failure — and X refused it on the developer account's
+billing, which is not something code can fix.
+
+It did expose a real defect, and that is why this is a code change rather than a
+note: the refusal was reported as **"X wouldn't accept this post. Try again."**
+Nothing about the post was wrong and no number of retries could ever work.
+Two statuses are now their own failures, because they are about the *account*
+rather than the post:
+
+- `402` → `quota_exhausted` — "X has run out of API credits for this app, so
+  nothing can publish until that's topped up. Trying again won't help."
+- `429` → `rate_limited` — retryable, but not now. Near-certain on the Free
+  tier, whose budget is shared across every user of the app.
+
+A `console.error` of the status and the first 500 bytes of the provider's
+problem-JSON stays in `postTweet`. Without it this was undiagnosable: the code
+reaching the user is deliberately coarse, and finding the cause took a
+throwaway log and a second send. X's error bodies describe the app, not the
+member, and the token is never in scope.
+
+**Still unverified: the tweet itself.** Everything up to and including X
+receiving the request is proven; the last step is blocked on the X developer
+account's credits, not on this branch. The 271-character draft
+(`f51ec23f-3c78-4ebc-bb8d-ea994b38af5e`) is left in place with `publish_error`
+cleared, ready to send the moment credits are available — one click on its post
+page with `PRESTO_ENABLE_LIVE_PUBLISH=true`. **No tweet id to record yet**,
+which is the one item of the brief's "done means" that is outstanding.
+
+**Cleanup:** the over-length probe post was deleted, the dev server is back on
+**:3002** with `PRESTO_ENABLE_LIVE_PUBLISH` unset (it was only ever in that
+process's environment, never in `.env.local`, which is a symlink shared with the
+main checkout and the other live worktree). Gates re-run after the 402 work:
+tsc clean, lint at main's 17-error baseline, vitest 420 passed, build clean.
+
+## 2026-09-04 — X publishing set to "coming soon"
+
+**The decision, and why.** X answered the first real send with `402 credits
+depleted`. Posting through X's v2 API costs money, and the quota is metered
+**per app, across every user of Presto** — one person's click spends the app
+owner's budget, unlike AI models (BYOK, each user's own key) or LinkedIn (free).
+The owner's decision was not to pay for that, so X publishing goes back to
+coming-soon rather than shipping. None of the code is deleted: it is complete,
+tested, and exercised against the live API, sitting in exactly the state
+`lib/linkedin/publish.ts` sat in for months before LinkedIn was green-lit.
+
+**Both locks restored, and either alone is enough.**
+
+- `X_SCOPES` drops `tweet.write`, and the tripwire test that fails if it comes
+  back is restored alongside it. A member must not be asked to grant posting
+  permission the app will not use. The X app's own "App permissions" should go
+  back to `Read` — the second lock, and the one not in this repo.
+- `PUBLISHABLE_PLATFORMS` (lib/post-publish.ts) is `["linkedin"]` again, and is
+  now **exported and read by lib/publish-runner.ts too**, so the control the UI
+  offers and the send the server performs come from one list rather than two
+  that can drift. A test pins that the runner still refuses X *with live
+  publishing switched on* — the switch is the list, not the env var.
+
+Turning it back on is four things: that list, `X_SCOPES`, the X app's
+permission, and a reconnect (a scope change invalidates every issued token).
+Note `xGrantIsCurrent` passes a grant carrying *more* than is requested, so the
+connection made during the few hours `tweet.write` was live does not read as
+stale — no reconnect prompt nobody can clear.
+
+**The UI says so rather than going quiet.** Per direct request, an X post shows
+the publish control **disabled** instead of absent — an X post sitting beside a
+LinkedIn one with no trace of the control reads as broken rather than pending.
+The distinction is `publishBlockedReason`, not `canAttemptPublish`: a published
+or try-out post has nothing coming and still shows no control at all.
+
+- Post details: the button stays, disabled, tooltip and `aria-label` both
+  "Publishing to X is coming soon". A disabled button still receives hover, so
+  the tooltip works.
+- The deck's actions menu: a disabled row reading "Publishing coming soon".
+  `MenuItem` already styles `disabled` (text-minimal, no hover or pressed
+  surface), so this needed no new pattern. The **label** carries the reason
+  because a disabled menu row cannot hold a tooltip — "Publish now" greyed out
+  says nothing.
+
+Verified in-browser on **:3002**: the X post's button is disabled and labelled,
+its deck row reads "Publishing coming soon" greyed above the divider, and a
+LinkedIn post in the same deck still shows a live "Publish now".
+
+**`too_long`, `quota_exhausted` and `rate_limited` are unreachable now** and are
+kept deliberately — they are what makes X safe the day it is switched on, and
+`lib/x/publish.test.ts` still covers the send path in full.
+
+### Something found while doing this, worth knowing
+
+The whole test suite went red on `checkXPublishGate` reporting `allowed: true`
+by default. The cause was **`PRESTO_ENABLE_LIVE_PUBLISH=true` in `.env.local`**,
+added after the earlier check confirmed it absent — not by this work, which kept
+the switch in the dev server's *process* environment for exactly this reason.
+
+`.env.local` is a **symlink to the main checkout's copy**, shared with every
+worktree. So that one line opened the live-publish gate for every dev server on
+the machine, including the ones that publish to LinkedIn, which does work and
+does have credits. Removed; every other key left intact. If the gate is ever
+needed again, pass it to the one process
+(`PRESTO_ENABLE_LIVE_PUBLISH=true npm run dev -- -p <port>`) rather than writing
+it to the shared file.
+
+Gates: tsc clean, lint at main's 17-error baseline, vitest 416 passed across 34
+files, build clean. Both locks mutation-tested — putting X back on
+`PUBLISHABLE_PLATFORMS` fails 5 tests, putting `tweet.write` back in `X_SCOPES`
+fails 4.
+
+### X connecting withdrawn too
+
+Per direct request — "I don't want there to be an option to connect an X account
+at all" — X's Connect button on the Connections page is replaced by plain
+"Coming soon" text. That is a one-line change (`available: false` in
+`PLATFORMS`, connections-panel.tsx) and it **restores the Figma export's own
+treatment**: "Connect / Base" drew X as "Coming soon", and it only became a
+button when connecting shipped.
+
+None of the connecting code is deleted, per the same request — the OAuth routes,
+`lib/x/oauth.ts`, `lib/x/token.ts` and the disconnect action are untouched and
+still work. Flipping `available` back to `true` re-opens it.
+
+**An account connected before the withdrawal keeps its row but loses every
+control that would make a connection.** `ConnectedAccountRow` gained
+`canReconnect` (default true): with it false there is no Reconnect, no "Renew
+now", and no stale-grant chip, and a *dead* connection offers **Disconnect**
+where it would otherwise offer Reconnect. Keeping the row matters — a live
+connection with a stored token must not become invisible — but an authorize
+redirect for a platform the app no longer offers is a dead end wearing a button.
+
+The "Coming soon" text is `body-lg`/`text-subtle` (16px, 24px line-height,
+weight 500), per direct request — it was `body-md`, which read too quiet beside
+the 16px platform label sitting on the same row. It also carries `pr-pad-md`,
+which is not a nudge: `PlatformRow`'s own `pr-pad-sm` (8px) is sized for a
+Button, and a Button `sm` insets its label by a further `pad-md`. Bare text with
+no box of its own sat 12px nearer the edge than every other row's action; the
+padding lands it at the same 20px a Connect or Disconnect label sits at.
+
+Verified on **:3002**: X renders as "Coming soon" beside LinkedIn's live
+Disconnect. The withdrawn-but-connected path has no data to exercise it (the
+owner disconnected X in the meantime), so it was checked by forcing LinkedIn
+`available: false` and `isDead` true in the component — the row went to the
+danger treatment with Disconnect and no chips, as intended — then reverted.
+
+**Consequence worth knowing:** the Generate page's account pill already disables
+an unconnected platform (`buildAccountOptions`, components/generate/
+account-options.tsx), so with no X connection possible, X is permanently
+disabled there too. No change was needed for that; it falls out.
+
+**X posts were kept.** Eight exist, none published, and nothing about them
+breaks: `lib/post-account.ts` falls back to the platform label when a platform
+isn't connected, so their cards read "X" rather than an account name, and every
+tab, filter and dashboard figure still counts them. Deleting is irreversible and
+buys nothing — and they are what a future X publish would be tested against.
+Two are *scheduled*, so they sit in Queued and will read Overdue without ever
+going out; that is flagged in FOLLOWUPS rather than silently changed, since
+turning someone's scheduled posts into drafts is their call.
+
+### Finishing touches before handoff
+
+Four comments had gone stale, one of them written by this branch a few hours
+earlier — worth listing, because every one of them would have told the next
+reader something false:
+
+- `lib/x/oauth.ts` claimed the scope list "now includes `tweet.write`". Mine,
+  and wrong within the same day. Now says read-only, and why.
+- `lib/linkedin/publish.ts` still opened "built, and deliberately unreachable…
+  nothing here can fire today". Stale since 2026-09-03, when LinkedIn was
+  green-lit and two real posts went out — a reader would have concluded the app
+  cannot publish at all. Rewritten to say it is the live one, and to hand the
+  old description over to its X sibling, which now genuinely fits it.
+- `lib/x/publish.ts` didn't say it was unreachable. It does now, with the reason
+  and the way back.
+- The action's `unsupported_platform` copy read "Publishing isn't built for that
+  platform" — false for X, which is built and switched off. Now "isn't available
+  for that platform yet".
+
+`INTERFACE.md` §10b and an `AGENTS.md` status bullet were added: the four
+switches, the coming-soon rule (control disabled where something is pending,
+absent where nothing is), and the two consequences that fall out with no code.
+
+Owner confirmed the X app is back on `Read`, so both locks hold, and that the
+existing X posts and X's presence in filters and the dashboard are fine as they
+are.
+
+**Final gates:** tsc clean, `npm run lint` at main's 17-error baseline, vitest
+416 passed across 34 files (excluding `lib/ai/generate.test.ts`), `next build`
+clean.
+
 ## 2026-09-04 — A published post stops behaving like one that hasn't (`feat/published-posts`, port 3001)
 
 Branch holds the schema slot. Four pieces, in the order they were built.
@@ -6436,6 +6806,68 @@ no code is left to write for it. A local launchd/cron job was offered as a way
 to rehearse it and declined as a stopgap, correctly.
 
 
+## 2026-09-05 — Merging `main` after `feat/published-posts` landed
+
+Seven behind, four conflicts and one break git could not see. Nothing about this
+branch's own work changed; this is reconciliation.
+
+### The silent break
+
+`lib/publish-due.ts` (new, from `published-posts`) imported `isGrantStale` from
+`@/lib/linkedin/scopes` — which this branch had emptied of it, relocating it to
+`lib/social-scopes.ts` and making it per-platform. **Neither branch touched both
+files, so the merge was clean and the import dangled.** Repointed, one line, and
+nothing else in that file touched: a parallel branch owns the predicate at line
+161.
+
+Behaviour is unchanged where it matters and better where it doesn't:
+`accountSkipReason` now asks a per-platform question, so an X row is judged
+against X's own list rather than being permanently un-stale by accident.
+`published-posts`' own test — "does not call an X connection's grant stale" —
+passes unaltered, because the grant it uses is exactly `X_SCOPES`.
+
+### The four conflicts, all resolved as both-sides
+
+1. **day-deck** — the publish toast. `main` added `{ showIcon: false }`, this
+   branch made the label per-platform. Kept both. Only LinkedIn can publish
+   today so the label reads identically either way *right now*, which is
+   precisely why it must not be hardcoded.
+2. **post-details** — the same toast collision, plus both sides rework the
+   publish button. `main` disables it while a regeneration or follow-up draft is
+   streaming (mid-stream the body is a partial post); this branch disables it
+   permanently for a switched-off platform. The merged `disabled` is all four
+   conditions, and the `aria-label`/tooltip still carry the coming-soon reason.
+3. **generated-post-card** — `main` renamed `date` to `headerDate` in the render
+   guard, this branch added `|| publishComingSoon`. Kept the rename and the
+   addition.
+4. **post-publish.test.ts** — imports only; both sides' cases auto-merged.
+
+`lib/post-publish.ts` **auto-merged and was checked by hand rather than trusted**
+— it is where both branches changed the same function. The result is correct:
+`isPostLocked` leads `publishBlockedReason`, then try-out, then platform, then
+length. The precedence matters and is not arbitrary: a *published* X post must
+report `already_published`, not `platform_unsupported`, or it would offer a
+disabled "coming soon" control for something already on a timeline.
+
+### Verified against the bugs, not just for green
+
+- Reverting the import reproduces the break: `TS2305: Module
+  "@/lib/linkedin/scopes" has no exported member 'isGrantStale'`. tsc catches it,
+  git does not.
+- Moving the platform check above `isPostLocked` fails two tests — one from each
+  branch ("refuses a post that has already gone out" and "marks an X post as
+  coming soon, and a spent post as not"). The resolution is pinned from both
+  sides, which is the useful property.
+
+**In-browser on :3002**, both branches' behaviour on one screen: a published
+LinkedIn post shows no publish control and a published-time heading, its deck
+menu offering only Open up and Delete; an X draft shows the disabled "Publishing
+to X is coming soon" button with Regenerate still live, and its deck menu leads
+with a greyed "Publishing coming soon". X posts render their platform label in
+the account pill, since X is no longer connected.
+
+Gates: tsc clean, `npm run lint` at main's 17-error baseline, vitest **429**
+passed across 34 files (excluding `lib/ai/generate.test.ts`), `next build` clean.
 ---
 
 ## 2026-09-05 — `fix/publish-lock`: enforce the lock on the server
@@ -6504,3 +6936,130 @@ arm by name.
 beyond repointing its `isGrantStale` import, which this branch has now removed
 from that file entirely — so that import line simply goes. Both branches touch
 `lib/post-publish.ts`; this branch only appends, so the overlap should be small.
+
+## 2026-09-05 — Merging `main` again after `fix/publish-lock`
+
+Two behind, three conflicts, plus one design change that only became reachable
+because of what this branch does.
+
+### The conflicts
+
+- **`lib/publish-due.ts` — took `main` wholesale.** `fix/publish-lock` replaced
+  `isGrantStale` in `accountSkipReason` with `canSendOnPlatform`, because the
+  scheduler was asking "is this grant complete?" (every requested scope, `email`
+  included) while the send is authorised by `hasPublishScope` alone. My only
+  change to this file had been repointing the `isGrantStale` import; that import
+  is gone entirely now, which supersedes it. `isGrantStale` keeps its real job on
+  the Connections row. Verified the file is byte-identical to `main` before
+  making the change below.
+- **`lib/post-publish.ts` / `.test.ts`** — imports only; both sides' bodies
+  auto-merged. The merged `publishBlockedReason` checks the lock, the platform
+  *and* the length, in that order.
+
+### The fail-open, closed
+
+`canSendOnPlatform` read `if (platform !== "linkedin") return true`. Correct
+today — X has no publisher, so there is no publish scope to require, and `false`
+would read as "this connection is broken" for one that is fine.
+
+**But the only thing making it safe was `.eq("platform", "linkedin")` in the
+cron's due query — a different file, and the one this branch is positioned to
+relax.** The moment X can publish, that `true` becomes a fail-open: an X account
+with no publish scope enters `eligibleProjectIds`, its posts are selected, the
+send fails downstream and `publish_error` marks them "Didn't send" permanently
+rather than skipping cleanly and retrying after a reconnect — the exact outcome
+`accountSkipReason` exists to prevent.
+
+It now reads `PUBLISHABLE_PLATFORMS`, so the registry that decides whether a
+platform can publish is the same one that decides whether to check its scope.
+The per-platform answers live in `PUBLISH_SCOPE_CHECKS`, a **`Record`, not a
+`Partial<Record>`** — a new `PostPlatform` will not compile until it declares
+what its send needs. Being in that map is not permission; it is the answer for
+when permission arrives.
+
+**The arm is verified to engage, which is the whole point.** Adding `x` to
+`PUBLISHABLE_PLATFORMS` with the old predicate leaves an unscoped X account
+schedulable (the new test fails); with the new one, the pre-existing test "does
+not call an X connection's grant stale" fails instead — correctly, because an X
+grant without `tweet.write` then *should* be skipped. That test now carries a
+note saying its failure is the arm engaging rather than a regression, so nobody
+widens the predicate to keep it green.
+
+### The duplicated predicate, collapsed
+
+`lib/publish-runner.ts` carried an inline copy of the null-safe
+`publish_error` filter that is now `UNLOCKED_PUBLISH_ERROR_FILTER`. Two copies
+of the string whose last drift disabled publishing outright, so they are one
+now. Guarded from both ends: dropping the `is.null` arm from the shared constant
+fails the constant's own test *and* the runner's "claim predicate is null-safe"
+test, which asserts on the query as written.
+
+### Not mine to fix, noted instead
+
+`lib/post-publish.test.ts` has **two `describe("isPostLocked")` blocks** — one
+from `feat/published-posts`, one from `fix/publish-lock`, the second a subset of
+the first expressed with bare literals. Both already on `main` before this merge;
+the duplication is noise rather than a defect, and rewriting another branch's
+tests during a reconciliation is the wrong moment. FOLLOWUPS entry added.
+
+### Verified
+
+Each new assertion run against the bug it claims to catch (four mutations, all
+caught). **In-browser on :3002**: an X draft still shows the disabled "Publishing
+to X is coming soon"; a published post still has no publish control and a
+*disabled* date button — checked for `disabled`, not just for the label, after a
+first probe that read labels alone made the lock look absent. (A stray
+`contenteditable` match on that page turned out to be a browser extension's own
+webhook input, not the app.)
+
+Gates: tsc clean, `npm run lint` at main's 17-error baseline, vitest **439**
+passed across 34 files (excluding `lib/ai/generate.test.ts` — live Gemini quota,
+FOLLOWUPS §12), `next build` clean.
+
+## 2026-09-05 — `/integrate`: landing `feat/x-publish`
+
+One candidate, 12 commits, 0 behind, no conflicts (`git merge-tree` exit 0). The
+substance of the X work had been reviewed and passed a sweep earlier; this pass
+was scoped to the two reconciliation rounds since.
+
+**The merge result tree was byte-identical to the branch tree**, so the gates run
+in the worktree were gates on the exact post-merge content — nothing needed
+re-running after merging. tsc clean, eslint 17 (verified against a real `main`
+run, not a reported count), vitest 439/439 excluding `lib/ai/generate.test.ts`,
+build clean. Client chunks 3.4M on both sides with the six largest identical in
+hash and size — no server-only publish module leaked across three rounds of
+moving constants between modules.
+
+**The conflict resolutions checked rather than taken on trust.** `publish-due.ts`
+did take `main` wholesale; `post-publish.ts` kept all five of `main`'s exports and
+added three. `publishBlockedReason`'s precedence was *exercised*, not read: a
+locked post that is also over-length reports the lock, on both lock paths
+(`publishedAt` set, and the `record_failed:` marker). Worth knowing — `too_long`
+is currently unreachable through that predicate, because `PLATFORM_LENGTH_LIMITS`
+only models X (280) and X is `platform_unsupported` first. `publishOnePost`
+re-checks length independently, so nothing is unguarded.
+
+**`PUBLISH_SCOPE_CHECKS` verified by mutation, both halves.** Old predicate + `x`
+in `PUBLISHABLE_PLATFORMS`: the new test fails, an unscoped X account stays
+schedulable — the fail-open. New predicate, same mutation: the pre-existing "does
+not call an X connection's grant stale" fails instead, correctly. Adding a third
+`PostPlatform` fails to compile at `lib/publish-due.ts` until it declares what its
+send needs. Being in the map is not permission — with `x` in the map but out of
+`PUBLISHABLE_PLATFORMS` the account is still waived.
+
+`UNLOCKED_PUBLISH_ERROR_FILTER`'s collapse renders a string `===` to `main`'s
+inline copy, checked at runtime rather than by eye.
+
+**Switch-off re-verified after the merge:** four switches off, cron filters
+`platform = 'linkedin'` on both queries, `publishTweet` unreachable because
+`publishablePlatform()` reads `PUBLISHABLE_PLATFORMS`, `PRESTO_ENABLE_LIVE_PUBLISH`
+absent from `.env.local`. `fix/publish-lock`'s `post-actions.ts` and
+`regenerate-post/route.ts` came across byte-identical.
+
+**Tail tidy:** the union merge left four headings running straight into the
+paragraph above them (INTERFACE.md §9k, EXECUTIONS.md's `feat/published-posts`
+entry, two in LEARNINGS.md). Blank lines inserted; the run-ons that already
+existed on `main` were left alone. No duplicated entries — duplicate-line counts
+matched `main`'s own baseline (repeated `---`, code fences, "Gates:" phrasings).
+
+Six review findings, none blocking, all left for housekeeping — see FOLLOWUPS.

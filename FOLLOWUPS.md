@@ -563,3 +563,96 @@ so it belongs in a separate script rather than the unit suite.
 **Why it waited:** it is a change to a shared test harness that every branch
 depends on, and the immediate hole is closed. Best done when nothing is in
 flight.
+
+---
+
+## X publishing: what `feat/x-publish` deliberately did not do
+
+**From:** `feat/x-publish`, 2026-09-04. Publishing to X by hand is done and
+exercised live; these are the parts that were out of scope.
+
+**Scheduling.** `app/api/cron/publish/route.ts` still selects
+`platform = 'linkedin'` only. The runner will publish an X post perfectly well —
+that one condition is the entire change — but the green-light covered a person
+clicking Publish, not a timer doing it for them. AGENTS.md's hard constraint
+still governs: ask first, every time. Note §17 below applies to X as well once
+it is widened, and more sharply — a stale-grant refusal records nothing and
+re-selects on every tick.
+
+**Threads are still declined**, and nothing here moved that. See the
+`feat/x-connect` entry above for what building them would actually cost.
+
+**Character counting is still `String.length`.** It over-counts links (X
+collapses every URL to 23 characters) and under-counts CJK. It is no longer only
+advisory — `publishOnePost` refuses an over-length post outright — so a post
+made mostly of links can now be refused when X would have taken it. The safe
+direction, but the argument for shipping X's real counting rules is stronger
+than it was.
+
+**`token_unavailable` has no retry.** A refresh that fails because X had a bad
+moment reports "try again" and leaves the post for a person to re-click. A
+single silent retry would be the obvious fix if it turns out to be common.
+
+**The X Free tier's 500 posts/month is shared across every user of the app**,
+not per user. Publishing now really does spend from it. Per-user posting limits
+enforced in-app are a prerequisite for any public release — noted in the
+`feat/x-connect` entry as a pricing constraint, now a real one.
+
+**X publishing is switched off, and turning it on is four things.** X answered
+the first real send with `402 credits depleted`: posting costs money, metered
+per app across every user of Presto, and the owner's decision was not to pay.
+The code is complete and tested — it is the switch that is off. To turn it on:
+add `x` to `PUBLISHABLE_PLATFORMS` (lib/post-publish.ts), add `tweet.write` back
+to `X_SCOPES` (lib/x/scopes.ts), set the X app's permission to Read-and-write in
+X's console, and reconnect (a scope change invalidates every issued token).
+Tests in both files will fail first and say so, which is the point. The
+271-character draft `f51ec23f-3c78-4ebc-bb8d-ea994b38af5e` is left in place to
+send as the proof, and **the tweet id belongs in EXECUTIONS.md** the way the
+LinkedIn URNs are.
+
+**Connecting X is withdrawn as well** (`available: false` in `PLATFORMS`,
+components/connections/connections-panel.tsx) — the Connect button is plain
+"Coming soon" text, which is what the Figma export drew before connecting
+shipped. The flow itself is intact; one line re-opens it. Note the Generate
+page's account pill disables an unconnected platform on its own, so X is
+disabled there too with no code of its own.
+
+**The X app's permission is back on `Read`** (owner confirmed 2026-09-04), so
+both locks are in place: the repo asks for no write scope, and the app could not
+grant one if it did.
+
+**Two X posts are scheduled and can never go out.** They sit in Queued and will
+read "Overdue" forever. Turning them into drafts, or moving them to LinkedIn, is
+a call for whoever owns the content — left alone deliberately rather than
+rewritten. Six more X posts are drafts, which are harmless. None is published.
+Also note some existing X posts run to ~1,459 characters, well over the 280 the
+app now enforces at publish time: they predate the limit, and would be refused
+rather than truncated.
+
+**Nothing has ever been published to X**, so `lib/x/publish.ts`'s success path
+is the one thing here never exercised end to end. Everything up to X receiving
+the request is (see EXECUTIONS, 2026-09-04); the 201-and-parse-the-id branch has
+only ever been tested against a stub.
+
+**`http://127.0.0.1:3002/api/connections/x/callback` is not a registered
+callback on the X app**, which is why the reconnect had to be done on :3003.
+Worth registering every worktree port (3001-3005) once, or the next branch that
+touches X connecting hits the same wall and reads it as a scope problem — see
+LEARNINGS.
+
+---
+
+## `lib/post-publish.test.ts` has two `isPostLocked` describes
+
+**From:** noticed while merging `main` into `feat/x-publish`, 2026-09-05. Not a
+defect — both blocks pass, and they agree.
+
+`feat/published-posts` added one (using the `post()` factory) and
+`fix/publish-lock` added another (bare object literals) covering the same four
+cases. Both landed on `main` independently, so neither branch saw the other's.
+The cost is a duplicated `describe` name in the reporter and two places to edit
+when the predicate changes.
+
+Collapsing them into one is a minute's work for whoever next owns that file. It
+was left alone deliberately: rewriting another branch's tests in the middle of a
+reconciliation merge is the wrong moment to do it.

@@ -21,17 +21,24 @@ const REPO = path.resolve(__dirname, "../..")
 
 // Modules that reach a provider SDK, directly or transitively, and therefore
 // must never be imported by a client component.
-// Not only the AI SDKs any more. `lib/linkedin/publish` and `oauth` read the
-// client secret and make the share call; `lib/supabase/service` builds a
-// service-role client that bypasses RLS entirely. None may be reachable from a
-// client component — and `lib/linkedin/scopes` is deliberately dependency-free
-// precisely so the Connections page can import *it* instead.
+// Not only the AI SDKs any more. Each platform's `publish` and `oauth` reads
+// the client secret and makes the share call, `lib/x/token` decrypts stored
+// tokens, `lib/publish-gate` reads an env var that compiles to `undefined` in
+// the browser, and `lib/supabase/service` builds a service-role client that
+// bypasses RLS entirely. None may be reachable from a client component — and
+// `lib/linkedin/scopes`, `lib/x/scopes` and `lib/social-scopes` are
+// deliberately dependency-free precisely so the Connections page can import
+// *those* instead.
 const SERVER_ONLY = [
   "@/lib/ai/generate",
   "@/lib/ai/providers",
   "@/lib/ai/extract-file-text",
   "@/lib/linkedin/publish",
   "@/lib/linkedin/oauth",
+  "@/lib/x/publish",
+  "@/lib/x/oauth",
+  "@/lib/x/token",
+  "@/lib/publish-gate",
   "@/lib/supabase/service",
   "@/lib/publish-runner",
 ]

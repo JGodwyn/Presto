@@ -1,4 +1,7 @@
 import { hasPublishScope } from "@/lib/linkedin/publish"
+import { PUBLISHABLE_PLATFORMS } from "@/lib/post-publish"
+import { hasXPublishScope } from "@/lib/x/scopes"
+import type { PostPlatform } from "@/types/post"
 
 // Which scheduled posts the scheduler may send, and — far more importantly —
 // which it must leave alone.
@@ -146,16 +149,45 @@ export interface SchedulableAccount {
 // never selected in the first place.
 export type AccountSkipReason = "scope_not_granted" | "token_expired" | "revoked"
 
+// What each platform's *send* requires of a grant — the scheduler's copy of the
+// question `checkPublishGate` and `checkXPublishGate` ask at the point of
+// sending. Deliberately narrower than `isGrantStale`, which is true whenever
+// any requested scope is missing (`email` included) and belongs to the
+// Connections row, not to this decision.
+//
+// **`Record`, not `Partial<Record>`, and that is the point.** A new entry in
+// `PostPlatform` will not compile until it declares what its send needs, so a
+// platform can never reach the scheduler with no question attached. Being in
+// this map is not permission to send — `PUBLISHABLE_PLATFORMS` decides that
+// — it is only the answer for when permission arrives.
+const PUBLISH_SCOPE_CHECKS: Record<PostPlatform, (scope: string) => boolean> = {
+  linkedin: hasPublishScope,
+  x: hasXPublishScope,
+}
+
 // Whether a stored grant carries what *publishing* needs on this platform.
 //
-// Non-LinkedIn platforms have no publisher today (PUBLISHABLE_PLATFORMS in
-// lib/post-publish.ts), so there is no publish scope to require and nothing to
-// skip an account for — deliberately not `false`, which would read as "this
-// connection is broken" for a connection that is fine. When a second platform
-// can publish, it gains an arm here beside LinkedIn's.
+// **Keyed off `PUBLISHABLE_PLATFORMS`, not a platform name**, and that is a
+// deliberate change from `platform !== "linkedin"`. That form was correct only
+// because of a condition in a different file — the cron's own
+// `.eq("platform", "linkedin")` — so relaxing that query, which is the one
+// change standing between X and a live scheduler, would have turned this into a
+// fail-open: an X account with no publish scope would enter
+// `eligibleProjectIds`, its posts would be selected, the send would fail
+// downstream, and `publish_error` would mark them "Didn't send" permanently
+// instead of skipping cleanly and retrying after a reconnect. Exactly the
+// outcome `accountSkipReason` exists to prevent.
+//
+// A platform with no publisher has nothing to require, and `true` is right
+// there: `false` would read as "this connection is broken" for one that is
+// perfectly fine, and would skip it for a permission the app never asks for.
+// The difference now is that "has no publisher" is read from the registry that
+// actually decides it, so adding a platform there *arms* this check rather than
+// silently leaving it open.
 function canSendOnPlatform(platform: string, scope: string): boolean {
-  if (platform !== "linkedin") return true
-  return hasPublishScope(scope)
+  if (!PUBLISHABLE_PLATFORMS.includes(platform as PostPlatform)) return true
+
+  return PUBLISH_SCOPE_CHECKS[platform as PostPlatform](scope)
 }
 
 export function accountSkipReason(

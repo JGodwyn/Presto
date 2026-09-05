@@ -1538,6 +1538,66 @@ trap already documented for Motion animations and `setInterval` under an eval,
 one API wider than it was written: it isn't only rAF-driven *animation* that
 freezes, it's anything the browser schedules on a frame, scroll events included.
 
+### An OAuth callback is registered per port, and a worktree's port is assigned
+
+**Symptom.** X's Reconnect button dies at `You weren't able to give access to
+the App` before any consent screen. It reads exactly like asking for a scope the
+app isn't permitted to grant — which was also the change being made at the time
+(`tweet.write`, plus flipping the X app from Read to Read-and-write), so the
+scope was the obvious and wrong suspect.
+
+**Cause.** The redirect URI is derived from the request's own origin, so the
+port the dev server happens to be on becomes part of it. `/branch` assigns each
+worktree a free port from 3001 up; the X app's registered callbacks were added
+by hand while earlier work ran on :3000 and :3003. A worktree on **:3002** sends
+a `redirect_uri` that was never registered, and X refuses the authorize request
+outright.
+
+**Rule.** Isolate a provider-side rejection by **changing one variable at a
+time against the provider itself**, not by reasoning about which change is more
+recent. Hand-build the authorize URL and load it: old scope on the new port, new
+scope on a known-good port. Here that took two page loads and settled it
+immediately —
+
+- read-only + :3002 → same error ⇒ not the scope
+- write + :3003 → consent screen listing "Post and repost for you" ⇒ not the
+  permission either
+
+**Corollary.** `curl` cannot do this test. X validates `redirect_uri` and scope
+only *after* the member is authenticated, so an unauthenticated request returns
+the login redirect for every variant and looks identical whatever is wrong. It
+has to be the signed-in browser.
+
+**Practically:** either register every worktree port on the provider's app once,
+or move the dev server onto a registered port for the OAuth leg — and say which
+port out loud, because everything else about the app works fine on the wrong one
+and only the redirect breaks.
+
+### A provider can refuse for reasons that have nothing to do with the request
+
+**Symptom.** The first real X publish failed with the app saying *"X wouldn't
+accept this post. Try again."* Retrying could never have worked: X had returned
+`402 {"detail":"credits depleted","title":"Payment Required"}` — the developer
+account was out of API credits.
+
+**Cause.** The response handler had one bucket for every non-2xx. That is right
+for the refusals that *are* about the post (too long, duplicate, malformed) and
+actively harmful for the ones about the **account**: a permanent billing state
+described as a transient one sends someone round a loop that cannot terminate,
+and a rate limit described the same way invites the retry that deepens it.
+
+**Rule.** When mapping a provider's HTTP failures, sort them by *what the reader
+should do next*, not by what went wrong. Three different answers hid behind one
+code here — fix the post (4xx about content), stop and pay (402), wait (429) —
+and only the first is a verdict on what was sent.
+
+**Corollary, and the reason this took two live sends to find:** a coarse failure
+code with no logging is undiagnosable from the outside. The provider's own
+problem document is the only thing that says *which* refusal this was, and it
+existed for exactly as long as the response object. Log the status and a
+bounded slice of the body at the point of refusal — provider error bodies
+describe the app, not the member.
+
 ## `text-balance` does not shrink the box, so centred text inside a capped one sits in dead gutters
 
 **Symptom.** A multi-line tooltip capped at `max-w-64` and centred looked wrong:
@@ -1571,6 +1631,31 @@ so the class was dropped and the box went to its full 541px `max-content`. A
 width utility that "has no effect" is more likely absent than overridden.
 
 
+### A clean merge can still break the build, when two branches split a module
+
+**Symptom.** `feat/x-publish` merged `main` with four ordinary content
+conflicts. None of them mentioned `lib/publish-due.ts`, which nonetheless no
+longer compiled: `import { isGrantStale } from "@/lib/linkedin/scopes"`, and
+that export was gone.
+
+**Cause.** One branch *added a consumer* of a symbol; the other *moved the
+symbol* to a new module. Neither branch edited the other's file, so from git's
+point of view there is nothing to reconcile — a three-way merge compares
+content, and no content disagreed. The break lives in the relationship between
+two files that were each changed exactly once.
+
+**Rule.** After any merge that touches module structure — a symbol moved,
+renamed, re-exported or split — **run tsc before assuming a clean merge is a
+working one**, and grep for every consumer of what moved rather than trusting
+the conflict list. `git status` reporting no conflicts is a statement about
+text, not about the program.
+
+**Corollary, and the reason this was cheap to fix rather than expensive:** the
+resolution belongs in the *importing* file, not by restoring the old export.
+Re-adding `isGrantStale` to `lib/linkedin/scopes.ts` would have compiled just as
+well and quietly reinstated the LinkedIn-only version — the exact bug the move
+existed to fix, now with a passing build on top of it.
+
 ### A predicate that hides a control is not a predicate that refuses a write
 
 **Symptom.** A branch whose whole purpose was "a published post is read-only"
@@ -1601,3 +1686,35 @@ scope, `email` included) while the send asked `hasPublishScope` (only
 excluded from the scheduler forever. Two predicates for one question always
 drift; the fix is for the second caller to ask the first one's question, not to
 keep them in sync by hand.
+
+### Reading a control's label is not reading its state
+
+**Symptom.** Verifying a merge in the browser, a published post appeared to have
+lost the read-only lock another branch had just added: the page listed an "Add to
+calendar" button, which a locked post should not offer. For a moment this looked
+like the merge had dropped that branch's work.
+
+**Cause.** The probe collected `aria-label` and nothing else:
+
+```js
+[...document.querySelectorAll('button')].map(b => b.getAttribute('aria-label'))
+```
+
+The button was there and `disabled`, which is exactly what the lock does — it
+disables the control rather than removing it, so the reason stays visible. A
+list of labels cannot tell those apart. The same probe also reported the page
+had an editable content area; that turned out to be a **browser extension's own
+`<textarea>`** sitting in the same document, matched because the selector was
+`textarea, [contenteditable="true"]` against the whole page.
+
+**Rule.** When checking whether a control is *available*, assert on the property
+that makes it unavailable — `disabled`, `aria-disabled`, `hidden`, `pointer-events`
+— never on the control's presence or its label. Presence is the wrong question
+whenever "disabled but explained" is a deliberate state, which in this codebase
+it usually is.
+
+**Corollary.** Scope DOM probes to the app's own subtree (`main`, or a known
+container) rather than `document`. An extension can inject inputs, dialogs and
+buttons into the page, and a broad `querySelector` will find them and attribute
+them to the app. Two of the three surprises in this session's verification pass
+were extension chrome, not the product.

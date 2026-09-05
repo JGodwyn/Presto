@@ -25,6 +25,7 @@ import { Menu, MenuItem } from "@/components/ui/menu"
 // the blur that closes the menu only fires for genuine outside clicks.
 export function PostActionsMenu({
   onPublish,
+  publishComingSoon,
   onOpen,
   onTurnToDraft,
   onDelete,
@@ -36,6 +37,14 @@ export function PostActionsMenu({
   // one, and it is the only row here that does something irreversible and
   // public, so it gets a confirmation from the caller before anything is sent.
   onPublish?: () => void
+  // The same row, disabled, for a post whose platform *will* be publishable —
+  // X, whose publisher is built and switched off (PUBLISHABLE_PLATFORMS,
+  // lib/post-publish.ts). Deliberately different from simply leaving the row
+  // out, which is still what an already-published or try-out post gets: those
+  // have nothing coming, while an X post beside a LinkedIn one otherwise looks
+  // broken rather than pending. Ignored when `onPublish` is set — a post cannot
+  // be both.
+  publishComingSoon?: boolean
   // Opens the post's own page. Optional: only the callers that have somewhere
   // to send it pass this (the Content page's day deck), and the row is left
   // out entirely where they don't.
@@ -120,11 +129,25 @@ export function PostActionsMenu({
                   Publish now
                   <PaperPlaneTilt weight="bold" />
                 </MenuItem>
+              ) : publishComingSoon ? (
+                // MenuItem already styles `disabled` (text-minimal, no hover or
+                // pressed surface), so this needs no new treatment — it reads as
+                // a row that exists but isn't ready, which is exactly the state.
+                // The label carries the reason: a disabled row can't hold a
+                // tooltip, and "Publish now" greyed out says nothing.
+                <MenuItem
+                  role="menuitem"
+                  disabled
+                  className="justify-between"
+                >
+                  Publishing coming soon
+                  <PaperPlaneTilt weight="bold" />
+                </MenuItem>
               ) : null}
               {onOpen ? (
                 <MenuItem
                   role="menuitem"
-                  withDivider={Boolean(onPublish)}
+                  withDivider={Boolean(onPublish || publishComingSoon)}
                   className="justify-between"
                   onClick={() => {
                     onOpen()
@@ -138,7 +161,7 @@ export function PostActionsMenu({
               {onTurnToDraft ? (
                 <MenuItem
                   role="menuitem"
-                  withDivider={Boolean(onPublish || onOpen)}
+                  withDivider={Boolean(onPublish || publishComingSoon || onOpen)}
                   className="justify-between"
                   onClick={() => {
                     onTurnToDraft()
@@ -152,7 +175,9 @@ export function PostActionsMenu({
               <MenuItem
                 role="menuitem"
                 variant="danger"
-                withDivider={Boolean(onPublish || onOpen || onTurnToDraft)}
+                withDivider={Boolean(
+                  onPublish || publishComingSoon || onOpen || onTurnToDraft
+                )}
                 className="justify-between"
                 onClick={() => {
                   onDelete()

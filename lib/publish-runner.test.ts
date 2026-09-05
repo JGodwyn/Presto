@@ -7,13 +7,27 @@ import {
 } from "@/lib/publish-runner"
 import { PUBLISH_GRACE_MINUTES } from "@/lib/publish-due"
 
-// The share call is the one thing a test must never actually make.
+// The share calls are the one thing a test must never actually make. Both
+// platforms are stubbed, and which one gets called is itself the assertion in
+// the dispatch block at the bottom of this file.
 const publishTextPost = vi.fn()
+const publishTweet = vi.fn()
+const getLiveXAccessToken = vi.fn()
 
 vi.mock("@/lib/linkedin/publish", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/linkedin/publish")>()),
   publishTextPost: (...args: unknown[]) => publishTextPost(...args),
   checkPublishGate: () => ({ allowed: true }) as const,
+}))
+
+vi.mock("@/lib/x/publish", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/x/publish")>()),
+  publishTweet: (...args: unknown[]) => publishTweet(...args),
+  checkXPublishGate: () => ({ allowed: true }) as const,
+}))
+
+vi.mock("@/lib/x/token", () => ({
+  getLiveXAccessToken: (...args: unknown[]) => getLiveXAccessToken(...args),
 }))
 
 vi.mock("@/lib/ai/key-crypto", () => ({
@@ -37,16 +51,25 @@ function fakeSupabase({
 }) {
   const updates: Record<string, unknown>[] = []
   const filters: { method: string; args: unknown[] }[] = []
+  // Every `.eq()` the runner builds, so a test can ask *which* connection was
+  // read — the difference between publishing an X post through the X account
+  // and through whatever row a hardcoded platform filter happened to find.
+  const eqs: unknown[][] = []
 
   const client = {
     updates,
     filters,
+    eqs,
     from(table: string) {
       const builder: Record<string, unknown> = {}
       let payload: Record<string, unknown> | null = null
 
       const self = () => builder
-      for (const method of ["select", "eq"]) builder[method] = self
+      builder.select = self
+      builder.eq = (...args: unknown[]) => {
+        eqs.push(args)
+        return builder
+      }
       // Recorded rather than merely chained: this fake models predicates in
       // JavaScript, which is exactly how it once passed a claim predicate that
       // the real database matched zero rows against (see the null-safety test
@@ -83,6 +106,9 @@ function fakeSupabase({
           ? { data: post, error: null }
           : {
               data: {
+                // Selected for X's sake: its token is fetched through
+                // lib/x/token.ts rather than read off this row.
+                id: "account-1",
                 provider_account_id: "urn:li:person:1",
                 scope: "openid profile email w_member_social",
                 expires_at: new Date(NOW.getTime() + 86_400_000).toISOString(),
@@ -107,6 +133,10 @@ function fakeSupabase({
 beforeEach(() => {
   publishTextPost.mockReset()
   publishTextPost.mockResolvedValue({ ok: true, postUrn: "urn:li:share:1" })
+  publishTweet.mockReset()
+  publishTweet.mockResolvedValue({ ok: true, postId: "1966000000000000000" })
+  getLiveXAccessToken.mockReset()
+  getLiveXAccessToken.mockResolvedValue({ ok: true, accessToken: "live-token" })
 })
 
 // The regression this file exists for. A claim that goes stale before its post
@@ -347,5 +377,120 @@ describe("publishOnePost when the record write fails", () => {
 
     expect(outcome.ok).toBe(false)
     expect(publishTextPost).not.toHaveBeenCalled()
+  })
+})
+
+// The dispatch, and the switch in front of it.
+//
+// `lib/x/publish.ts` is complete and was exercised against the live X API, but
+// X is not in PUBLISHABLE_PLATFORMS: posting costs money, metered per app
+// across every user of Presto, and the owner's decision was not to pay. So the
+// runner refuses an X post before it reaches any of that — the same state
+// lib/linkedin/publish.ts sat in for months before LinkedIn was green-lit.
+//
+// These tests pin the switch, not the plumbing. `publishTweet` keeps its own
+// suite (lib/x/publish.test.ts), which is where the send path stays covered
+// while it is unreachable from here.
+describe("publishOnePost refuses a platform that is switched off", () => {
+  const xPost = {
+    id: POST.postId,
+    platform: "x",
+    content: "A tweet that isn't going anywhere.",
+    is_tryout: false,
+    published_at: null,
+  }
+
+  const linkedinPost = { ...xPost, platform: "linkedin", content: "A share." }
+
+  it("never reaches X, and never asks for an X token", async () => {
+    const supabase = fakeSupabase({ post: xPost })
+
+    const outcome = await publishOnePost(supabase, POST, NOW)
+
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) expect(outcome.failure).toBe("unsupported_platform")
+    expect(publishTweet).not.toHaveBeenCalled()
+    // The token matters as much as the send: X's refresh tokens are rotating
+    // and single-use, so even fetching one for a post that cannot go out
+    // spends something.
+    expect(getLiveXAccessToken).not.toHaveBeenCalled()
+  })
+
+  it("refuses before taking the claim, so nothing is left held", async () => {
+    const supabase = fakeSupabase({ post: xPost }) as unknown as {
+      updates: Record<string, unknown>[]
+    }
+
+    await publishOnePost(supabase as never, POST, NOW)
+
+    expect(supabase.updates).toHaveLength(0)
+  })
+
+  // The refusal has to survive the gate being opened — the switch is the list,
+  // not the environment variable.
+  it("still refuses with live publishing switched on", async () => {
+    process.env.PRESTO_ENABLE_LIVE_PUBLISH = "true"
+    try {
+      const supabase = fakeSupabase({ post: xPost })
+      const outcome = await publishOnePost(supabase, POST, NOW)
+      expect(outcome.ok).toBe(false)
+      expect(publishTweet).not.toHaveBeenCalled()
+    } finally {
+      delete process.env.PRESTO_ENABLE_LIVE_PUBLISH
+    }
+  })
+
+  it("still publishes LinkedIn, which is the platform that is on", async () => {
+    const supabase = fakeSupabase({ post: linkedinPost })
+
+    const outcome = await publishOnePost(supabase, POST, NOW)
+
+    expect(publishTextPost).toHaveBeenCalledTimes(1)
+    expect(publishTweet).not.toHaveBeenCalled()
+    expect(outcome.ok).toBe(true)
+    if (outcome.ok) expect(outcome.platform).toBe("linkedin")
+  })
+
+  it("reads the connection for the post's own platform", async () => {
+    const supabase = fakeSupabase({ post: linkedinPost }) as unknown as {
+      eqs: unknown[][]
+    }
+
+    await publishOnePost(supabase as never, POST, NOW)
+
+    expect(supabase.eqs).toContainEqual(["platform", "linkedin"])
+  })
+
+  it("refuses a platform it has never had a publisher for", async () => {
+    const supabase = fakeSupabase({ post: { ...xPost, platform: "mastodon" } })
+
+    const outcome = await publishOnePost(supabase, POST, NOW)
+
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) {
+      expect(outcome.failure).toBe("unsupported_platform")
+      expect(outcome.platform).toBeNull()
+    }
+  })
+})
+
+// The length refusal has nothing live to refuse while X is off — LinkedIn has
+// no limit this app enforces — but it is what stops an over-length post
+// reaching X the day publishing is switched back on, so it stays tested.
+describe("publishOnePost refuses an over-length post", () => {
+  it("has no length opinion about LinkedIn", async () => {
+    const supabase = fakeSupabase({
+      post: {
+        id: POST.postId,
+        platform: "linkedin",
+        content: "x".repeat(2000),
+        is_tryout: false,
+        published_at: null,
+      },
+    })
+
+    const outcome = await publishOnePost(supabase, POST, NOW)
+
+    expect(outcome.ok).toBe(true)
   })
 })

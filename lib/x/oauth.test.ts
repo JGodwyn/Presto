@@ -37,24 +37,6 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
   })
 }
 
-describe("X_SCOPES", () => {
-  // AGENTS.md's hard publishing constraint, pinned so it survives a careless
-  // edit: a token minted by this flow must not be able to post. Note this is
-  // only one of the two locks — the X app's own permissions are set to Read —
-  // but it is the one that lives in this repo, so it is the one a test can
-  // hold.
-  it("never requests a write scope", () => {
-    for (const scope of X_SCOPES) {
-      expect(scope).not.toContain("write")
-    }
-    expect(X_SCOPES).not.toContain("tweet.write")
-  })
-
-  it("requests offline.access, without which the connection dies in 2 hours", () => {
-    expect(X_SCOPES).toContain("offline.access")
-  })
-})
-
 describe("getXCredentials", () => {
   it("is null until both halves are configured", () => {
     delete process.env.X_CLIENT_ID

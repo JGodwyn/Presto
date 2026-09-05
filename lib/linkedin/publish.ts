@@ -3,14 +3,21 @@ import {
   parseGrantedScopes,
 } from "@/lib/linkedin/scopes"
 import { isNetworkError } from "@/lib/network-error"
+import type { PublishFailure } from "@/lib/publish-failure"
+import { isLivePublishEnabled } from "@/lib/publish-gate"
 
-// The LinkedIn publishing path — built, and deliberately unreachable.
+// The LinkedIn publishing path — **live**, and the only one that is.
 //
-// AGENTS.md's hard publishing constraint says Presto must not post to a live
-// account until that is explicitly green-lit. This file exists so that the day
-// it *is* green-lit, the work is a scope migration and a switch rather than a
-// from-scratch build — but nothing here can fire today, and the two reasons it
-// can't are independent (see `checkPublishGate`).
+// This said "built, and deliberately unreachable" until 2026-09-03, when
+// AGENTS.md's hard publishing constraint was explicitly green-lit for LinkedIn
+// and two real posts went out. It can fire: the gate's remaining key is
+// `PRESTO_ENABLE_LIVE_PUBLISH`, which is unset by default and is a deliberate
+// act rather than configuration (see `checkPublishGate`). The constraint itself
+// is unchanged — calling a share endpoint, or wiring a scheduler to one, still
+// needs asking first, every time.
+//
+// Its X sibling (lib/x/publish.ts) is the one that is now built and
+// unreachable, which is where this file's old comment has gone to live.
 //
 // Server-only at runtime: callers hand it a decrypted access token, which must
 // never exist in a client component. Nothing in this file may be imported by
@@ -21,11 +28,12 @@ import { isNetworkError } from "@/lib/network-error"
 // it — see the note there on what adding it cost.
 export { LINKEDIN_PUBLISH_SCOPE }
 
-// The kill switch, and the "explicit confirm" half of the gate. Absent by
-// default and absent from .env.local.example on purpose: it is not
-// configuration, it is a deliberate act. Only ever read through
-// `isLivePublishEnabled` so there is exactly one place that decides.
-const LIVE_PUBLISH_ENV = "PRESTO_ENABLE_LIVE_PUBLISH"
+// Both re-exported for the readers that have always found them here. The gate
+// switch is shared with X (lib/publish-gate.ts — one switch, both platforms)
+// and the failure vocabulary now lives in the pure module client components
+// read (lib/publish-failure.ts), so neither is defined in this file any more.
+export { isLivePublishEnabled }
+export type { PublishFailure }
 
 const POSTS_URL = "https://api.linkedin.com/rest/posts"
 
@@ -33,17 +41,6 @@ const POSTS_URL = "https://api.linkedin.com/rest/posts"
 // header. Pinned rather than derived from the clock: a silently-rolling
 // version means the request shape can start failing on a date nobody chose.
 const LINKEDIN_VERSION = "202608"
-
-// Every way publishing can decline or fail, as a short code the caller maps to
-// copy. The first four are *refusals* — the gate said no and nothing left this
-// process; the last two mean a request was actually made.
-export type PublishFailure =
-  | "publishing_disabled"
-  | "scope_not_granted"
-  | "token_expired"
-  | "not_connected"
-  | "network"
-  | "publish"
 
 export type PublishResult =
   | { ok: true; postUrn: string }
@@ -67,10 +64,6 @@ export function hasPublishScope(raw: string): boolean {
 // the database for every connected row — no migration was needed for this.
 export function personUrn(providerAccountId: string): string {
   return `urn:li:person:${providerAccountId}`
-}
-
-export function isLivePublishEnabled(): boolean {
-  return process.env[LIVE_PUBLISH_ENV] === "true"
 }
 
 // What the gate needs to know about the connection being published through.

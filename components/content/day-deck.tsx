@@ -41,7 +41,11 @@ import { readPreferredModel } from "@/lib/generate-settings"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { setPendingRegeneration } from "@/lib/pending-regeneration"
 import { publishErrorFor } from "@/lib/publish-failure"
-import { canAttemptPublish, isPostLocked } from "@/lib/post-publish"
+import {
+  canAttemptPublish,
+  isPostLocked,
+  publishComingSoon,
+} from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -759,7 +763,14 @@ export function DayDeck({
     if (keyForPost({ ...post, ...patch }) === dayKey) commit()
     else leaveDeck(post.id, commit)
 
-    showSuccess("Published to LinkedIn", { showIcon: false })
+    // Named from the post's own platform, not hardcoded: publishing a tweet
+    // and being told it went to LinkedIn is the kind of small lie that makes a
+    // user distrust everything else the app says. (Only LinkedIn can publish
+    // today, so this reads the same either way right now — it stops being true
+    // the moment X is switched on, which is the point of not hardcoding it.)
+    showSuccess(`Published to ${PLATFORM_LABELS[post.platform]}`, {
+      showIcon: false,
+    })
   }
 
   // The one rule the pill and the guard share. Try out is never refused:
@@ -1026,6 +1037,7 @@ export function DayDeck({
                             ? () => setPublishTarget(post)
                             : undefined
                         }
+                        publishComingSoon={publishComingSoon(post, accounts)}
                         onTurnToDraft={() => handleTurnToDraft(post)}
                         onOpen={() => closeThenOpen(post.id)}
                         onRegenerate={() => handleRegenerate(post)}

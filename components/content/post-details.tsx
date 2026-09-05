@@ -61,7 +61,12 @@ import {
   setPendingRegeneration,
   takePendingRegeneration,
 } from "@/lib/pending-regeneration"
-import { canAttemptPublish, isPostLocked } from "@/lib/post-publish"
+import {
+  canAttemptPublish,
+  isPostLocked,
+  publishComingSoon,
+  publishComingSoonLabel,
+} from "@/lib/post-publish"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
@@ -182,6 +187,16 @@ export function PostDetails({
   // left every control open on the second.
   const isPublished = isPostLocked(currentPost)
   const canPublish = canAttemptPublish(currentPost, accounts)
+  // A third state between "publish" and "nothing": the platform's publisher is
+  // built and switched off (X — see PUBLISHABLE_PLATFORMS in
+  // lib/post-publish.ts). Shown disabled rather than hidden, because an X post
+  // sitting beside a LinkedIn one with no trace of the control reads as broken
+  // rather than pending.
+  //
+  // Orthogonal to `isPublished` above, and the precedence is settled where the
+  // control renders: a post that has gone out shows no control at all, since
+  // nothing is pending for it.
+  const comingSoon = publishComingSoon(currentPost, accounts)
   // When it went out. The heading reports this instead of the schedule once a
   // post is live: a post published straight from a draft never gets a
   // `scheduled_for`, so the heading used to read "Draft" above something on
@@ -968,7 +983,7 @@ export function PostDetails({
     setToast({
       open: true,
       variant: "success",
-      message: "Published to LinkedIn",
+      message: `Published to ${PLATFORM_LABELS[currentPost.platform]}`,
       action: undefined,
       extraInfo: undefined,
       showIcon: false,
@@ -1022,24 +1037,49 @@ export function PostDetails({
               success green — Regenerate already owns `brand`, and the two
               must not read as the same weight of action when one of them is
               irreversible and public. Gone entirely once the post is live
-              (canAttemptPublish), rather than sitting there disabled. */}
-          {canPublish ? (
+              (canAttemptPublish), rather than sitting there disabled: there is
+              nothing coming for a post that has already gone out.
+
+              The exception is a platform whose publisher exists and is switched
+              off, which *is* coming — that one stays, disabled, and its tooltip
+              carries the reason. `disabled` is what makes the two states read
+              differently at a glance; the tooltip is what makes the second one
+              make sense. A disabled button still receives hover, so the tooltip
+              works (unlike the deck's menu row, which has to say it in the
+              label). */}
+          {canPublish || comingSoon ? (
             <Tooltip>
               <TooltipTrigger
                 render={
                   <Button
                     variant="success"
                     size="icon-sm"
-                    aria-label="Publish post now"
-                    // Off while anything is being written into this post.
-                    // Mid-stream the body is a partial post and the row still
+                    aria-label={
+                      comingSoon
+                        ? publishComingSoonLabel(currentPost.platform)
+                        : "Publish post now"
+                    }
+                    // Two unrelated reasons to be off, and both must hold.
+                    //
+                    // Off while anything is being written into this post:
+                    // mid-stream the body is a partial post and the row still
                     // holds the old one, so a send here would put one or the
                     // other on a real timeline — neither being the thing on
                     // screen. The deck's card needs no equivalent: it swaps
                     // itself for GeneratingPostCard while it regenerates, so
                     // the menu holding its own Publish row isn't rendered.
-                    disabled={isPublishing || isRegenerating || isDraftingFollowUp}
-                    onClick={() => setPublishOpen(true)}
+                    //
+                    // And off permanently for a platform whose publisher is
+                    // switched off, which is the coming-soon state above.
+                    disabled={
+                      isPublishing ||
+                      isRegenerating ||
+                      isDraftingFollowUp ||
+                      comingSoon
+                    }
+                    onClick={
+                      comingSoon ? undefined : () => setPublishOpen(true)
+                    }
                   >
                     {isPublishing ? (
                       <SpinnerGap weight="bold" className="animate-spin" />
@@ -1049,7 +1089,11 @@ export function PostDetails({
                   </Button>
                 }
               />
-              <TooltipContent>Publish now</TooltipContent>
+              <TooltipContent>
+                {comingSoon
+                  ? publishComingSoonLabel(currentPost.platform)
+                  : "Publish now"}
+              </TooltipContent>
             </Tooltip>
           ) : null}
           {/* Regenerate, on a published post as much as any other — same
@@ -1472,7 +1516,7 @@ export function PostDetails({
         title="Delete post"
         description={
           isPublished
-            ? "This removes Presto's copy. The post itself stays up on LinkedIn — delete it there too if you want it gone."
+            ? `This removes Presto's copy. The post itself stays up on ${PLATFORM_LABELS[currentPost.platform]} — delete it there too if you want it gone.`
             : "You can't undo this. Are you sure you want to delete this post?"
         }
         actionLabel="Delete post"

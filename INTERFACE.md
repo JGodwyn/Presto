@@ -1293,6 +1293,61 @@ the pill instead of widening the row.
 **No Figma export draws either state** — the content exports predate publishing.
 Composed from existing tokens and the card's own `body-md-bold`.
 
+## 10b. X publishing — built, switched off, and said out loud
+
+**Decided 2026-09-04.** X publishing works: `lib/x/publish.ts` is complete and
+was exercised against the live API. It is switched off anyway, because posting
+through X's v2 API is metered **per app across every user of Presto** rather
+than per account — one member's click spends the app owner's budget — and the
+first real send came back `402 credits depleted`. That is a cost decision, not
+missing work.
+
+**Nothing is deleted, and there are four switches.** `PUBLISHABLE_PLATFORMS`
+(lib/post-publish.ts), `X_SCOPES` (lib/x/scopes.ts), `available` in
+connections-panel.tsx's `PLATFORMS`, and the X app's own permission in X's
+console. Tests in the first two fail loudly if either is flipped alone.
+
+### The UI says "coming soon" rather than going quiet
+
+Three surfaces, one rule: **a post whose platform will be publishable shows the
+control disabled; a post with nothing coming shows no control at all.** The
+distinction is `publishBlockedReason`, not `canAttemptPublish` — an
+already-published or try-out post has nothing pending, and a greyed control
+would be a promise that never lands. An X post beside a LinkedIn one with no
+trace of the control reads as broken rather than pending, which is the whole
+reason for the state.
+
+- **Post details** — the paper-plane Button stays, `disabled`, with the reason
+  in both its tooltip and its `aria-label` ("Publishing to X is coming soon").
+  A disabled button still receives hover, so the tooltip works.
+- **The deck's actions menu** — a disabled `MenuItem` reading "Publishing coming
+  soon". `MenuItem` already styles `disabled` (`text-minimal`, no hover or
+  pressed surface), so this needed no new treatment. **The label carries the
+  reason because a disabled menu row cannot hold a tooltip** — "Publish now"
+  greyed out says nothing.
+- **Connections** — the Connect button is replaced by plain "Coming soon" text,
+  which is what the Figma "Connect / Base" export drew for X before connecting
+  shipped. `body-lg`/`text-subtle`, and `pr-pad-md` on the span: `PlatformRow`'s
+  own `pr-pad-sm` is sized for a Button, which insets its label by a further
+  `pad-md`, so bare text without that padding sits 12px nearer the edge than
+  every other row's action.
+
+### A connection that predates the withdrawal
+
+It keeps its row — a live connection holding a stored token must not become
+invisible — but loses every control that would *make* one:
+`ConnectedAccountRow`'s `canReconnect={false}` drops Reconnect, "Renew now" and
+the stale-grant chip, and a **dead** connection offers Disconnect where it would
+otherwise offer Reconnect. An authorize redirect for a platform the app no
+longer offers is a dead end wearing a button.
+
+### Two consequences that fall out with no code
+
+The Generate page's account pill already disables an unconnected platform
+(`buildAccountOptions`), so X is disabled there on its own. And existing X posts
+stay coherent: `lib/post-account.ts` falls back to the platform label when a
+platform isn't connected, so their cards read "X" instead of an account name.
+
 ## 9k. A published post is read-only
 
 **From `feat/published-posts`, 2026-09-04.** Publishing works, and what it

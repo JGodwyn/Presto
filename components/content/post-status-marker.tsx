@@ -81,7 +81,7 @@ export function PostStatusMarker({
 
   if (!failed && !overdue) return null
 
-  const reason = withReason && failed ? publishFailureMessage(post.publishError) : null
+  const reason = withReason && failed ? publishFailureMessage(post.publishError, post.platform) : null
 
   const chip = (
     <span

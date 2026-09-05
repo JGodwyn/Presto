@@ -19,18 +19,29 @@ import { cn } from "@/lib/utils";
 import type { PostPlatform } from "@/types/post";
 import type { ConnectedSocialAccount } from "@/types/social-account";
 
-// Figma "Connect / Base" lists LinkedIn first, X second. The export drew X as
-// plain "Coming soon" text; both are connectable now, so both get a button and
-// `available` is what a future third platform would set to false. The export
-// writes "Linkedin"; the rest of the app writes "LinkedIn", so the brand
-// casing is corrected here the same way the Content page's "it's" typo was.
+// Figma "Connect / Base" lists LinkedIn first, X second, and drew X as plain
+// "Coming soon" text. It is back to that.
+//
+// **X connecting works — this is a decision, not missing work.** The whole
+// flow is built and exercised (OAuth 2.0 + PKCE, rotating refresh tokens,
+// disconnect with revocation), and none of it is deleted. But publishing to X
+// costs money, metered per app across every user of Presto, and the owner's
+// decision was not to pay (see PUBLISHABLE_PLATFORMS, lib/post-publish.ts), so
+// there is nothing a member could do with an X connection they cannot already
+// do without one. Offering it would be offering half a feature.
+//
+// Flipping this back to `true` is all it takes to re-open connecting.
+//
+// The export writes "Linkedin"; the rest of the app writes "LinkedIn", so the
+// brand casing is corrected here the same way the Content page's "it's" typo
+// was.
 const PLATFORMS: {
   platform: PostPlatform;
   label: string;
   available: boolean;
 }[] = [
   { platform: "linkedin", label: "LinkedIn", available: true },
-  { platform: "x", label: "X (Twitter)", available: true },
+  { platform: "x", label: "X (Twitter)", available: false },
 ];
 
 // What the callback's `connect_error` codes say to the user. Nothing from
@@ -241,6 +252,12 @@ function ConnectionsPanel({
               now={new Date(now)}
               pending={connecting === platform}
               onDisconnect={() => setPendingDisconnect(account)}
+              // An account connected before its platform was withdrawn keeps
+              // its row — hiding a live connection with a stored token would
+              // make real state invisible — but loses every control that would
+              // *make* a connection. Keep it or remove it; you cannot renew it.
+              // Same reasoning as the missing Connect button above.
+              canReconnect={available}
               // Renewing *is* connecting: same authorize redirect, and
               // LinkedIn decides on its own whether to show the consent
               // screen (it skips it while the current token is still alive).
@@ -273,7 +290,12 @@ function ConnectionsPanel({
                   )}
                 </Button>
               ) : (
-                <span className="text-body-md text-text-subtle">
+                // pr-pad-md is not a nudge: the row's own pr-pad-sm (8px) is
+                // sized for a Button, which insets its label by another
+                // pad-md. Text with no box of its own would otherwise sit 12px
+                // nearer the edge than every other row's action does — this
+                // lands it exactly where a Connect or Disconnect label sits.
+                <span className="pr-pad-md text-body-lg text-text-subtle">
                   Coming soon
                 </span>
               )

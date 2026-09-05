@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-import { isLivePublishEnabled } from "@/lib/linkedin/publish"
+import { isLivePublishEnabled } from "@/lib/publish-gate"
 import {
   dueWindow,
   partitionSchedulableAccounts,
@@ -141,7 +141,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   //                            decides, since retrying blind is how a broken
   //                            connection becomes a stream of failures
   //   is_tryout false        — a try-out post borrows a real platform value
-  //   platform linkedin      — the only publishing flow that exists
+  //   platform linkedin      — **deliberately still LinkedIn-only.** X
+  //                            publishing exists now (lib/x/publish.ts) and the
+  //                            runner will send one, but scheduling it was not
+  //                            green-lit: the X authorisation covers a person
+  //                            clicking Publish, not a timer doing it for them.
+  //                            Widening this one condition is the whole change
+  //                            when that is asked for — see FOLLOWUPS
   //   scheduled_for in window— came due, and came due *recently*
   //   project_id in eligible — the connection behind it can actually send
   //
@@ -225,7 +231,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .eq("id", post.id)
         .eq("project_id", post.project_id)
 
-      outcome = { ok: false, failure: "publish", recorded: !releaseError }
+      // LinkedIn, because that is all this query selects — see the platform
+      // condition above.
+      outcome = {
+        ok: false,
+        failure: "publish",
+        recorded: !releaseError,
+        platform: "linkedin",
+      }
     }
 
     if (outcome.ok) {

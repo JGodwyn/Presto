@@ -109,6 +109,9 @@ interface GeneratedPostCardProps {
   // that was written seconds ago hasn't been read yet, let alone approved.
   // The caller owns the confirmation: this card never sends anything itself.
   onPublish?: () => void
+  // Shows the publish row disabled instead, for a platform whose publisher is
+  // built but switched off. See PostActionsMenu, which owns the treatment.
+  publishComingSoon?: boolean
   // Runs a real generation against this post's own brief and writes the new
   // text back through `content` (GeneratingView owns both the server call and
   // the state) — this card only owns the placeholder it shows while that's in
@@ -184,6 +187,7 @@ export function GeneratedPostCard({
   onOpen,
   statusMarker,
   onPublish,
+  publishComingSoon,
   onRegenerate,
   locked = false,
   publishedAt,
@@ -486,9 +490,10 @@ export function GeneratedPostCard({
             — but it only becomes a menu at all once there's somewhere to open
             it to. Without that (the Generating page), a draft keeps the plain
             Delete button the export gives it. */}
-        {headerDate || onOpen || onPublish ? (
+        {headerDate || onOpen || onPublish || publishComingSoon ? (
           <PostActionsMenu
             onPublish={onPublish}
+            publishComingSoon={publishComingSoon}
             onOpen={onOpen}
             onTurnToDraft={date && !locked ? onTurnToDraft : undefined}
             onDelete={onDelete}
