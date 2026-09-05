@@ -1684,3 +1684,35 @@ scope, `email` included) while the send asked `hasPublishScope` (only
 excluded from the scheduler forever. Two predicates for one question always
 drift; the fix is for the second caller to ask the first one's question, not to
 keep them in sync by hand.
+
+### Reading a control's label is not reading its state
+
+**Symptom.** Verifying a merge in the browser, a published post appeared to have
+lost the read-only lock another branch had just added: the page listed an "Add to
+calendar" button, which a locked post should not offer. For a moment this looked
+like the merge had dropped that branch's work.
+
+**Cause.** The probe collected `aria-label` and nothing else:
+
+```js
+[...document.querySelectorAll('button')].map(b => b.getAttribute('aria-label'))
+```
+
+The button was there and `disabled`, which is exactly what the lock does — it
+disables the control rather than removing it, so the reason stays visible. A
+list of labels cannot tell those apart. The same probe also reported the page
+had an editable content area; that turned out to be a **browser extension's own
+`<textarea>`** sitting in the same document, matched because the selector was
+`textarea, [contenteditable="true"]` against the whole page.
+
+**Rule.** When checking whether a control is *available*, assert on the property
+that makes it unavailable — `disabled`, `aria-disabled`, `hidden`, `pointer-events`
+— never on the control's presence or its label. Presence is the wrong question
+whenever "disabled but explained" is a deliberate state, which in this codebase
+it usually is.
+
+**Corollary.** Scope DOM probes to the app's own subtree (`main`, or a known
+container) rather than `document`. An extension can inject inputs, dialogs and
+buttons into the page, and a broad `querySelector` will find them and attribute
+them to the app. Two of the three surprises in this session's verification pass
+were extension chrome, not the product.
