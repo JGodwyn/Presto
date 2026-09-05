@@ -6435,3 +6435,72 @@ list (pg_cron schedule, production env, production callback URL, the gate) and
 no code is left to write for it. A local launchd/cron job was offered as a way
 to rehearse it and declined as a stopgap, correctly.
 
+
+---
+
+## 2026-09-05 — `fix/publish-lock`: enforce the lock on the server
+
+Cut from `main` at `7ab1594` rather than done as housekeeping, because
+`feat/x-publish` is in flight and rebasing onto that same commit — putting these
+changes on `main` would have moved the target under it a second time.
+
+Both defects came from the `/code-review` pass that returned after
+`feat/published-posts` had already merged.
+
+**1. The read-only lock was client-only.** `isPostLocked` appeared exactly once
+in the server actions — inside `draftFollowUpPost`, asserting a post *is* locked.
+`updatePost`, `regeneratePost` and `app/api/regenerate-post` had no guard at all,
+so the branch's central guarantee was a hidden button.
+
+Fixed at three call sites, and **as a condition on the statement rather than a
+check before it**. The reported race is precisely the check-then-act gap: the
+details page holds a load-time snapshot, so if the scheduler publishes while it
+is open, a fetch-then-update still sees an unpublished row. `updatePost` now
+carries `.is("published_at", null).or(UNLOCKED_PUBLISH_ERROR_FILTER)` on the
+update itself and reads `.select()` to learn whether anything matched; a miss is
+then told apart from a missing post by a second read, so a published post gets an
+answer that explains itself. `regeneratePost` and the route already fetch the row
+first, so they check `isPostLocked` directly and refuse with a message pointing
+at the follow-up draft.
+
+`UNLOCKED_PUBLISH_ERROR_FILTER` (lib/post-publish.ts) spells out the NULL arm,
+which is load-bearing rather than defensive: a bare `not.like` renders as
+`NOT (col LIKE …)`, NULL for a NULL column, which silently excludes every post
+that has never failed — the mistake that once disabled publishing outright.
+Verified against the live database: 299 posts, 3 published, **296 admitted by the
+filter**, and a genuinely published row refused (0).
+
+**Also fixed while in that statement:** `updatePost`'s write was scoped by `id`
+alone, with no `project_id` — the same class already closed in `publishPost`.
+RLS scopes to the user, but one person owns several projects.
+
+**2. Two predicates for one question.** The scheduler skipped an account on
+`isGrantStale` (every requested scope, `email` included) while the send is
+authorised by `hasPublishScope` (only `w_member_social`). An account granted
+`w_member_social` but not `email` published perfectly well by hand and was
+excluded from the scheduler permanently, with no reconnect that could clear it.
+`accountSkipReason` now asks the send's own question via `canSendOnPlatform`;
+`isGrantStale` keeps its real job, prompting a reconnect on the Connections row.
+Non-LinkedIn platforms return `true` rather than `false` — no publisher means no
+publish scope to require, and `false` would read as "this connection is broken"
+for one that is fine.
+
+The stale comment above that check, which explained the old `isGrantStale`
+choice, was removed rather than left contradicting the code beneath it.
+
+**Every new test was run against the bug it claims to catch**: restoring the old
+`isGrantStale` gate fails the new scheduler test; the lock tests pin both
+`publishedAt` and the `record_failed:` marker, and the filter test pins the NULL
+arm by name.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 — `main`'s baseline |
+| `npm run test` | **392** passed / 31 files, excluding `lib/ai/generate.test.ts` (FOLLOWUPS §12) |
+| `npm run build` | clean |
+
+**Coordination:** `feat/x-publish` was told not to touch `lib/publish-due.ts`
+beyond repointing its `isGrantStale` import, which this branch has now removed
+from that file entirely — so that import line simply goes. Both branches touch
+`lib/post-publish.ts`; this branch only appends, so the overlap should be small.

@@ -1,4 +1,4 @@
-import { isGrantStale } from "@/lib/linkedin/scopes"
+import { hasPublishScope } from "@/lib/linkedin/publish"
 
 // Which scheduled posts the scheduler may send, and — far more importantly —
 // which it must leave alone.
@@ -146,11 +146,18 @@ export interface SchedulableAccount {
 // never selected in the first place.
 export type AccountSkipReason = "scope_not_granted" | "token_expired" | "revoked"
 
-// `isGrantStale` rather than `grantIsCurrent`, and the difference matters:
-// the platform check is inside it. LinkedIn's scope list means nothing to an X
-// row, and asking it there is false for every X account that will ever exist
-// (see lib/linkedin/scopes.ts) — which would exclude every X connection from
-// the scheduler permanently, with a reconnect that could never clear it.
+// Whether a stored grant carries what *publishing* needs on this platform.
+//
+// Non-LinkedIn platforms have no publisher today (PUBLISHABLE_PLATFORMS in
+// lib/post-publish.ts), so there is no publish scope to require and nothing to
+// skip an account for — deliberately not `false`, which would read as "this
+// connection is broken" for a connection that is fine. When a second platform
+// can publish, it gains an arm here beside LinkedIn's.
+function canSendOnPlatform(platform: string, scope: string): boolean {
+  if (platform !== "linkedin") return true
+  return hasPublishScope(scope)
+}
+
 export function accountSkipReason(
   account: SchedulableAccount,
   now: Date
@@ -158,7 +165,21 @@ export function accountSkipReason(
   // Checked first: a revoked grant is dead whatever else is true of it, and
   // it is the one state waiting cannot resolve.
   if (account.status === "revoked") return "revoked"
-  if (isGrantStale(account.platform, account.scope)) return "scope_not_granted"
+  // **The question here is "can this connection send?", not "is this grant
+  // complete?"** — and those are different. `isGrantStale` is true whenever any
+  // requested scope is missing, including `email`, which has nothing to do with
+  // posting and exists for the connected row's display. Gating the scheduler on
+  // it meant an account granted `w_member_social` but not `email` published
+  // perfectly well by hand and was excluded from the scheduler forever, since
+  // the send itself is authorised by `hasPublishScope` — only
+  // `w_member_social`. Two predicates for one question, disagreeing.
+  //
+  // Now the scheduler asks exactly what the gate asks, so a post that could be
+  // sent by hand is never silently skipped. `isGrantStale` keeps its own job:
+  // telling the Connections row to prompt a reconnect.
+  if (!canSendOnPlatform(account.platform, account.scope)) {
+    return "scope_not_granted"
+  }
 
   const expiresAt = Date.parse(account.expiresAt)
   // An unparseable expiry is treated as expired rather than ignored: the safe

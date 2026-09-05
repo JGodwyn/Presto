@@ -1,4 +1,4 @@
-import { isRecordFailure } from "@/lib/publish-failure"
+import { isRecordFailure, RECORD_FAILED_PREFIX } from "@/lib/publish-failure"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 import type { Post, PostPlatform } from "@/types/post"
 
@@ -105,3 +105,24 @@ export function isPostLocked(
 ): boolean {
   return post.publishedAt !== null || isRecordFailure(post.publishError)
 }
+
+// The lock, expressed as PostgREST filters for a server action that must refuse
+// a write rather than merely hide a control. Apply BOTH to the statement:
+//
+//   .is("published_at", null).or(UNLOCKED_PUBLISH_ERROR_FILTER)
+//
+// **Applied to the UPDATE itself, never as a read followed by a write.** The
+// reported race is exactly that gap: the details page holds a load-time
+// snapshot, so if the scheduler publishes while that page is open, a
+// fetch-then-update still sees an unpublished row and overwrites content that
+// is already live. A conditional update has no such window — the database
+// decides, and a row either comes back or it does not.
+//
+// The NULL case is spelled out, and that is load-bearing rather than defensive:
+// PostgREST renders a bare `.not(col, "like", …)` as `NOT (col LIKE …)`, which
+// is NULL — not true — for a NULL column, so it silently excludes every row
+// that has never failed. That mistake once disabled publishing outright; see
+// LEARNINGS.md.
+export const UNLOCKED_PUBLISH_ERROR_FILTER =
+  `publish_error.is.null,publish_error.not.like.${RECORD_FAILED_PREFIX}*` as const
+
