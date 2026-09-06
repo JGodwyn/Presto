@@ -173,6 +173,12 @@ export function isPostLocked(
 // is already live. A conditional update has no such window — the database
 // decides, and a row either comes back or it does not.
 //
+// This was written as a rule before it was true everywhere: when it landed,
+// the three regenerate write-backs still checked `isPostLocked` and then wrote
+// unconditionally, across a model call taking seconds — a far wider window than
+// the one the rule was written about. They carry these filters now. If a fourth
+// write-back appears without them, this comment is the thing it is violating.
+//
 // The NULL case is spelled out, and that is load-bearing rather than defensive:
 // PostgREST renders a bare `.not(col, "like", …)` as `NOT (col LIKE …)`, which
 // is NULL — not true — for a NULL column, so it silently excludes every row

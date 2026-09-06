@@ -7063,3 +7063,63 @@ existed on `main` were left alone. No duplicated entries — duplicate-line coun
 matched `main`'s own baseline (repeated `---`, code fences, "Gates:" phrasings).
 
 Six review findings, none blocking, all left for housekeeping — see FOLLOWUPS.
+
+---
+
+## 2026-09-06 — `fix/lock-claims`: make the lock hold where the code said it did
+
+A branch rather than housekeeping: three real write-backs, a test file replaced,
+and two comments corrected is past the "review nit, stale comment, one-line fix"
+bar, even with nothing in flight.
+
+**The defect**, found by the review pass on `fix/publish-lock` and parked at the
+owner's request until `feat/x-publish` landed. `regeneratePost`
+(post-actions.ts) and both writes in `app/api/regenerate-post` checked
+`isPostLocked`, then `await`ed a model call taking seconds, then wrote with
+`.eq("id", …)` alone — no lock condition, no `project_id`. Check-then-act across
+the widest window in the app: the scheduler can publish the post while the model
+is still generating, and the write then lands on something already public.
+
+All three writes are conditional now — `.eq("project_id", …)`,
+`.is("published_at", null)`, `.or(UNLOCKED_PUBLISH_ERROR_FILTER)`,
+`.select(...).maybeSingle()` — and no row back is treated as "it went out while
+this was being rewritten", discarding the generation rather than overwriting.
+The streamed path settles its persistence promise on `!error && Boolean(saved)`
+so a refused write reports as a failure rather than silently succeeding.
+
+**The record was wrong in two places** and both are corrected. The constant's
+doc comment stated the never-read-then-write rule as though it held everywhere;
+it now says plainly that it was written before it was true, names the three
+write-backs as the exception that has since been closed, and tells a fourth
+write-back that this comment is what it would be violating. `regeneratePost`'s
+`isPostLocked` check is relabelled as the cheap pre-check it actually is —
+refusing before spending a model call — rather than the thing that makes the
+guarantee hold.
+
+**The tests were replaced, not added to.** The previous round's eight were four
+cases duplicating an existing `describe("isPostLocked")` block and two asserting
+the filter constant contained substrings of itself — deleting
+`.is("published_at", null)` from any write left the suite green. Removed. New
+`lib/publish-lock-writes.test.ts` reads the source and asserts every
+post-content write carries all three filters, since what broke twice was a call
+site missing one. **Verified by deleting each filter in turn**: dropping the lock
+from the streamed write-back fails "the streamed write-back refuses a published
+post"; dropping project scoping from `regeneratePost` fails "regeneratePost's
+write-back is scoped to its project".
+
+Deliberately *not* a Supabase fake: this repo has already been bitten by a
+JS-modelled fake diverging from PostgREST and hiding a bug that disabled
+publishing outright (LEARNINGS).
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `npm run lint` | 17 — `main`'s baseline (one new warning introduced and removed: an import left unused by the test deletion) |
+| `npm run test` | **445** passed / 35 files, excluding `lib/ai/generate.test.ts` (FOLLOWUPS §12) |
+| `npm run build` | clean |
+
+**Left alone deliberately:** the five other findings recorded at `67993bf`,
+including the disabled-Publish tooltip that can never open — that one is a
+separate sentence (a UI affordance, not the lock) and wants its own branch. The
+per-project/per-account scheduler fail-open stays parked until X scheduling is
+actually on the table.

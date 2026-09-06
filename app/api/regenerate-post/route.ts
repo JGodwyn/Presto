@@ -14,7 +14,7 @@ import { pickDifferentTasteTestContent } from "@/lib/ai/taste-test"
 import { NETWORK_ERROR_MESSAGE } from "@/lib/network-error"
 import type { PostRow } from "@/lib/supabase/queries"
 import { fetchInstructions, mapPostRow, POST_COLUMNS } from "@/lib/supabase/queries"
-import { isPostLocked } from "@/lib/post-publish"
+import { isPostLocked, UNLOCKED_PUBLISH_ERROR_FILTER } from "@/lib/post-publish"
 import { createClient } from "@/lib/supabase/server"
 
 // The post-details page's Regenerate — this app's first Route Handler,
@@ -131,11 +131,26 @@ export async function POST(request: Request) {
   // something to animate, then persist exactly like the real path does.
   if ("kind" in resolvedModel) {
     const content = pickDifferentTasteTestContent(row.content)
-    const { error } = await supabase
+    // Conditional for the same reason as the streaming path below, and scoped
+    // by project like every sibling write. TasteTest has no model latency, but
+    // the window is not zero and the shape should not differ between the two
+    // paths — a reader comparing them should not have to work out why.
+    const { data: saved, error } = await supabase
       .from("posts")
       .update({ content, ...topicsUpdate })
       .eq("id", row.id)
+      .eq("project_id", parsed.data.projectId)
+      .is("published_at", null)
+      .or(UNLOCKED_PUBLISH_ERROR_FILTER)
+      .select("id")
+      .maybeSingle()
     if (error) return errorResponse("Couldn't save the new post.", 500)
+    if (!saved) {
+      return errorResponse(
+        "That post went out while it was being rewritten, so the new version wasn't saved.",
+        409
+      )
+    }
     // The done marker matters just as much on this path: the client requires
     // a positive end-of-stream signal before it will accept a body as a
     // finished post, and this shortcut is a response like any other as far as
@@ -194,12 +209,24 @@ export async function POST(request: Request) {
 
         // No BYOK-fallback bookkeeping — see post-actions.ts's runGeneration.
 
-        const { error } = await supabase
+        // **The widest window in the app.** This runs when the model has
+        // finished streaming — seconds after the `isPostLocked` check at the
+        // top of the route — so the scheduler can have published this post in
+        // between. The lock therefore rides on the update itself; no row back
+        // means it went out, and the generated text is dropped rather than
+        // written over something already public.
+        const { data: saved, error } = await supabase
           .from("posts")
           .update({ content: end.content, ...topicsUpdate })
           .eq("id", row.id)
-        if (!error) finish(end.content)
-        settlePersisted(!error)
+          .eq("project_id", parsed.data.projectId)
+          .is("published_at", null)
+          .or(UNLOCKED_PUBLISH_ERROR_FILTER)
+          .select("id")
+          .maybeSingle()
+        const persisted = !error && Boolean(saved)
+        if (persisted) finish(end.content)
+        settlePersisted(persisted)
       } catch {
         // An onEnd that throws must still settle, or the framing tee below
         // would wait out its whole timeout before reporting a failure.
