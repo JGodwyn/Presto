@@ -8,6 +8,7 @@ import {
   publishComingSoon,
 } from "@/lib/post-publish"
 import { RECORD_FAILED_PREFIX } from "@/lib/publish-failure"
+import { UNLOCKED_PUBLISH_ERROR_FILTER } from "@/lib/post-publish"
 import type { Post } from "@/types/post"
 import type { ConnectedSocialAccount } from "@/types/social-account"
 
@@ -210,5 +211,18 @@ describe("isPostLocked", () => {
       expect(isPostLocked(locked)).toBe(true)
       expect(publishBlockedReason(locked, [account()])).toBe("already_published")
     }
+  })
+})
+
+// The marker arm of the filter, pinned nowhere else. `publish-runner.test.ts`
+// covers the `is.null` half; this half was left unpinned when an earlier round's
+// weaker tests were deleted, and changing `not.like` to `neq` — which stops the
+// prefix matching any real `record_failed:<urn>` marker, so a live-but-unrecorded
+// post becomes editable again — left the whole suite green.
+describe("UNLOCKED_PUBLISH_ERROR_FILTER's marker arm", () => {
+  it("matches by prefix, since the marker carries a URN after the colon", () => {
+    expect(UNLOCKED_PUBLISH_ERROR_FILTER).toContain(
+      `publish_error.not.like.${RECORD_FAILED_PREFIX}*`
+    )
   })
 })

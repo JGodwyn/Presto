@@ -687,7 +687,19 @@ export async function deletePost(
     return { error: auth.offline ? NETWORK_ERROR_MESSAGE : "You need to be signed in." }
   }
 
-  const { error } = await supabase.from("posts").delete().eq("id", parsed.data.id)
+  // Scoped to the project as well as the id, like every other write here. RLS
+  // scopes to the caller, but one person owns several projects, so `id` alone
+  // let one project's page delete another project's post.
+  //
+  // Deliberately **not** lock-guarded: whether deleting a post that is live on
+  // LinkedIn should be refused is a product decision, not a mechanical one —
+  // the row is the app's only record that it happened, but the post itself is
+  // unaffected either way. Parked in FOLLOWUPS rather than decided here.
+  const { error } = await supabase
+    .from("posts")
+    .delete()
+    .eq("id", parsed.data.id)
+    .eq("project_id", parsed.data.projectId)
 
   if (error) {
     return { error: "Couldn't delete that post. Please try again." }

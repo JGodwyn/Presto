@@ -728,3 +728,77 @@ and sits permanently "Didn't send". Unreachable today (X is off, and
 `network`/`publish` already have this shape), but the new codes make a promise
 nothing keeps. Fix: exclude the retryable codes from the cron's exclusion filter,
 or stop recording them as terminal.
+
+---
+
+## The claim window: a regenerate can still overwrite a post mid-publish
+
+**From:** `/integrate` of `fix/lock-claims`, 2026-09-06. **Verified in the code,
+not inferred.**
+
+`publishOnePost` reads the post's `content` *before* it claims the row
+(`lib/publish-runner.ts`, the `select` near the top), sets `publish_started_at`,
+then calls the provider. For the length of that call all three conditions the
+lock tests are still true — `published_at` null, `publish_error` null — so a
+regenerate passes straight through and rewrites `content`. Meanwhile the runner
+sends the *old* text it captured, then marks the row published holding the *new*
+text. The live post and the row disagree: exactly the drift `isPostLocked`
+exists to prevent.
+
+`fix/lock-claims` narrowed the race it set out to narrow; this is the remainder.
+
+**Do**, and it is two halves — either alone leaves a hole:
+
+1. Add the runner's own claim predicate to the four content writes:
+   `publish_started_at.is.null,publish_started_at.lt.<staleBefore>`. **Not a bare
+   `.is(null)`** — that would wedge any post carrying a stuck claim, permanently
+   uneditable.
+2. Have the claim `select` the content it claimed and send *that*, so the text
+   published is provably the text the row held at claim time.
+
+**Why it waited:** the second half changes what publishing sends, which is the
+one path in this app that cannot be undone. It wants its own branch, its own
+review, and the gate exercised — not a housekeeping pass.
+
+---
+
+## Decide: may a published post be deleted?
+
+**From:** `/integrate` of `fix/lock-claims`, 2026-09-06. **A decision, not a bug.**
+
+`deletePost` is now project-scoped, but deliberately carries no lock — so a post
+that is live on LinkedIn can still be deleted here. Deleting the row does not
+delete the post; it deletes the app's only record that it happened, including the
+`provider_post_id` that is the sole handle on the real thing.
+
+**The argument each way.** Refusing means someone cannot tidy their own calendar,
+and the row is theirs. Allowing means Presto silently forgets a post it published,
+and nothing can reconcile it afterwards.
+
+**Recommendation if nobody feels strongly:** allow it, but only through a
+confirmation that says the post stays on LinkedIn — the honest framing, since
+that is the part people will assume wrong. `lib/publish-lock-writes.test.ts`
+exempts the delete by name, so changing this means editing that exemption, which
+is the visible decision point.
+
+---
+
+## `lib/publish-lock-writes.test.ts` reads source, and that has limits
+
+**From:** `fix/lock-claims`, 2026-09-06.
+
+It discovers every `posts` mutation and requires the lock on all of them except a
+named exemption list, so a new unguarded write is red — verified by adding one.
+But it is still a regex over source, and two things defeat it: a write built
+through a helper that hides `.from("posts")` from the file that calls it, and a
+chain assembled conditionally rather than as one fluent expression.
+
+**Do:** if either pattern appears, move the guarantee into the data layer instead
+— a single `updatePostContent()` in `lib/supabase/queries.ts` that every caller
+must use, with the filters inside it. Then the test becomes "nobody calls
+`.from("posts").update` outside that helper", which a regex *can* enforce
+soundly.
+
+**Why it waited:** the current four call sites are all plain fluent chains, so
+the test is sound today, and inventing the indirection before it is needed would
+be speculative.

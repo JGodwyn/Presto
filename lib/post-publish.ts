@@ -162,9 +162,12 @@ export function isPostLocked(
 }
 
 // The lock, expressed as PostgREST filters for a server action that must refuse
-// a write rather than merely hide a control. Apply BOTH to the statement:
+// a write rather than merely hide a control. **Three things go on the
+// statement**, and lib/publish-lock-writes.test.ts enforces all three:
 //
-//   .is("published_at", null).or(UNLOCKED_PUBLISH_ERROR_FILTER)
+//   .eq("project_id", …)          — RLS scopes to the user, not the project
+//   .is("published_at", null)     — it has not gone out
+//   .or(UNLOCKED_PUBLISH_ERROR_FILTER)  — nor gone out unrecorded
 //
 // **Applied to the UPDATE itself, never as a read followed by a write.** The
 // reported race is exactly that gap: the details page holds a load-time
@@ -173,11 +176,18 @@ export function isPostLocked(
 // is already live. A conditional update has no such window — the database
 // decides, and a row either comes back or it does not.
 //
-// This was written as a rule before it was true everywhere: when it landed,
-// the three regenerate write-backs still checked `isPostLocked` and then wrote
-// unconditionally, across a model call taking seconds — a far wider window than
-// the one the rule was written about. They carry these filters now. If a fourth
-// write-back appears without them, this comment is the thing it is violating.
+// This was written as a rule before it was true everywhere: when it landed, the
+// three regenerate write-backs still checked `isPostLocked` and then wrote
+// unconditionally — two of them across a model call taking seconds, a far wider
+// window than the one the rule was written about. All four content writes carry
+// these filters now. If another appears without them, this comment is the thing
+// it is violating.
+//
+// **What they still do not cover: the claim window.** publishOnePost sets
+// `publish_started_at` and only writes `published_at` once the provider answers,
+// so for the length of that call all three conditions above are still true and a
+// write slips through. See FOLLOWUPS — closing it needs the runner to send the
+// content it claimed, not the content it read beforehand.
 //
 // The NULL case is spelled out, and that is load-bearing rather than defensive:
 // PostgREST renders a bare `.not(col, "like", …)` as `NOT (col LIKE …)`, which
