@@ -89,33 +89,32 @@ absent from `.env.local.example` on purpose: it is not configuration, it is a
 deliberate act. Note the restart tax — a running server keeps the old env until
 it restarts, so removing the line is not the same as the gate being shut.
 
-### 5.1 Blocked on deployment (nothing here can be done from a laptop)
+### 5.1 Deployed — 2026-09-06
 
-- **The pg_cron schedule.** Postgres cannot reach `localhost`, so the scheduler
-  only becomes real once there is a deployed origin. Locally it was ticked with
-  curl. The SQL, cadence already decided (one minute):
+Done. Presto is live at **https://presto.godwinjohn.com** (Vercel project
+`presto`, team `gdwn`, Hobby). Kept here rather than deleted because the two
+facts below are operational and worth being able to find.
 
-  ```sql
-  create extension if not exists pg_cron;
-  create extension if not exists pg_net;
-  select cron.schedule('presto-publish-due', '* * * * *', $$
-    select net.http_get(
-      url := '<deployed origin>/api/cron/publish',
-      headers := jsonb_build_object('Authorization', 'Bearer ' || '<CRON_SECRET>')
-    );
-  $$);
-  ```
+- **The scheduler is running**, `presto-publish-due`, every minute, hitting
+  `https://presto.godwinjohn.com/api/cron/publish`. It reads `CRON_SECRET` from
+  **Supabase Vault** (`presto_cron_secret`) rather than carrying it inline the
+  way the SQL in this section used to — an inlined secret sits in plaintext in
+  `cron.job.command`. To stop it:
+  `select cron.unschedule('presto-publish-due');`
+- **`PRESTO_ENABLE_LIVE_PUBLISH` is not set in Vercel**, so every tick is a dry
+  run — verified against the deployed build, not just the code:
+  `net._http_response` shows `status_code 200` with
+  `livePublishEnabled false`. Turning it on is a Vercel env var **plus a
+  redeploy**; a running deployment keeps the old env.
 
-  To stop it: `select cron.unschedule('presto-publish-due');`
-- **Production env**: `CRON_SECRET` (generate a fresh one, don't reuse the local
-  value), `SUPABASE_SERVICE_ROLE_KEY`, `MODEL_KEY_ENCRYPTION_KEY` (must match
-  whatever encrypted the stored tokens), `LINKEDIN_CLIENT_ID`/`SECRET`.
+Still open, and it gates every LinkedIn connection made in production:
+
 - **Register the production callback URL** with the LinkedIn app —
-  `https://<origin>/api/connections/linkedin/callback`. Only
-  `http://localhost:3000/...` is registered today, which is why the OAuth leg
-  only works there.
-- **The gate itself.** Publishing stays off in production until it is set to
-  exactly `"true"`.
+  `https://presto.godwinjohn.com/api/connections/linkedin/callback`. Only
+  `http://localhost:3000/...` is registered today, so Connect fails at
+  LinkedIn's end on the deployed build until this is added.
+- **Nobody has signed into the deployed build yet.** The signed-out routes are
+  verified; a real authenticated session against production Supabase is not.
 
 ### 5.3 Before anyone but the owner can connect
 

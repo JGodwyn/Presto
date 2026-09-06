@@ -390,3 +390,17 @@ phrased.
   redirect URI registered on the LinkedIn app; from a worktree port it dies at
   LinkedIn with "redirect_uri does not match the registered value". Server-to-
   server calls are unaffected on any port. See LEARNINGS.md.
+- **Deployed to Vercel, 2026-09-06 — `https://presto.godwinjohn.com`** (project
+  `presto`, team `gdwn`, Hobby plan). The origin is a subdomain rather than the
+  auto-generated `*.vercel.app` on purpose: the project's `ssoProtection` is
+  `all_except_custom_domains`, so the custom domain is public while every
+  preview deployment stays private to the account. **Publishing is still off** —
+  `PRESTO_ENABLE_LIVE_PUBLISH` is absent from the Vercel env, verified against
+  the deployed build (`livePublishEnabled: false`), and turning it on takes a
+  redeploy as well as the variable. The `presto-publish-due` pg_cron job runs
+  every minute against the deployed origin and reads its secret from Supabase
+  Vault. Deploys are **manual** (`vercel deploy --prod`) — the GitHub repo is
+  deliberately not connected, so landing on `main` does not ship. The LinkedIn
+  production callback is **not yet registered**, so Connect fails on the
+  deployed build; see FOLLOWUPS §5.1. Note `vercel link` appends a
+  `VERCEL_OIDC_TOKEN` line to `.env.local` (gitignored, harmless).

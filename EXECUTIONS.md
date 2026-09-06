@@ -7123,3 +7123,77 @@ including the disabled-Publish tooltip that can never open — that one is a
 separate sentence (a UI affordance, not the lock) and wants its own branch. The
 per-project/per-account scheduler fail-open stays parked until X scheduling is
 actually on the table.
+
+---
+
+## 2026-09-06 — Vercel deployment (on `main`, nothing in flight)
+
+Deployed Presto to Vercel and closed every item FOLLOWUPS §5.1 listed as
+"blocked on deployment". Publishing stays off.
+
+**Origin: `https://presto.godwinjohn.com`.** Chosen over the auto-generated
+`presto-pied-two.vercel.app` after checking the cost question the user raised —
+`godwinjohn.com` is registered through Vercel on Vercel's nameservers, the plan
+is Hobby, and a subdomain is one DNS record with no charge and no effect on the
+portfolio site at the apex. The deciding factor was not cost (both are free and
+both are equally public) but that the project's `ssoProtection` is
+`all_except_custom_domains`: a custom domain is public while every `.vercel.app`
+preview URL stays locked to the account. The zone already has a wildcard ALIAS,
+so DNS was instant.
+
+**The 404 that cost the most time was not the domain.** See LEARNINGS —
+`vercel project add` creates a project with `framework: null`, the build runs
+`next build` and reports success, and every route 404s because the output is
+served as static files with no Next.js adapter. Patched `framework: "nextjs"`
+via `PATCH /v9/projects/presto` and redeployed.
+
+**Env — 8 vars × {production, preview}, 16 total.** Extracted from `.env.local`
+taking the *last* non-empty occurrence per name, because
+`SUPABASE_SERVICE_ROLE_KEY` appears twice there (line 3 empty, line 18 real) and
+dotenv resolves last-wins. Verified by sha256 before pushing:
+`MODEL_KEY_ENCRYPTION_KEY` byte-identical to local (a fresh one silently
+decrypts the stored LinkedIn token and every BYOK key into garbage);
+`CRON_SECRET` freshly generated and confirmed *different* from local. Not
+pushed: `AI_GATEWAY_API_KEY` (the gateway was dropped), `X_CLIENT_ID`/`SECRET`
+(X is off), and `PRESTO_ENABLE_LIVE_PUBLISH` — confirmed absent from the Vercel
+env list after the push.
+
+**The scheduler is live and publishes nothing.** Ordered deliberately: the
+endpoint was proved first, then scheduled.
+
+| Check | Result |
+|---|---|
+| `/api/cron/publish` no auth | 404 |
+| wrong secret | 404 |
+| correct secret | 200 |
+| `livePublishEnabled` on the deployed build | **false** |
+| `due / published / failed` | 0 / 0 / 0 |
+
+**`CRON_SECRET` went into Supabase Vault, not the job body.** FOLLOWUPS §5.1's
+SQL inlines the secret, which would leave it in plaintext in `cron.job.command`
+for anyone with DB access. `supabase_vault` was already installed, so the job
+reads `vault.decrypted_secrets` instead; confirmed the `postgres` role (which
+cron jobs run as) can read it and that it matches Vercel exactly (len 44,
+md5 `31f451f87638`). Migration `enable_pg_cron_and_pg_net` for the two
+extensions; the schedule itself is `execute_sql`, not a migration, since it is
+environment-specific and secret-bearing. `timeout_milliseconds := 30000` so
+pg_net is never the side that gives up first.
+
+Verified the whole chain rather than just that the job existed: `cron.job_run_details`
+says succeeded, and `net._http_response` — the only place that knows what the HTTP
+call actually returned — carries `status_code 200`, `livePublishEnabled false`,
+`due 0`. To stop it: `select cron.unschedule('presto-publish-due');`
+
+**Also checked:** the correct Supabase project ref is inlined into the
+production client bundle (a mis-set `NEXT_PUBLIC_*` is silent otherwise); the
+signed-out routes behave (`/` → `/login` → `/signup?view=login` 200, `/projects`
+307, no error boundary). Revoked the `automation-bypass` token that
+`vercel curl` created while debugging — it was incidental, and the custom domain
+is SSO-exempt anyway.
+
+**Not done, and not mine to do:** the production LinkedIn callback is still
+unregistered, so Connect will fail at LinkedIn until
+`https://presto.godwinjohn.com/api/connections/linkedin/callback` is added to
+the app. Nobody has signed into the deployed build yet, so a real authenticated
+session against production Supabase is still unexercised. Git auto-deploy is
+deliberately not connected — left as the user's call.

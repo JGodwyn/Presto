@@ -1751,3 +1751,49 @@ post-content write carries all three filters. Verified by deleting each filter
 in turn and watching the matching case fail. A row-matching Supabase fake would
 have been worse than useless here: this repo has already been bitten by one
 diverging from PostgREST and hiding a bug that disabled publishing outright.
+
+## A Vercel project made by `vercel project add` has no framework, and the build still passes
+
+**Symptom.** First production deploy reported `readyState: READY`,
+`aliasAssigned: true`, `aliasError: null`, and the build log showed a real
+Next.js build — `✓ Compiled successfully in 37.3s`, TypeScript checked, pages
+collected. Every URL returned `404` with `x-vercel-error: NOT_FOUND`. The custom
+domain 404'd, the auto-generated `*.vercel.app` production alias 404'd, and the
+deployment URL 302'd to `vercel.com/sso-api` — which read like a DNS or alias
+problem and sent the investigation at the domain for several minutes.
+
+**What made it legible.** The two hosts that appeared to "work" were only
+returning Vercel's SSO redirect — the app itself had never served a byte.
+Bypassing protection (`vercel curl`, which mints an automation-bypass token on
+the spot) made the deployment return the *same* 404. That moved the fault off
+the domain and onto the deployment.
+
+**Cause.** `vercel project add <name>` creates a bare project. It does **not**
+run framework detection — that only happens when a project is created by
+importing a repo or by `vercel deploy` on an unlinked directory. The project sat
+at `framework: null`, which is a valid setting meaning "no framework": Vercel
+still runs the build (it infers `next build` from package.json), the build
+genuinely succeeds, and then the output is published as **static files with no
+Next.js adapter** — no server functions, no routing manifest, no pages. A
+correct build, served wrong. Nothing anywhere reports an error, because from
+Vercel's point of view nothing went wrong.
+
+**Rule.** After creating a Vercel project by any path other than importing a
+repo, check `framework` before trusting a deploy:
+
+```
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.vercel.com/v9/projects/<name>?teamId=<team>" \
+  | python3 -c "import json,sys;print(json.load(sys.stdin).get('framework'))"
+```
+
+`null` on a Next.js app is the bug. Fix with
+`PATCH /v9/projects/<name>` `{"framework":"nextjs"}` and redeploy — a promote
+is not enough, the output itself has to be rebuilt.
+
+**The generalisation worth keeping:** a 404 on *every* route, including `/`, is
+almost never a routing bug in the app — the app would have to be missing
+entirely. Suspect the platform's idea of what it is serving before suspecting
+the code. And when some hosts "respond" and others 404, check what the
+responding ones actually returned: an SSO redirect is the edge answering, not
+the application.
