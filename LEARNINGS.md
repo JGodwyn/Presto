@@ -1718,3 +1718,36 @@ container) rather than `document`. An extension can inject inputs, dialogs and
 buttons into the page, and a broad `querySelector` will find them and attribute
 them to the app. Two of the three surprises in this session's verification pass
 were extension chrome, not the product.
+
+### A rule written in a comment is not a rule the code follows
+
+**Symptom.** `UNLOCKED_PUBLISH_ERROR_FILTER`'s doc comment said, in bold,
+"applied to the UPDATE itself, never as a read followed by a write" — and three
+write-backs in the same repo did exactly the forbidden thing, across a window
+far wider than the one the comment was written about. A reviewer found them the
+sweep after the comment landed.
+
+**Cause.** The rule was written while fixing *one* call site, and the sentence
+generalised while the fix did not. `regeneratePost` and both writes in
+`app/api/regenerate-post` checked `isPostLocked`, then awaited a live model call
+for seconds, then wrote unconditionally — so the scheduler could publish the
+post mid-generation and the write would land on something already public. The
+commit message asserted the stronger property too, so the record was wrong in
+two places at once.
+
+**Rule.** When you write a rule down, grep for its violations in the same pass.
+A comment that states a property the codebase does not have is worse than no
+comment: the next reader trusts it, and the next reviewer has to disprove it.
+If the fix is only partial, say which call sites are covered — that is a true
+sentence, and it invites the follow-up rather than hiding it.
+
+**And test the rule, not the helper.** The tests shipped alongside that comment
+were four cases restating an existing `describe` block and two asserting a
+constant contained substrings of itself; deleting `.is("published_at", null)`
+from any write left the whole suite green. What broke twice was a *call site*
+missing a filter, which is a property of the source — so
+`lib/publish-lock-writes.test.ts` reads the source and asserts every
+post-content write carries all three filters. Verified by deleting each filter
+in turn and watching the matching case fail. A row-matching Supabase fake would
+have been worse than useless here: this repo has already been bitten by one
+diverging from PostgREST and hiding a bug that disabled publishing outright.

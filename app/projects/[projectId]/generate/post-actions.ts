@@ -354,6 +354,11 @@ export async function regeneratePost(
   // UI hiding the control is a courtesy, never a guarantee: this action is
   // reachable directly, and the page's own copy of the post can be stale by the
   // time someone clicks.
+  //
+  // This check is the *cheap* one: it refuses an already-published post before
+  // spending a model call on it. It is not what makes the guarantee hold — the
+  // write below is conditional for that, because the post can go out while the
+  // model is still generating.
   if (isPostLocked(mapPostRow(existing as PostRow))) {
     return {
       error: "That post has already gone out — draft a follow-up instead.",
@@ -415,15 +420,39 @@ export async function regeneratePost(
     }
   }
 
+  // The lock is re-asserted **on the write**, not merely checked above.
+  //
+  // The `isPostLocked` guard earlier in this function runs before
+  // `runGeneration`, which is a live model call taking seconds — so the check
+  // and the write straddle a window wide enough for the scheduler to publish
+  // this very post in between. Re-reading would not help; only the update
+  // itself can be conditional. If the row went out while the model was
+  // thinking, no row comes back and nothing is overwritten.
+  //
+  // `project_id` is here for the same reason it is on every sibling: RLS scopes
+  // to the caller, but one person owns several projects, so `id` alone would
+  // let one project's page rewrite another's post.
   const { data, error } = await supabase
     .from("posts")
     .update({ content })
     .eq("id", parsed.data.id)
+    .eq("project_id", parsed.data.projectId)
+    .is("published_at", null)
+    .or(UNLOCKED_PUBLISH_ERROR_FILTER)
     .select(POST_COLUMNS)
-    .single()
+    .maybeSingle()
 
-  if (error || !data) {
+  if (error) {
     return { error: "Couldn't save the new post. Please try again.", reason: "unknown" }
+  }
+
+  // No row means the post went out while the model was generating — the
+  // generation is discarded rather than written over something already public.
+  if (!data) {
+    return {
+      error: "That post went out while it was being rewritten, so the new version wasn't saved.",
+      reason: "unknown",
+    }
   }
 
   revalidatePath(`/projects/${parsed.data.projectId}/generate`)
