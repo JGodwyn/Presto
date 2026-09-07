@@ -7197,3 +7197,40 @@ unregistered, so Connect will fail at LinkedIn until
 the app. Nobody has signed into the deployed build yet, so a real authenticated
 session against production Supabase is still unexercised. Git auto-deploy is
 deliberately not connected — left as the user's call.
+
+## 2026-09-07 — Deployment follow-up: what the deploy left open is now closed
+
+Both open items from FOLLOWUPS §5.1 turned out to be already done, and were
+proved rather than assumed.
+
+**The production LinkedIn callback is registered.** Couldn't tell from the
+database (`social_accounts` records no origin) or from Vercel's logs (the dump
+began at 05:38:11Z, three seconds *after* the connection row was written at
+05:38:08Z — Hobby's runtime log window is minutes, so absence there was not
+evidence). Settled instead by probing LinkedIn's own authorization endpoint,
+which validates `redirect_uri` before anything else, with a control on each
+side: `localhost:3000` → 303, `presto.godwinjohn.com` → 303, `example.invalid`
+→ 200 *"Bummer, redirect_uri does not match the registered value"*. Read-only,
+no token issued. Worth keeping as the general technique for checking an OAuth
+callback registration without a browser or a session.
+
+**Production has a real signed-in session.** The runtime log shows `/projects`,
+`/dashboard`, `/instructions`, `/generate`, `/calendar/[postId]`, `/connections`
+and `/profile` all 200 for a live session, and `social_accounts` holds an
+`active` LinkedIn row (Godwin John, 60-day expiry, scope
+`email, openid, profile, w_member_social`).
+
+**Checked what opening the gate would actually do**, since that is the question
+that matters before flipping it: 295 posts — 165 dateless drafts, 51 queued in
+the future, 3 already published, 79 scheduled in the past but outside the
+window, and **0 in the 15-minute grace window**. The next scheduled post is
+2026-10-02 23:00Z. So `PRESTO_ENABLE_LIVE_PUBLISH=true` would publish nothing
+today, and the backlog is protected by the due-window rule regardless
+(lib/publish-due.ts). Nothing was switched on.
+
+**Not resolved:** whether the LinkedIn app is verified/out of development. The
+products are Open Permissions per LinkedIn's own docs (`profile`, `email`,
+`w_member_social` are self-service, no approval), and the granted scope includes
+`w_member_social`, which suggests the app is past the gate already — but that is
+an inference. The conclusive test remains §5.3's: have one other person try
+Connect.

@@ -107,14 +107,26 @@ facts below are operational and worth being able to find.
   `livePublishEnabled false`. Turning it on is a Vercel env var **plus a
   redeploy**; a running deployment keeps the old env.
 
-Still open, and it gates every LinkedIn connection made in production:
+Both of this section's remaining items closed on 2026-09-07:
 
-- **Register the production callback URL** with the LinkedIn app —
-  `https://presto.godwinjohn.com/api/connections/linkedin/callback`. Only
-  `http://localhost:3000/...` is registered today, so Connect fails at
-  LinkedIn's end on the deployed build until this is added.
-- **Nobody has signed into the deployed build yet.** The signed-out routes are
-  verified; a real authenticated session against production Supabase is not.
+- **The production callback is registered.** Proved rather than assumed, by
+  probing LinkedIn's authorization endpoint with each `redirect_uri` and
+  comparing: `localhost:3000` → 303, `presto.godwinjohn.com` → 303, and a
+  deliberate control (`example.invalid`) → 200 carrying *"Bummer, redirect_uri
+  does not match the registered value"*. That probe is the cheap way to check a
+  callback registration without a browser or a session — LinkedIn validates
+  `redirect_uri` before anything else in the flow.
+- **Production has a real signed-in session and a live LinkedIn connection.**
+  `social_accounts` carries an `active` LinkedIn row connected 05:38Z with scope
+  `email, openid, profile, w_member_social`, and the Vercel runtime log shows
+  `/projects`, `/dashboard`, `/instructions`, `/generate`, `/calendar/[postId]`,
+  `/connections` and `/profile` all answering 200 to that session.
+
+Note for whoever opens the gate: **Vercel's runtime log window on Hobby is
+minutes, not hours** — the log dump began three seconds after the connection row
+was written, so it could not confirm which origin the OAuth round trip used.
+Don't reach for `vercel logs` to reconstruct anything that isn't happening right
+now.
 
 ### 5.3 Before anyone but the owner can connect
 
