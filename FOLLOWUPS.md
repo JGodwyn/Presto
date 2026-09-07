@@ -280,52 +280,27 @@ once that has landed.
 
 ---
 
-## 12. `lib/ai/generate.test.ts` spends live Gemini quota on every test run
+## 12. ~~`lib/ai/generate.test.ts` spends live Gemini quota~~ — done 2026-09-07
 
-**From:** `feat/post-time`, 2026-08-28.
+Resolved the way this entry recommended: the test is behind an explicit opt-in
+flag, so the default suite is hermetic and free.
 
-`npm test` makes a real `generatePost` call against the Gemini free tier. It is
-guarded by `it.skipIf(!process.env.GOOGLE_GENERATIVE_AI_API_KEY)`, and the key
-*is* in `.env.local`, so it runs every time — including on every `/handoff`
-gate run. Once the free tier's 20 requests are used up it fails the whole
-suite:
+```
+PRESTO_LIVE_AI_TEST=1 npx vitest run lib/ai/generate.test.ts
+```
 
-> Quota exceeded for metric:
-> `generativelanguage.googleapis.com/generate_content_free_tier_requests`,
-> limit: 20, model: gemini-3.6-flash
+`PRESTO_LIVE_AI_TEST`, not the `RUN_LIVE_AI_TESTS` this entry suggested — every
+other switch this project owns is `PRESTO_`-prefixed
+(`PRESTO_ENABLE_LIVE_PUBLISH`, `PRESTO_LARGE_TASK_FILES`). The key check is kept
+alongside it; the flag alone cannot make the call work.
 
-It first showed up as a bare 30-second timeout (the SDK retrying with backoff
-until vitest gave up), which reads as flakiness and cost a couple of rounds of
-"is this mine?" before the underlying error surfaced.
+**Verified in both directions**, since a gate tested one way is just a disabled
+test: without the flag the file skips, with it the test runs for real and passes
+(25.7s). `npm test` is now 439 passed / 1 skipped in ~1s, where it was ~26s and
+would fail the whole suite once the tier's 20 requests were gone.
 
-**Do:** decide what this test is for. If it's a smoke test of the real API, it
-belongs behind an explicit opt-in flag of its own rather than the mere presence
-of a key — something like `RUN_LIVE_AI_TESTS=1` — so the default suite is
-hermetic and a handoff gate can't fail on someone else's quota. If it's meant
-to test the wrapper, mock the model.
-
-**Also seen from `feat/settings-profile`, 2026-08-28**, independently — the two
-branches filed this separately and the entries were merged here during
-/integrate. That branch saw it first as *flakiness* rather than exhaustion:
-failed (30s timeout), failed, passed on clean HEAD, passed again with the same
-changes reapplied — pure latency variance, not a regression — before it
-started returning the quota error later the same day. It also makes the whole
-suite take ~30s instead of ~7s. So the test has two distinct failure modes,
-and the slow one is what gets misread as "did I break this?".
-
-**Why it matters:** a gate that goes red at random trains you to ignore it,
-`/handoff` runs the suite, and every run costs a request nobody asked for.
-
-**Do (consolidated):** one of — move it behind an explicit opt-in env var
-(`RUN_LIVE_AI_TESTS=1`) so the default suite is hermetic; record the response
-and assert against a fixture, keeping the live call as a separate manual check
-(the only option that also makes the suite fast again); or, as a stopgap only,
-raise just this test's timeout (`it(..., { timeout: 60000 })`) so
-slow-but-working calls pass. If it is meant to test the wrapper rather than the
-API, mock the model.
-
-**Why it waited:** it is not either branch's file and not either branch's
-failure; changing the default test suite's behaviour is a decision, not a fix.
+Kept as a tombstone rather than deleted because today's EXECUTIONS entries cite
+"§12" while explaining why the suite was being run with a hand-exclusion.
 
 ---
 

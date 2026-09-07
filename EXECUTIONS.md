@@ -7278,3 +7278,42 @@ schedulable), and pg_cron's own ticks at 05:50Z and 05:51Z both 200.
 `maxDuration` itself is asserted by config, not measured — proving it would mean
 making a tick genuinely take 15+ seconds. Nothing was published and the gate was
 not touched.
+
+## 2026-09-07 — Git auto-deploy connected, and the live-quota test gated
+
+**Auto-deploy.** `vercel git connect` failed twice with "Make sure there aren't
+any typos and that you have access to the repository if it's private" — which is
+misleading, since the repo is public and the local remote is correct. Ruled out
+each other cause: `gh` confirms `JGodwyn/Presto` is PUBLIC with `admin: true`,
+the name and casing match, and the sibling `portfolio-website` project is
+already linked to `JGodwyn/PortfolioWebsite`, so the Vercel GitHub App exists on
+the account. That left one explanation — the App installed with **"only select
+repositories"** and Presto not among them. Not fixable from here: `gh`'s OAuth
+token gets a 403 on `/user/installations` ("must authenticate with an access
+token authorized to a GitHub App"), so neither reading nor widening the scope is
+possible from the CLI. The user granted it in the browser and the connect
+succeeded immediately. Now: `type github`, `JGodwyn/Presto`,
+`productionBranch: main`, `framework: nextjs`.
+
+**FOLLOWUPS §12 closed** — `lib/ai/generate.test.ts` was guarded by
+`it.skipIf(!process.env.GOOGLE_GENERATIVE_AI_API_KEY)`, a condition that is
+always true because the key is in `.env.local` and vitest loads it. So it made a
+real billed Gemini call on every `npm test`, and failed the entire suite once
+the free tier's 20 requests were gone. Now gated on
+`PRESTO_LIVE_AI_TEST=1` *and* the key — `PRESTO_`-prefixed to match every other
+switch this project owns, rather than the `RUN_LIVE_AI_TESTS` the entry
+suggested.
+
+**Verified in both directions**, because a gate only tested one way is
+indistinguishable from having deleted the test: without the flag the file skips;
+with it the test runs against the real API and passes in 25.7s. `npm test` with
+no hand-exclusions is now **439 passed / 1 skipped in ~1s**, where all session
+it had been run as `vitest run --exclude 'lib/ai/generate.test.ts'`.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `eslint` | 17 — `main`'s baseline, unchanged (FOLLOWUPS §13) |
+| `npm test` | 439 passed / 1 skipped, no exclusions needed |
+
+Publishing untouched: `PRESTO_ENABLE_LIVE_PUBLISH` is still unset.
