@@ -178,17 +178,37 @@ Read the relevant section before building a page for the first time. Don't ask t
 - Client-side autosave with no save button that can plausibly fire in a rapid burst (several topic adds/removes, multiple field blurs in quick succession — not a single isolated blur) must go through a save queue, not a bare `void save(...)`: an unguarded fire-and-forget call has no ordering guarantee between requests, so an out-of-order network response can leave stale data persisted even though the UI (and the DB, once corrected) should only ever reflect the latest state. Use `useSaveQueue` (hooks/use-save-queue.ts) — it keeps at most one save in flight and collapses anything queued behind it down to just the latest payload, so a burst becomes a strictly-ordered request stream with no added delay on the common single-save case. See components/instructions/my-voice-card.tsx's `save`/`queueSave` for the reference implementation. A single blur-to-save site with no realistic burst path (e.g. writing-style-entry.tsx's `handleTextBlur`) doesn't need this — a plain awaited call is fine.
 - No scrollable area ever shows the browser's default scrollbar — `::-webkit-scrollbar` customization is silently ignored under macOS's overlay-scrollbar rendering path anyway, so always hide it (`HIDE_NATIVE_SCROLLBAR_CLASSNAME`, hooks/use-scroll-thumb.ts) regardless of what else you do. Whether to *also* show a custom thumb is a per-container call: menu.tsx (a dropdown list) and pill-textarea.tsx use one, the page-level `<main>` in app/projects/[projectId]/layout.tsx deliberately doesn't (a thumb positioned against its full width ended up sitting on top of card content at some viewport widths — removed rather than repositioned). Where you do want one: `useScrollThumb` + `ScrollbarThumb` (components/ui/scrollbar-thumb.tsx) — pair the hook's `ref`/`onScroll` with the hide-native class on the scrolling element, and render `ScrollbarThumb` (passing its `thumb` and `visible` — it only shows while actively scrolling, fading ~1s after the last scroll event, never a permanently-visible bar) as a sibling inside a `relative` ancestor that is *not* itself the scrolling element (it needs to stay put as an overlay, not scroll away with the content).
 
-## Hard constraint — publishing
+## Publishing is LIVE — read this before touching anything that sends
 
-**Never publish or schedule a post to a real connected social account.** Stated
-2026-08-18 while the LinkedIn connection flow was being built, and it holds even
-once an account connects successfully: the connection flow ships first,
-publishing is a separate phase the user green-lights explicitly.
+**Green-lit by the owner on 2026-09-07.** The old blanket rule ("never publish
+or schedule to a real connected social account", stated 2026-08-18) is
+**superseded**: `PRESTO_ENABLE_LIVE_PUBLISH=true` is set in Vercel **production**,
+and the `presto-publish-due` pg_cron job runs **every minute** against the live
+origin. A post that comes due now goes out to a real LinkedIn account with
+nobody clicking anything.
 
-Connecting, storing tokens, reading profile data and building publishing *UI*
-are all fine. Calling a share/publish endpoint — or wiring a cron or scheduler
-that would — is not. Ask first, every time, however the surrounding task is
-phrased.
+What this changes for you:
+
+- **Production is not a sandbox.** Scheduling a post for a time in the near past
+  or the next few minutes will publish it for real, within the 15-minute grace
+  window. There is no undo — `lib/publish-runner.ts` records a URN, it cannot
+  retract a share.
+- **The gate is deliberately NOT set on Preview**, and must stay that way:
+  preview deployments run against this same production database, so setting it
+  there would let a throwaway branch publish to a real account. Production only.
+- **Turning it back off is an env change plus a redeploy** — a running
+  deployment keeps the old env, so deleting the variable alone changes nothing
+  until the next deploy. The scheduler can also be stopped outright at the
+  database: `select cron.unschedule('presto-publish-due');`
+- **X is still off** and this does not change that: `PRESTO_ENABLE_LIVE_PUBLISH`
+  is one switch for both platforms, but X additionally needs
+  `PUBLISHABLE_PLATFORMS`, `X_SCOPES` and the app's own permission — see the X
+  bullet in Current status. Only LinkedIn actually sends today.
+
+Still ask first, every time, before: widening what the scheduler selects
+(`platform`, the due window, the batch limit), enabling a second platform, or
+setting the gate in any environment other than production. A change that makes
+*more* things send is the owner's call, not a judgment call.
 
 ## Ask before doing these
 
@@ -394,10 +414,13 @@ phrased.
   `presto`, team `gdwn`, Hobby plan). The origin is a subdomain rather than the
   auto-generated `*.vercel.app` on purpose: the project's `ssoProtection` is
   `all_except_custom_domains`, so the custom domain is public while every
-  preview deployment stays private to the account. **Publishing is still off** —
-  `PRESTO_ENABLE_LIVE_PUBLISH` is absent from the Vercel env, verified against
-  the deployed build (`livePublishEnabled: false`), and turning it on takes a
-  redeploy as well as the variable. The `presto-publish-due` pg_cron job runs
+  preview deployment stays private to the account. **Publishing is ON as of
+  2026-09-07** — `PRESTO_ENABLE_LIVE_PUBLISH=true` in **production only**
+  (never Preview: preview runs against this same production database), verified
+  on the deployed build with the scheduler's own record catching the flip —
+  ticks at 06:48/06:49Z reported `false`, 06:50Z onward `true`, every one
+  `published: 0`. Read the "Publishing is LIVE" section above before touching
+  anything that sends. The `presto-publish-due` pg_cron job runs
   every minute against the deployed origin and reads its secret from Supabase
   Vault. **Deploys are automatic as of 2026-09-07**: the project is connected to
   `JGodwyn/Presto` with `main` as the production branch, so **anything that
@@ -406,6 +429,7 @@ phrased.
   end to end (`source: git`, `READY / PROMOTED`, holding
   `presto.godwinjohn.com`). `vercel deploy --prod` still works for an
   out-of-band deploy. The LinkedIn
-  production callback is **not yet registered**, so Connect fails on the
-  deployed build; see FOLLOWUPS §5.1. Note `vercel link` appends a
+  production callback **is** registered (proved 2026-09-07 by probing LinkedIn's
+  authorize endpoint against a control — see FOLLOWUPS §5.1), and production
+  carries a live, active LinkedIn connection. Note `vercel link` appends a
   `VERCEL_OIDC_TOKEN` line to `.env.local` (gitignored, harmless).

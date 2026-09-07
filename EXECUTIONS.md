@@ -7337,3 +7337,52 @@ nothing is wrong. Both cost a round trip here.
 deploys are manual and the repo deliberately unconnected, which is now false.
 Worth flagging beyond the doc fix: **housekeeping commits straight on `main`,
 which that file explicitly permits, now ship to the live origin.**
+
+## 2026-09-07 — Publishing turned ON in production
+
+Green-lit explicitly by the owner. `PRESTO_ENABLE_LIVE_PUBLISH=true` set in
+Vercel **production only** — deliberately *not* Preview, because preview
+deployments run against this same production database and would otherwise let a
+throwaway branch post to a real LinkedIn account. Confirmed from `vercel env ls`
+that the variable carries a Production row and no Preview row.
+
+**Pre-flight, run immediately before the flip rather than trusting yesterday's
+numbers** — a copy of the scheduler's own selection predicate:
+
+| Check | Value |
+|---|---|
+| would publish right now (the real due query) | **0** |
+| due within 24h | 0 |
+| next scheduled post | 2026-10-02 23:00Z |
+| healthy LinkedIn connections | 1 |
+
+Redeployed via `vercel redeploy` on the current production deployment, which
+keeps the git metadata rather than replacing a `source: git` deployment with a
+`source: cli` one. The gate is read at request time but Vercel bakes env into
+the deployment at build, so a redeploy is genuinely required — the "restart tax"
+noted in FOLLOWUPS §5.
+
+**Verified after, and the scheduler's own record caught the transition
+mid-stream** — which is better evidence than any single probe:
+
+| tick | livePublishEnabled | published |
+|---|---|---|
+| 06:48Z, 06:49Z | false | 0 |
+| 06:50Z, 06:51Z, 06:52Z | **true** | 0 |
+
+Post-flip database state unchanged: `published` still 3, most recent still
+2026-09-04T19:05Z, `publish_error` rows 0, and **0 stuck claims**
+(`publish_started_at` set with `published_at` null) — the failure mode the
+`maxDuration` fix earlier today was about. Auth still enforced with the gate
+open: no-auth 404, wrong-secret 404.
+
+**Docs corrected, and this was the risky part to leave undone.** AGENTS.md still
+carried "Never publish or schedule a post to a real connected social account"
+plus a status bullet reading "Publishing is still off" and "the LinkedIn
+production callback is not yet registered" — all three false, in the file every
+agent reads first. Rewrote the constraint section as "Publishing is LIVE" and
+fixed both status claims. FOLLOWUPS §5.4's bullet asking for exactly this is
+closed.
+
+Nothing has been published. The first real send will be the 2026-10-02 post
+unless something is scheduled sooner.

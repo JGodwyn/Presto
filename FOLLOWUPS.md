@@ -161,9 +161,14 @@ now.
   wanted, it needs a bounded count and a reason to believe the cause has passed.
 - **X (Twitter)** still has a `platform` value reserved and no flow behind it;
   `publishBlockedReason` returns `platform_unsupported` for it by design.
-- **AGENTS.md's "Hard constraint — publishing" section still describes the old
-  world** and needs the user's own hand. INTERFACE.md §10a has been rewritten to
-  describe the gate that replaced it.
+- ~~**AGENTS.md's "Hard constraint — publishing" section still describes the old
+  world**~~ — done 2026-09-07. Rewritten as "Publishing is LIVE", since leaving a
+  document that says *never publish* in a repo whose production is configured to
+  publish every minute is worse than no document. It now states what is on, that
+  the gate is production-only and must stay off on Preview, how to turn it back
+  off (env **plus** redeploy, or `cron.unschedule`), and what still needs asking
+  first: widening the scheduler's selection, enabling a second platform, or
+  setting the gate anywhere but production.
 
 ---
 
