@@ -35,6 +35,21 @@ import { createServiceClient } from "@/lib/supabase/service"
 export const runtime = "nodejs"
 // Nothing about a cron run should be cached or statically analysed.
 export const dynamic = "force-dynamic"
+// Without this the ceiling is the platform default (10-15s on Vercel), which is
+// shorter than a full batch: PUBLISH_BATCH_LIMIT is 5 and the loop below is
+// deliberately sequential, so a busy tick is five LinkedIn round trips end to
+// end. A timeout here is worse than a slow tick, because it is the one failure
+// the loop's own catch cannot absorb — the function is killed mid-send, so the
+// claim released in that catch is never released. The post keeps
+// `publish_started_at` with `publish_error` still null, ages out of the
+// 15-minute due window before its 16-minute claim lapses, and is never selected
+// again: never retried, never marked, and possibly already live on LinkedIn.
+// 60s is the Hobby-tier maximum; raise it alongside the plan if a batch ever
+// grows. **Kept in sync by hand with the `timeout_milliseconds` on the
+// `presto-publish-due` pg_cron job**, which must stay *above* this so pg_net is
+// never the side that gives up first — pg_net abandoning the request is how the
+// run summary, the only record of what a tick did, gets lost.
+export const maxDuration = 60
 
 interface RunSummary {
   ranAt: string

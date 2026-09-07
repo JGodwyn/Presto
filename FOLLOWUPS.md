@@ -99,7 +99,10 @@ facts below are operational and worth being able to find.
   `https://presto.godwinjohn.com/api/cron/publish`. It reads `CRON_SECRET` from
   **Supabase Vault** (`presto_cron_secret`) rather than carrying it inline the
   way the SQL in this section used to — an inlined secret sits in plaintext in
-  `cron.job.command`. To stop it:
+  `cron.job.command`. Its `timeout_milliseconds` is **75000, deliberately above
+  the route's own `maxDuration` of 60s** — if pg_net gives up first, the run
+  summary is lost and the function can be torn down mid-send with a post's
+  claim still held. To stop it:
   `select cron.unschedule('presto-publish-due');`
 - **`PRESTO_ENABLE_LIVE_PUBLISH` is not set in Vercel**, so every tick is a dry
   run — verified against the deployed build, not just the code:
@@ -236,6 +239,12 @@ it was flagged rather than invented.
 ## 10. `maxDuration` on the regenerate route is set for the free tier
 
 **From:** `feat/post-accounts`, 2026-08-25.
+
+**Update 2026-09-07:** `app/api/cron/publish/route.ts` now declares it too, for
+a sharper reason — see EXECUTIONS. It is paired with the `timeout_milliseconds`
+on the `presto-publish-due` pg_cron job (75s), which must stay **above** it;
+**the two are kept in sync by hand and live in different systems**, so changing
+either alone silently breaks the invariant.
 
 `app/api/regenerate-post/route.ts` declares `export const maxDuration = 60`.
 Without it the ceiling is whatever the platform defaults to (10-15s on Vercel),

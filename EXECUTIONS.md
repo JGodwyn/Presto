@@ -7234,3 +7234,47 @@ products are Open Permissions per LinkedIn's own docs (`profile`, `email`,
 `w_member_social`, which suggests the app is past the gate already — but that is
 an inference. The conclusive test remains §5.3's: have one other person try
 Connect.
+
+## 2026-09-07 — `maxDuration` on the publish cron, and the timeout it has to outrank
+
+The cron route declared no `maxDuration`, so it ran at Vercel's platform default
+(10-15s) while `regenerate-post` had been given 60 for the same reason back in
+`feat/post-accounts`. Fixed: `export const maxDuration = 60` in
+`app/api/cron/publish/route.ts`.
+
+**Why it is worse here than a slow tick.** The loop takes a claim
+(`publish_started_at`) before each send and releases it in a `catch` — but a
+function timeout is not an exception, so that catch never runs. The route's own
+comment already describes where that leaves a post: `publish_started_at` set,
+`publish_error` still null, aged out of the 15-minute due window before its
+16-minute claim lapses, so nothing selects it again — never retried, never
+marked, and possibly already live on LinkedIn. `PUBLISH_BATCH_LIMIT` is 5 and
+the loop is deliberately sequential, so a full tick is five LinkedIn round trips
+end to end; 10-15s was not enough room.
+
+**The fix has a second half that is easy to miss.** Yesterday's pg_cron job used
+`timeout_milliseconds := 30000`, chosen when the function ceiling was ~10-15s so
+that pg_net would never give up first. Raising `maxDuration` to 60 inverted
+that: pg_net would have abandoned the request at 30s while the function ran on,
+losing the run summary — the only record of what a tick did — and risking a
+teardown mid-send. Rescheduled at **75000**. Same jobname, so it replaced the
+command in place: still one job, `jobid` 1, `has_new_timeout: true`,
+`still_has_old_timeout: false`. **The two constants live in different systems
+and are synced by hand** — noted in the route comment and FOLLOWUPS §5.1/§10.
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | clean |
+| `eslint` | 17 — `main`'s baseline, unchanged |
+| `vitest` | 439 passed / 35 files, excluding `lib/ai/generate.test.ts` (§12) |
+| `next build` | clean, on Vercel |
+
+Deployed (`vercel deploy --prod` failed once with a transient `fetch failed`;
+retried clean). Verified after: the domain is aliased to the new deployment,
+`livePublishEnabled` still **false**, no-auth and wrong-secret still 404, the
+signup page still 200, `skippedAccounts` empty (the LinkedIn connection is
+schedulable), and pg_cron's own ticks at 05:50Z and 05:51Z both 200.
+
+`maxDuration` itself is asserted by config, not measured — proving it would mean
+making a tick genuinely take 15+ seconds. Nothing was published and the gate was
+not touched.
