@@ -399,8 +399,13 @@ phrased.
   the deployed build (`livePublishEnabled: false`), and turning it on takes a
   redeploy as well as the variable. The `presto-publish-due` pg_cron job runs
   every minute against the deployed origin and reads its secret from Supabase
-  Vault. Deploys are **manual** (`vercel deploy --prod`) — the GitHub repo is
-  deliberately not connected, so landing on `main` does not ship. The LinkedIn
+  Vault. **Deploys are automatic as of 2026-09-07**: the project is connected to
+  `JGodwyn/Presto` with `main` as the production branch, so **anything that
+  lands on `main` ships to the live origin** — including the small housekeeping
+  commits the "Parallel work" section above allows straight on `main`. Verified
+  end to end (`source: git`, `READY / PROMOTED`, holding
+  `presto.godwinjohn.com`). `vercel deploy --prod` still works for an
+  out-of-band deploy. The LinkedIn
   production callback is **not yet registered**, so Connect fails on the
   deployed build; see FOLLOWUPS §5.1. Note `vercel link` appends a
   `VERCEL_OIDC_TOKEN` line to `.env.local` (gitignored, harmless).

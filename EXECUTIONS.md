@@ -7317,3 +7317,23 @@ it had been run as `vitest run --exclude 'lib/ai/generate.test.ts'`.
 | `npm test` | 439 passed / 1 skipped, no exclusions needed |
 
 Publishing untouched: `PRESTO_ENABLE_LIVE_PUBLISH` is still unset.
+
+**Auto-deploy verified end to end**, not just connected: pushing `8c6f115`
+produced `dpl_2tadCeTcA5DtXRcvg7Pcj1prXJWC` with `source: git` (not `cli`),
+`READY / PROMOTED`, `aliasAssigned: true`, holding `presto.godwinjohn.com` plus
+a new `presto-git-main-…` alias. The gate is still shut on the git-built
+deployment (`livePublishEnabled: false`), the cron endpoint still 404s
+unauthenticated, and the app still serves 200.
+
+Two notes for later. **The Vercel deployments API returns raw newlines inside
+`meta.githubCommitMessage`**, so `json.load` rejects the payload outright —
+this repo's commit bodies are multi-line, so any script reading that endpoint
+needs `strict=False`. And **deployment ids are longer than they look**;
+truncating one for display and then reusing the truncated form returns an empty
+object rather than a 404, which reads as "the deployment lost its alias" when
+nothing is wrong. Both cost a round trip here.
+
+**AGENTS.md's status line was corrected** — it was written yesterday saying
+deploys are manual and the repo deliberately unconnected, which is now false.
+Worth flagging beyond the doc fix: **housekeeping commits straight on `main`,
+which that file explicitly permits, now ship to the live origin.**
