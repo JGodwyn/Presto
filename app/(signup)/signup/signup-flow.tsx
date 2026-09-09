@@ -40,6 +40,11 @@ function AuthFlow() {
     return { name: "create-account" }
   })
   const [showResetSuccessToast, setShowResetSuccessToast] = React.useState(false)
+  const [showGoogleAuthErrorToast, setShowGoogleAuthErrorToast] = React.useState(
+    () => searchParams.get("auth_error") === "google"
+  )
+
+  const showGoogleAuthError = () => setShowGoogleAuthErrorToast(true)
 
   const goToLogin = () => {
     setStep({ name: "login" })
@@ -62,6 +67,14 @@ function AuthFlow() {
           direction="top"
         >
           Password reset
+        </Toast>
+        <Toast
+          open={showGoogleAuthErrorToast}
+          onOpenChange={setShowGoogleAuthErrorToast}
+          variant="danger"
+          direction="top"
+        >
+          Couldn&apos;t continue with Google
         </Toast>
       </div>
 
@@ -98,6 +111,7 @@ function AuthFlow() {
                 onContinue={(email) =>
                   setStep({ name: "verify-email", email, sentAt: Date.now() })
                 }
+                onGoogleAuthError={showGoogleAuthError}
               />
             </div>
             <div
@@ -109,6 +123,7 @@ function AuthFlow() {
             >
               <LoginScreen
                 onForgotPassword={() => setStep({ name: "forgot-password" })}
+                onGoogleAuthError={showGoogleAuthError}
               />
             </div>
           </div>

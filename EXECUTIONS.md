@@ -7530,3 +7530,22 @@ changed-file ESLint, and `git diff --check` clean.
 - Follow-up: raised the button-to-missing-Instructions-notice spacing (the two
   conditional action wrappers, not the frame's text/icon gap) from `dist-md`
   to `dist-lg`.
+
+## 2026-09-09 — Google authentication
+
+- Added the browser-initiated Supabase Google OAuth flow to both existing auth
+  screen buttons. Each disables and shows the existing spinner immediately;
+  immediate failures return to an auth-level danger Toast instead of failing
+  silently.
+- Added `/auth/callback` as the server-side PKCE exchange route. It writes the
+  Supabase SSR session cookie, then lets `/` make the existing project-aware
+  choice: project picker for returning users and create-project for a first
+  Google login. Missing or rejected callback codes return safely to signup with
+  the Google-specific error Toast.
+- Local browser QA on port 3001 confirmed both screen affordances, callback
+  redirect, and error feedback. Did not authenticate a real Google account.
+- Targeted ESLint and `tsc --noEmit` pass; `npm test -- --run` is 443 passed / 1
+  skipped; production build passes and includes `/auth/callback`. The required
+  full ESLint gate remains blocked by the pre-existing 17 errors in unrelated
+  Create Project, Generate, Onboarding, ProjectSidebar, and Switch files, so
+  this branch is deliberately not marked ready for integration.
