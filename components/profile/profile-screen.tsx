@@ -92,6 +92,11 @@ export function ProfileScreen({
 }) {
   const { restart } = useOnboarding()
   const [passwordOpen, setPasswordOpen] = React.useState(false)
+  // The server-provided identity describes the first render. Once an OAuth
+  // user adds a password, switch the disclosure immediately instead of making
+  // them refresh before its label and fields catch up.
+  const [passwordAdded, setPasswordAdded] = React.useState(false)
+  const hasPasswordIdentity = hasPassword || passwordAdded
   const [modelsOpen, setModelsOpen] = React.useState(false)
   const [logoutOpen, setLogoutOpen] = React.useState(false)
   // `logout` redirects, so this pending flag is never cleared on the success
@@ -159,14 +164,17 @@ export function ProfileScreen({
         <div className="flex w-78 flex-col gap-dist-md">
           <ProfileDisclosure
             icon={Password}
-            label={hasPassword ? "Change password" : "Set password"}
+            label={hasPasswordIdentity ? "Change password" : "Set password"}
             open={passwordOpen}
             onOpenChange={setPasswordOpen}
           >
             <ChangePasswordPanel
               projectId={projectId}
-              hasPassword={hasPassword}
-              onSuccess={() => setPasswordOpen(false)}
+              hasPassword={hasPasswordIdentity}
+              onSuccess={() => {
+                setPasswordAdded(true)
+                setPasswordOpen(false)
+              }}
             />
           </ProfileDisclosure>
 

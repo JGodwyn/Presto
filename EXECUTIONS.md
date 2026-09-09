@@ -7559,3 +7559,6 @@ changed-file ESLint, and `git diff --check` clean.
 - Targeted ESLint, `tsc --noEmit`, and `npm test -- --run` pass (443 passed / 1
   skipped). The production build was not rerun because the owner's active
   `next dev` process holds Next's shared build lock in this main checkout.
+- Follow-up: the Profile disclosure now promotes itself to Change password
+  immediately after a successful first password, rather than waiting for a
+  navigation to reload the server-supplied identities.
