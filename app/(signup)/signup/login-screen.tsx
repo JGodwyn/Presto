@@ -11,6 +11,7 @@ import { PillInput } from "@/components/ui/pill-input"
 import { GoogleIcon } from "@/components/shared/google-icon"
 import { login } from "@/app/(auth)/login/actions"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { signInWithGoogle } from "./google-auth"
 
 const loginSchema = z.object({
   email: z.string().min(1, "This is required").email("Enter a valid email"),
@@ -21,10 +22,12 @@ type LoginValues = z.infer<typeof loginSchema>
 
 interface LoginScreenProps {
   onForgotPassword: () => void
+  onGoogleAuthError: () => void
 }
 
-function LoginScreen({ onForgotPassword }: LoginScreenProps) {
+function LoginScreen({ onForgotPassword, onGoogleAuthError }: LoginScreenProps) {
   const [showPassword, setShowPassword] = React.useState(false)
+  const [isStartingGoogleAuth, setIsStartingGoogleAuth] = React.useState(false)
   // RHF's isSubmitting ends when the handler resolves — but on success the
   // login action redirects, and the await resolves before the router has
   // fetched (in dev: compiled) the target page. Without this flag the button
@@ -57,6 +60,15 @@ function LoginScreen({ onForgotPassword }: LoginScreenProps) {
       setError("password", { message: result.error })
     } else {
       setIsRedirecting(true)
+    }
+  }
+
+  const handleGoogleAuth = async () => {
+    setIsStartingGoogleAuth(true)
+    const error = await signInWithGoogle()
+    if (error) {
+      setIsStartingGoogleAuth(false)
+      onGoogleAuthError()
     }
   }
 
@@ -121,8 +133,14 @@ function LoginScreen({ onForgotPassword }: LoginScreenProps) {
           size="xl"
           className="w-pad-5xl px-0"
           aria-label="Continue with Google"
+          disabled={isLoggingIn || isStartingGoogleAuth}
+          onClick={() => void handleGoogleAuth()}
         >
-          <GoogleIcon className="size-6" />
+          {isStartingGoogleAuth ? (
+            <SpinnerGap weight="bold" className="animate-spin" />
+          ) : (
+            <GoogleIcon className="size-6" />
+          )}
         </Button>
       </div>
 

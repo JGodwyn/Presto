@@ -18,6 +18,7 @@ import { PillInput } from "@/components/ui/pill-input"
 import { GoogleIcon } from "@/components/shared/google-icon"
 import { signup } from "@/app/(auth)/signup/actions"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { signInWithGoogle } from "./google-auth"
 
 const createAccountSchema = z.object({
   email: z.string().min(1, "This is required").email("Enter a valid email"),
@@ -32,10 +33,12 @@ type CreateAccountValues = z.infer<typeof createAccountSchema>
 
 interface CreateAccountScreenProps {
   onContinue: (email: string) => void
+  onGoogleAuthError: () => void
 }
 
-function CreateAccountScreen({ onContinue }: CreateAccountScreenProps) {
+function CreateAccountScreen({ onContinue, onGoogleAuthError }: CreateAccountScreenProps) {
   const [showPassword, setShowPassword] = React.useState(false)
+  const [isStartingGoogleAuth, setIsStartingGoogleAuth] = React.useState(false)
   const {
     register,
     handleSubmit,
@@ -57,6 +60,15 @@ function CreateAccountScreen({ onContinue }: CreateAccountScreenProps) {
       return
     }
     onContinue(values.email)
+  }
+
+  const handleGoogleAuth = async () => {
+    setIsStartingGoogleAuth(true)
+    const error = await signInWithGoogle()
+    if (error) {
+      setIsStartingGoogleAuth(false)
+      onGoogleAuthError()
+    }
   }
 
   return (
@@ -137,8 +149,14 @@ function CreateAccountScreen({ onContinue }: CreateAccountScreenProps) {
           size="xl"
           className="w-pad-5xl px-0"
           aria-label="Continue with Google"
+          disabled={isSubmitting || isStartingGoogleAuth}
+          onClick={() => void handleGoogleAuth()}
         >
-          <GoogleIcon className="size-6" />
+          {isStartingGoogleAuth ? (
+            <SpinnerGap weight="bold" className="animate-spin" />
+          ) : (
+            <GoogleIcon className="size-6" />
+          )}
         </Button>
       </div>
     </form>
