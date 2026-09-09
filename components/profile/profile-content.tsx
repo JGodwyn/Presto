@@ -27,6 +27,11 @@ export async function ProfileContent({ projectId }: { projectId?: string }) {
     (user?.user_metadata?.avatar_url as string | undefined) ?? null
   const avatarGradientId =
     (user?.user_metadata?.avatar_gradient as string | undefined) ?? null
+  // An email identity is the password sign-in method. OAuth-only users are
+  // authenticated already, but have no current password to verify.
+  const hasPassword = user?.identities?.some(
+    (identity) => identity.provider === "email"
+  ) ?? true
   // Long form rather than lib/format-date.ts's ordinal helpers: those exist
   // for scheduled dates, where the day is the thing being picked. A join date
   // is a fact about the account, and the export shows month and year only.
@@ -46,6 +51,7 @@ export async function ProfileContent({ projectId }: { projectId?: string }) {
       userId={user?.id ?? ""}
       avatarUrl={avatarUrl}
       avatarGradientId={avatarGradientId}
+      hasPassword={hasPassword}
       aiModels={aiModels}
       logout={logout}
     />

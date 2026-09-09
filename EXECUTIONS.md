@@ -7548,3 +7548,14 @@ changed-file ESLint, and `git diff --check` clean.
   skipped; production build passes and includes `/auth/callback`. The required
   full ESLint gate remains blocked by the pre-existing 17 errors in unrelated
   Create Project, Generate, Onboarding, ProjectSidebar, and Switch files.
+
+## 2026-09-09 — Set password for Google-only accounts
+
+- Made the Profile password disclosure identity-aware: an OAuth-only account
+  gets a one-field Set password flow and Password added confirmation; an
+  account with an email identity retains the existing current-password change
+  path. The server action checks the current identities again, preventing a
+  forged request from bypassing the password re-authentication check.
+- Targeted ESLint, `tsc --noEmit`, and `npm test -- --run` pass (443 passed / 1
+  skipped). The production build was not rerun because the owner's active
+  `next dev` process holds Next's shared build lock in this main checkout.

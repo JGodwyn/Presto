@@ -32,6 +32,12 @@ export type ChangePasswordError = ActionError & {
   field?: "current" | "new"
 }
 
+const setPasswordSchema = z.object({
+  newPassword: z.string(),
+})
+
+export type SetPasswordInput = z.infer<typeof setPasswordSchema>
+
 // The name is what the navbar chip and /create-project's greeting render, so
 // the cap matches what those can show rather than any DB constraint — it lives
 // in auth.users' user_metadata, not a table of ours.
@@ -162,5 +168,44 @@ export async function changePassword(
   // Deliberately no signOut, unlike the recovery flow: that one ends a
   // recovery session so the user re-authenticates, whereas this session was
   // already theirs and stays valid.
+  return { success: true }
+}
+
+// An OAuth-only user has a verified, authenticated session but no password to
+// re-authenticate with. Supabase permits that session to add an email/password
+// identity directly; reject password identities here so this path can never
+// bypass changePassword's current-password check.
+export async function setPassword(
+  input: SetPasswordInput
+): Promise<ChangePasswordError | { success: true }> {
+  const parsed = setPasswordSchema.safeParse(input)
+
+  if (!parsed.success) return { error: "Something's wrong with that value." }
+  if (parsed.data.newPassword.length < MIN_PASSWORD_LENGTH) {
+    return {
+      error: `Must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+      field: "new",
+    }
+  }
+
+  const supabase = await createClient()
+  const { data: userData, error: userError } = await supabase.auth.getUser()
+
+  if (userError && isNetworkError(userError)) return networkActionError()
+  if (!userData.user) return { error: "You need to be signed in to do that." }
+
+  if (userData.user.identities?.some((identity) => identity.provider === "email")) {
+    return { error: "You already have a password.", field: "new" }
+  }
+
+  const { error } = await supabase.auth.updateUser({
+    password: parsed.data.newPassword,
+  })
+
+  if (error) {
+    if (isNetworkError(error)) return networkActionError()
+    return { error: error.message, field: "new" }
+  }
+
   return { success: true }
 }

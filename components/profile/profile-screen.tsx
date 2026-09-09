@@ -72,6 +72,7 @@ export function ProfileScreen({
   userId,
   avatarUrl,
   avatarGradientId,
+  hasPassword,
   aiModels,
   logout,
 }: {
@@ -85,6 +86,7 @@ export function ProfileScreen({
   userId: string
   avatarUrl: string | null
   avatarGradientId: string | null
+  hasPassword: boolean
   aiModels: UserAiModel[]
   logout: () => Promise<void>
 }) {
@@ -157,12 +159,13 @@ export function ProfileScreen({
         <div className="flex w-78 flex-col gap-dist-md">
           <ProfileDisclosure
             icon={Password}
-            label="Change password"
+            label={hasPassword ? "Change password" : "Set password"}
             open={passwordOpen}
             onOpenChange={setPasswordOpen}
           >
             <ChangePasswordPanel
               projectId={projectId}
+              hasPassword={hasPassword}
               onSuccess={() => setPasswordOpen(false)}
             />
           </ProfileDisclosure>

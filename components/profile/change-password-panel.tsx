@@ -3,7 +3,10 @@
 import * as React from "react"
 import { Eye, EyeClosed, LockKey, SpinnerGap } from "@phosphor-icons/react"
 
-import { changePassword } from "@/app/projects/[projectId]/profile/account-actions"
+import {
+  changePassword,
+  setPassword,
+} from "@/app/projects/[projectId]/profile/account-actions"
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { Toast } from "@/components/ui/toast"
@@ -42,9 +45,11 @@ function RevealButton({
 // button owns the pending state.
 export function ChangePasswordPanel({
   projectId,
+  hasPassword,
   onSuccess,
 }: {
   projectId?: string
+  hasPassword: boolean
   // Lets the disclosure collapse itself once the password is changed — the
   // panel has nothing left to say, and leaving a form of cleared fields open
   // reads as though something is still pending.
@@ -74,7 +79,9 @@ export function ChangePasswordPanel({
     setError(null)
     setPending(true)
     const result = await withNetworkStatus(
-      changePassword({ currentPassword: current, newPassword: next })
+      hasPassword
+        ? changePassword({ currentPassword: current, newPassword: next })
+        : setPassword({ newPassword: next })
     )
     setPending(false)
 
@@ -93,7 +100,7 @@ export function ChangePasswordPanel({
     setNext("")
     setShowCurrent(false)
     setShowNext(false)
-    setToastMessage("Password changed")
+    setToastMessage(hasPassword ? "Password changed" : "Password added")
     setToastOpen(true)
     // Toast first, then collapse: the confirmation is what the user is
     // waiting for, and it lives outside this subtree (see ToastSlot), so it
@@ -101,7 +108,7 @@ export function ChangePasswordPanel({
     onSuccess?.()
   }
 
-  const canSubmit = current.length > 0 && next.length > 0 && !pending
+  const canSubmit = (!hasPassword || current.length > 0) && next.length > 0 && !pending
 
   return (
     <>
@@ -130,24 +137,26 @@ export function ChangePasswordPanel({
         key={projectId}
         className="flex flex-col gap-dist-md"
       >
-        <PillInput
-          type={showCurrent ? "text" : "password"}
-          value={current}
-          onChange={(event) => setCurrent(event.target.value)}
-          placeholder="Current password"
-          autoComplete="current-password"
-          aria-label="Current password"
-          aria-invalid={error?.field === "current" ? true : undefined}
-          helperText={error?.field === "current" ? error.message : undefined}
-          icon={<LockKey weight="bold" />}
-          endAdornment={
-            <RevealButton
-              shown={showCurrent}
-              onToggle={() => setShowCurrent((value) => !value)}
-              label="current password"
-            />
-          }
-        />
+        {hasPassword ? (
+          <PillInput
+            type={showCurrent ? "text" : "password"}
+            value={current}
+            onChange={(event) => setCurrent(event.target.value)}
+            placeholder="Current password"
+            autoComplete="current-password"
+            aria-label="Current password"
+            aria-invalid={error?.field === "current" ? true : undefined}
+            helperText={error?.field === "current" ? error.message : undefined}
+            icon={<LockKey weight="bold" />}
+            endAdornment={
+              <RevealButton
+                shown={showCurrent}
+                onToggle={() => setShowCurrent((value) => !value)}
+                label="current password"
+              />
+            }
+          />
+        ) : null}
 
         <PillInput
           type={showNext ? "text" : "password"}
@@ -178,10 +187,10 @@ export function ChangePasswordPanel({
           {pending ? (
             <>
               <SpinnerGap weight="bold" className="animate-spin" />
-              Changing…
+              {hasPassword ? "Changing…" : "Setting…"}
             </>
           ) : (
-            "Change password"
+            hasPassword ? "Change password" : "Set password"
           )}
         </Button>
       </form>
