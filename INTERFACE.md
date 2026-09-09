@@ -205,6 +205,17 @@ Rules that fall out of those:
 
 ## 6. Feedback & state
 
+- Generate stays actionable only after the project has actual Instructions
+  content — an empty autosave row does not count. Until then, its primary
+  action is disabled and is immediately followed by a transparent,
+  `stroke-lg`/`rad-md` framed `body-lg-bold`/`text-subtle` "Add some
+  instructions first" notice. The whole notice is the zero-delay Tooltip
+  trigger; this is a status explanation, not a modal or a failed generation
+  state. Its gap below Generate is `dist-lg`, while the existing normal
+  Instructions-plugged footer keeps its `dist-xl` rhythm.
+- Tooltips are never internally scrollable. Long copy wraps at the standard
+  `max-w-66` tooltip width instead.
+
 - **Anything that takes noticeable time gives immediate feedback.** No static
   screen after a click.
 - **Deletes are optimistic**: remove from the UI now, let the server call finish,

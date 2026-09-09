@@ -1,34 +1,45 @@
-"use client"
-
-import * as React from "react"
-import { ViewTransition } from "react"
-
-import { GenerateCard, type GenerateCardHandle } from "@/components/generate/generate-card"
-import { GeneratePanel } from "@/components/generate/generate-panel"
+import { GeneratePageClient } from "@/components/generate/generate-page-client"
+import { createClient } from "@/lib/supabase/server"
+import { fetchInstructions } from "@/lib/supabase/queries"
+import type { Instructions } from "@/types/instructions"
 
 // Built from the Figma "Generate (Number based)" export
 // (design-sync/generate-number-based). UI only — generation itself, the real
 // model/account lists, and the calendar-based mode's design come later.
 //
-// Client component (not server) so it can hold the ref connecting
-// GeneratePanel's reset button to GenerateCard's internal calendar state —
-// see GenerateCardHandle for why that's a ref rather than lifted props.
-export default function GeneratePage() {
-  const generateCardRef = React.useRef<GenerateCardHandle>(null)
+// The server resolves whether this project has Instructions before handing
+// interactions to GeneratePageClient. That keeps the disabled state from
+// flashing in after hydration and prevents a pointless route transition.
+function hasInstructionContent(instructions: Instructions | null) {
+  if (!instructions) return false
+
+  // A row remains after the last topic or field is deleted, because it is the
+  // project's autosave record — it must not itself count as personalization.
+  // Single-prompt mode intentionally replaces the structured fields, matching
+  // buildPostPrompt's own branch.
+  if (instructions.singlePrompt) {
+    return (
+      instructions.singlePromptText.trim().length > 0 ||
+      instructions.topics.length > 0
+    )
+  }
 
   return (
-    // exit="blur-out" pairs with generate/generating/page.tsx's
-    // enter="blur-in" (see app/globals.css) for the blur handoff to the
-    // Generating page. default="none" keeps this from also firing for
-    // unrelated transitions — e.g. the Generate button's own useTransition
-    // in generate-card.tsx, which is a transition too but isn't a route
-    // change.
-    <ViewTransition exit="blur-out" default="none">
-      <GeneratePanel
-        onResetCalendar={() => generateCardRef.current?.resetCalendar()}
-      >
-        <GenerateCard ref={generateCardRef} />
-      </GeneratePanel>
-    </ViewTransition>
+    instructions.tone.trim().length > 0 ||
+    instructions.contentRules.trim().length > 0 ||
+    instructions.postStructure.trim().length > 0 ||
+    instructions.whatToAvoid.trim().length > 0 ||
+    instructions.topics.length > 0
   )
+}
+
+export default async function GeneratePage({
+  params,
+}: {
+  params: Promise<{ projectId: string }>
+}) {
+  const { projectId } = await params
+  const instructions = await fetchInstructions(await createClient(), projectId)
+
+  return <GeneratePageClient hasInstructions={hasInstructionContent(instructions)} />
 }

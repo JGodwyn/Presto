@@ -158,7 +158,9 @@ function TooltipContent({
             ref={squircleRef}
             style={{ ...style, ...squircleStyle }}
             className={cn(
-              "flex items-center gap-dist-md rounded-rad-xmd px-pad-md py-pad-sm text-body-md",
+              // Long tooltip copy wraps at the app's standard tooltip width;
+              // a tooltip is explanatory text, never an internal scroller.
+              "flex max-w-66 items-center gap-dist-md rounded-rad-xmd px-pad-md py-pad-sm text-body-md whitespace-normal",
               theme === "dark"
                 ? "bg-surface-inverse text-text-inverse"
                 : "bg-surface-4 text-text-bold",

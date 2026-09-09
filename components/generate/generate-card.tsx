@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import {
   CaretDown,
   Equals,
+  Info,
   MagicWand,
   PlugCharging,
 } from "@phosphor-icons/react"
@@ -12,7 +13,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { type DateRange } from "@/components/ui/calendar"
 import { SegmentedControl } from "@/components/ui/segmented-control"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   DEFAULT_TIME,
   atTimeOfDay,
@@ -51,6 +57,7 @@ import { useExpiredConnection } from "@/components/connections/expired-connectio
 // (--rad-lg) and the "Instructions plugged in" tag (--rad-md).
 const STEPPER_BOX_CORNER_RADIUS = 16
 const PLUGGED_TAG_CORNER_RADIUS = 8
+const MISSING_INSTRUCTIONS_NOTICE_CORNER_RADIUS = 8
 
 // 1–31: up to a full month of dailies (raised from the UX doc §8.2's 20 per
 // direct feedback).
@@ -186,8 +193,11 @@ export interface GenerateCardHandle {
 // child's internal state without either lifting all of it up (a much
 // bigger change to how this component owns its own state) or exposing a
 // narrow imperative method like this one.
-export const GenerateCard = React.forwardRef<GenerateCardHandle>(
-  function GenerateCard(_props, ref) {
+export const GenerateCard = React.forwardRef<
+  GenerateCardHandle,
+  { hasInstructions: boolean }
+>(
+  function GenerateCard({ hasInstructions }, ref) {
     const router = useRouter()
     const { projectId } = useParams<{ projectId: string }>()
     const { blockPostingWithExpiredConnection } = useExpiredConnection()
@@ -406,6 +416,10 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     const { ref: tagRef, style: tagStyle } = useSquircleClipPath<HTMLDivElement>(
       { cornerRadius: PLUGGED_TAG_CORNER_RADIUS }
     )
+    const { ref: noticeRef, style: noticeStyle } =
+      useSquircleClipPath<HTMLDivElement>({
+        cornerRadius: MISSING_INSTRUCTIONS_NOTICE_CORNER_RADIUS,
+      })
 
     // No non-null assertion here: `model` is restored from localStorage
     // without validation, and a user model deleted on Connections since the
@@ -668,7 +682,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
         size="xl"
         className="w-full"
         onClick={handleGenerateClick}
-        disabled={isNavigatingToGenerating}
+        disabled={!hasInstructions || isNavigatingToGenerating}
       >
         <MagicWand weight="fill" />
         {/* Both singular and plural literally appear across the Figma
@@ -705,6 +719,35 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
           Instructions plugged in
         </div>
       </div>
+    )
+
+    const missingInstructionsNotice = (
+      // This status is adjacent to its disabled action, rather than a modal
+      // after an attempted navigation. Its tooltip is intentionally immediate
+      // while the app-wide default remains 200ms for ordinary hover labels.
+      <TooltipProvider delay={0}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div
+                ref={noticeRef}
+                style={noticeStyle}
+                tabIndex={0}
+                aria-label="Why instructions are needed"
+                className="flex items-center gap-dist-md rounded-rad-xmd border-[length:var(--stroke-lg)] border-border-subtle bg-transparent py-pad-xs pr-pad-sm pl-pad-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              >
+                <span className="text-body-lg-bold text-text-subtle">
+                  Add instructions first
+                </span>
+                <Info className="size-5 text-icon-subtle" weight="bold" />
+              </div>
+            }
+          />
+          <TooltipContent className="text-center">
+            Add instructions before you can generate. Instructions tell Presto how to personalize content
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     )
 
     return (
@@ -755,8 +798,17 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
             </div>
 
             {modelPills}
-            {generateButton}
-            {pluggedInFooter}
+            {hasInstructions ? (
+              <>
+                {generateButton}
+                {pluggedInFooter}
+              </>
+            ) : (
+              <div className="flex w-full flex-col items-center gap-dist-lg">
+                {generateButton}
+                {missingInstructionsNotice}
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex w-full items-start gap-dist-5xl">
@@ -802,10 +854,17 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
                 2147239404, gap 8), also distinct from the outer dist-xl. */}
               <div className="flex w-full flex-col items-center gap-dist-lg">
                 <ScheduledPostsBar count={scheduledCount} />
-                {generateButton}
+                {hasInstructions ? (
+                  generateButton
+                ) : (
+                  <div className="flex w-full flex-col items-center gap-dist-lg">
+                    {generateButton}
+                    {missingInstructionsNotice}
+                  </div>
+                )}
               </div>
 
-              {pluggedInFooter}
+              {hasInstructions ? pluggedInFooter : null}
             </div>
 
             <GenerateCalendarColumn

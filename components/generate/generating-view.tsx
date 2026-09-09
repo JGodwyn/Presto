@@ -742,13 +742,16 @@ export function GeneratingView({
       // posts, or a failure, counted here — see the loop above). The modal
       // waits a beat so the red header/message underneath registers first,
       // rather than being covered immediately.
-      if (failedCount === count) {
+      // Missing instructions is now prevented on the Generate page before a
+      // run starts. Keep the server guard for stale tabs, but don't revive the
+      // obsolete failure modal if that race reaches this route.
+      if (failedCount === count && lastFailureReason !== "missing_instructions") {
         failureModalTimeoutRef.current = setTimeout(() => {
           setShowFailureModal(true)
         }, TOTAL_FAILURE_MODAL_DELAY_MS)
       }
     }
-  }, [status, generatedSoFar, count, failedCount])
+  }, [status, generatedSoFar, count, failedCount, lastFailureReason])
 
   const handleStop = () => setStatus("stopped")
   // Resume (from "stopped") continues from wherever it left off; Restart

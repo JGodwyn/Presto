@@ -7507,3 +7507,26 @@ John`, the separate expired message, and no `No connections active` badge.
 
 Gates: `npm test -- --run` **442 passed / 1 skipped**; `tsc --noEmit`,
 changed-file ESLint, and `git diff --check` clean.
+## 2026-09-09 — Generate: gate empty Instructions before generation
+
+- Replaced the missing-Instructions generate-route failure path with a
+  server-fetched Generate-page gate. The action now disables before navigation,
+  with a nearby immediate-hover Info tooltip explaining why; retained the
+  server-side guard for stale tabs and stopped it from opening the old failure
+  modal.
+- Gates: `tsc --noEmit`, `npm test -- --run` (**443 passed / 1 skipped**), and
+  `git diff --check` clean. Full ESLint remains blocked by pre-existing errors
+  in create-project, Generate's completion effect/calendar drag-scroll,
+  onboarding, sidebar, and Switch.
+- Follow-up: an autosaved-but-empty instructions row (such as after deleting
+  the last topic) now correctly keeps Generate disabled. Framed the adjacent
+  notice to the supplied token spec and made the whole frame its immediate
+  tooltip target.
+- Follow-up: preserved the user's notice-field styling and tightened only its
+  button gap to `dist-md`. Tooltips use a standard `max-w-66` wrapping width;
+  they never scroll internally.
+- Follow-up: centered the missing-Instructions tooltip copy only; all other
+  tooltips retain their existing alignment.
+- Follow-up: raised the button-to-missing-Instructions-notice spacing (the two
+  conditional action wrappers, not the frame's text/icon gap) from `dist-md`
+  to `dist-lg`.
