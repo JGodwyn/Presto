@@ -39,11 +39,13 @@ import { generateSettingsStorageKey } from "@/lib/generate-settings"
 import { fetchSocialAccounts, fetchUserAiModels } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/client"
 import { withNetworkStatus } from "@/lib/network-status"
+import { healthyConnectedPlatforms } from "@/lib/connection-health"
 import {
   clearScheduledDates,
   writeScheduledDates,
 } from "@/lib/generate-schedule"
 import type { PostPlatform } from "@/types/post"
+import { useExpiredConnection } from "@/components/connections/expired-connection-provider"
 
 // Figma radii as px for the squircle path math: the surface-3 stepper box
 // (--rad-lg) and the "Instructions plugged in" tag (--rad-md).
@@ -188,6 +190,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
   function GenerateCard(_props, ref) {
     const router = useRouter()
     const { projectId } = useParams<{ projectId: string }>()
+    const { blockPostingWithExpiredConnection } = useExpiredConnection()
     // router.push doesn't resolve the instant it's called — the target
     // route's own code/data still has to load first, which is where the
     // reported click-to-navigate delay lives. Wrapping it in a transition
@@ -256,16 +259,15 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       () => [...BUILTIN_MODEL_OPTIONS, ...userModelOptions],
       [userModelOptions]
     )
-    // "Try out" is the resting default, and deliberately so: generation
-    // needs no social account at all (nothing is ever published — see
-    // AGENTS.md's publishing constraint), and the common case today is a
-    // project with nothing connected. Defaulting to a platform would put a
-    // greyed-out, unpickable account in the pill on a fresh project.
+    // "Try out" is the resting default, and deliberately so: it needs no
+    // social account and never leaves Presto, while a real selected account
+    // can produce scheduled posts now that publishing is live. Defaulting to
+    // a platform would put a greyed-out, unpickable account in the pill on a
+    // fresh project.
     const [account, setAccount] = React.useState<string>(TRY_OUT_ACCOUNT_ID)
-    // Which platforms this project has actually connected on Connections —
-    // everything else in the menu renders greyed out. Fetched with the
-    // browser client for the same reason as the models above.
-    const [connectedPlatforms, setConnectedPlatforms] = React.useState<
+    // Which platforms have a connection that can publish. Expired/revoked
+    // rows remain visible on Connections for repair but render disabled here.
+    const [healthyPlatforms, setHealthyPlatforms] = React.useState<
       PostPlatform[]
     >([])
     // Same distinction as userModelsLoaded: "nothing connected" and "we
@@ -281,7 +283,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
         .then((accounts) => {
           if (accounts === null) return
           if (cancelled) return
-          setConnectedPlatforms(accounts.map((a) => a.platform))
+          setHealthyPlatforms(healthyConnectedPlatforms(accounts, new Date()))
           setSocialAccountsLoaded(true)
         })
         .catch(() => {
@@ -422,8 +424,8 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
       }
     }, [model, modelOptions, userModelsLoaded])
     const accountOptions = React.useMemo(
-      () => buildAccountOptions(connectedPlatforms),
-      [connectedPlatforms]
+      () => buildAccountOptions(healthyPlatforms),
+      [healthyPlatforms]
     )
 
     // No non-null assertion, for the same reason as selectedModel above:
@@ -438,7 +440,7 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
 
     React.useEffect(() => {
       // Gated on the fetch having resolved — before it does, every platform
-      // legitimately reads as unconnected.
+      // legitimately reads as unavailable.
       if (!socialAccountsLoaded) return
       if (accountOptions.some((o) => o.value === account && !o.disabled)) return
       setAccount(TRY_OUT_ACCOUNT_ID)
@@ -590,6 +592,13 @@ export const GenerateCard = React.forwardRef<GenerateCardHandle>(
     const handleGenerateClick = () => {
       if (mode === "calendar" && !hasCalendarSelection) {
         setShowError(true)
+        return
+      }
+      if (
+        mode === "calendar" &&
+        account === "linkedin" &&
+        blockPostingWithExpiredConnection("linkedin", false)
+      ) {
         return
       }
       // Handed off via sessionStorage (see lib/generate-schedule.ts), not

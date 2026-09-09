@@ -90,9 +90,8 @@ function outcomeToast(
 // through the callback route, so it can't be a server action and there's no
 // promise to await — the button's pending state ends when the browser leaves.
 //
-// Presto must not publish or schedule to a live account (AGENTS.md, "Hard
-// constraint — publishing"), and nothing in this file or the routes behind it
-// does: the token is requested with sign-in scopes only.
+// This panel only manages connections; publishing is live but still happens
+// through the post actions and scheduler, never as a side effect of connecting.
 function ConnectionsPanel({
   projectId,
   accounts: initialAccounts,
@@ -360,7 +359,9 @@ function ConnectionsPanel({
       ) : (
         <EmptyState
           icon={PlugsConnected}
-          caption={<ConnectionCountBadge count={activeCount} />}
+          caption={
+            activeCount > 0 ? <ConnectionCountBadge count={activeCount} /> : null
+          }
           title="Presto can post directly to your social media account."
           action={rows}
         />

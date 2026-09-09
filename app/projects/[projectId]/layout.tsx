@@ -9,9 +9,11 @@ import { ProjectTopbar } from "@/components/shared/project-topbar"
 import { OnboardingProvider } from "@/components/onboarding/onboarding-context"
 import { OnboardingCover } from "@/components/onboarding/onboarding-cover"
 import { OnboardingCallout } from "@/components/onboarding/onboarding-callout"
+import { ExpiredConnectionProvider } from "@/components/connections/expired-connection-provider"
 import { createClient } from "@/lib/supabase/server"
 import { isNetworkError } from "@/lib/network-error"
-import { fetchProject } from "@/lib/supabase/queries"
+import { hasDeadLinkedInConnection } from "@/lib/connection-health"
+import { fetchProject, fetchSocialAccounts } from "@/lib/supabase/queries"
 
 // Everything inside a project (dashboard, generate, calendar, …) renders
 // under this layout, so the ownership check lives here once. RLS already
@@ -45,51 +47,63 @@ export default async function ProjectLayout({
   // render a project page for someone who isn't signed in.
   if (!user && !(userError && isNetworkError(userError))) redirect("/login")
 
-  const project = await fetchProject(supabase, projectId)
+  const [project, socialAccounts] = await Promise.all([
+    fetchProject(supabase, projectId),
+    fetchSocialAccounts(supabase, projectId),
+  ])
   if (!project) redirect("/projects")
+
+  const now = new Date()
+  const hasExpiredLinkedIn = hasDeadLinkedInConnection(socialAccounts, now)
 
   const firstName =
     (user?.user_metadata?.name as string | undefined)?.trim().split(/\s+/)[0] ??
     "there"
 
   return (
-    <OnboardingProvider>
-      {/* h-screen (not min-h-screen) pins the chrome to the viewport: tall
-          page content scrolls inside <main> instead of stretching the
-          sidebar. The -mb/pb pair on <main> makes its scroll area bleed
-          through the page's bottom padding to the real screen edge, so
-          overflowing content visibly runs past the sidebar's foot rather
-          than clipping at the padding line; the inner pb restores the same
-          breathing room at the end of the scroll. */}
-      <div className="flex h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl xl:px-pad-9xl">
-        <ProjectTopbar
-          userName={firstName}
-          userId={user?.id}
-          avatarUrl={
-            (user?.user_metadata?.avatar_url as string | undefined) ?? null
-          }
-          gradientId={
-            (user?.user_metadata?.avatar_gradient as string | undefined) ?? null
-          }
-          profileHref={`/projects/${projectId}/profile`}
-        />
+    <ExpiredConnectionProvider
+      projectId={projectId}
+      hasExpiredLinkedIn={hasExpiredLinkedIn}
+    >
+      <OnboardingProvider>
+        {/* h-screen (not min-h-screen) pins the chrome to the viewport: tall
+            page content scrolls inside <main> instead of stretching the
+            sidebar. The -mb/pb pair on <main> makes its scroll area bleed
+            through the page's bottom padding to the real screen edge, so
+            overflowing content visibly runs past the sidebar's foot rather
+            than clipping at the padding line; the inner pb restores the same
+            breathing room at the end of the scroll. */}
+        <div className="flex h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl xl:px-pad-9xl">
+          <ProjectTopbar
+            userName={firstName}
+            userId={user?.id}
+            avatarUrl={
+              (user?.user_metadata?.avatar_url as string | undefined) ?? null
+            }
+            gradientId={
+              (user?.user_metadata?.avatar_gradient as string | undefined) ??
+              null
+            }
+            profileHref={`/projects/${projectId}/profile`}
+          />
 
-        <div className="flex min-h-0 flex-1 items-stretch gap-dist-xl">
-          <ProjectSidebar projectName={project.name} />
-          {/* <main> and its top fade — see section-scroll-area.tsx for why
-              that fade is an overlay strip rather than the CSS mask every
-              other scroller in this app uses. */}
-          <SectionScrollArea overlay={<OnboardingCallout />}>
-            <SectionContent>{children}</SectionContent>
-          </SectionScrollArea>
+          <div className="flex min-h-0 flex-1 items-stretch gap-dist-xl">
+            <ProjectSidebar projectName={project.name} />
+            {/* <main> and its top fade — see section-scroll-area.tsx for why
+                that fade is an overlay strip rather than the CSS mask every
+                other scroller in this app uses. */}
+            <SectionScrollArea overlay={<OnboardingCallout />}>
+              <SectionContent>{children}</SectionContent>
+            </SectionScrollArea>
+          </div>
         </div>
-      </div>
 
-      <OnboardingCover />
-      {/* TEMPORARY: dev-only flicker diagnostics — remove with
-          components/shared/flicker-probe.tsx once the section-switch flicker
-          is solved. */}
-      <FlickerProbe />
-    </OnboardingProvider>
+        <OnboardingCover />
+        {/* TEMPORARY: dev-only flicker diagnostics — remove with
+            components/shared/flicker-probe.tsx once the section-switch flicker
+            is solved. */}
+        <FlickerProbe />
+      </OnboardingProvider>
+    </ExpiredConnectionProvider>
   )
 }

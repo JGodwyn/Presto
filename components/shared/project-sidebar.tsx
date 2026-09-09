@@ -11,6 +11,7 @@ import {
   HouseSimple,
   MagicWand,
   PlugsConnected,
+  WarningDiamond,
   type Icon,
 } from "@phosphor-icons/react"
 
@@ -23,6 +24,7 @@ import {
   useGenerationLock,
 } from "@/hooks/use-generation-lock"
 import { useOnboarding } from "@/components/onboarding/onboarding-context"
+import { useExpiredConnection } from "@/components/connections/expired-connection-provider"
 
 // Figma --rad-* as pixel numbers for the squircle path math (same reason as
 // projects-navbar: the clip-path calculation can't read CSS vars).
@@ -47,6 +49,7 @@ function SidebarItem({
   active,
   current,
   onNavigate,
+  warning,
 }: {
   href: string
   label: string
@@ -54,6 +57,7 @@ function SidebarItem({
   active: boolean
   current: boolean
   onNavigate: () => void
+  warning?: boolean
 }) {
   const { ref, style } = useSquircleClipPath<HTMLAnchorElement>({
     cornerRadius: ITEM_CORNER_RADIUS,
@@ -99,11 +103,22 @@ function SidebarItem({
         "flex items-center gap-dist-md rounded-rad-xmd border-2 px-pad-md py-pad-sm",
         active
           ? "border-purple-600 bg-purple-400 text-body-lg-bold text-text-inverse"
-          : "border-border-subtle bg-surface-3 text-body-lg text-text-bold"
+          : warning
+            ? "border-border-danger bg-surface-3 text-body-lg text-text-bold"
+            : "border-border-subtle bg-surface-3 text-body-lg text-text-bold"
       )}
     >
       <ItemIcon weight="bold" className="size-5 shrink-0" />
       <span>{label}</span>
+      {warning && (
+        <WarningDiamond
+          weight="bold"
+          className={cn(
+            "ml-auto size-5 shrink-0",
+            active ? "text-icon-inverse" : "text-icon-danger"
+          )}
+        />
+      )}
     </Link>
   )
 }
@@ -119,6 +134,7 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
   const locked = useGenerationLock()
   const { projectId } = useParams<{ projectId: string }>()
   const { activePath } = useOnboarding()
+  const { hasExpiredLinkedIn } = useExpiredConnection()
   // The clicked item highlights immediately (optimistic), not when the
   // route commits — section navigations hit the server and the gap between
   // click and pathname change otherwise reads as a dead click.
@@ -199,6 +215,7 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
               // tapping it has somewhere real to go and must not be a no-op.
               current={pathname === href}
               onNavigate={() => setPendingPath(path)}
+              warning={path === "connections" && hasExpiredLinkedIn}
             />
           )
         })}

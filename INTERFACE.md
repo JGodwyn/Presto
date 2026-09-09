@@ -84,6 +84,17 @@ Any element with a corner radius uses Figma's corner smoothing, never plain CSS
 - Optional-prop convention: chrome affordances render **only when a handler or
   href is passed** (`backHref`, `cornerAction`, `onOpen`, `onTurnToDraft`,
   `showInfoMarker`). A component never renders a dead control.
+- Expired-connection warnings use the Phosphor `WarningDiamond` at `bold`
+  weight. The navbar warning is a rad-md `surface-danger-light` /
+  `border-danger` control with a `stroke-lg` border and 24px danger icon; the
+  Connections sidebar warning is danger-colored at rest and switches to
+  `icon-inverse` while that item is active. A dead Connections row keeps the connected person's avatar
+  and name in its danger strip, with the warning/message on a separate line
+  underneath; zero active connections render no count badge.
+- Generate's account picker treats only healthy social-account rows as
+  selectable. Expired and revoked platforms stay listed but disabled; a saved
+  selection that becomes unhealthy falls back to `Try out`. Posting guards
+  remain in place for existing posts and for expiry races after page load.
 
 ---
 
@@ -1434,3 +1445,19 @@ something live on LinkedIn. It now reports the published moment, with
 PaperPlaneTilt in place of the calendar icon. Absent on the live-but-unrecorded
 case, where the moment genuinely isn't known — the status chip says so there
 (see §12c).
+
+## 2026-09-08 — Expired LinkedIn connection guard
+
+Connection expiry is project-shell state, derived from the stored LinkedIn
+account with the same `connectionStatus` / `isConnectionDead` definition the
+Connections page uses. The shell owns one modal and exposes one posting guard:
+real LinkedIn posts are blocked before either scheduling or manual publishing;
+Try out and X are unaffected. This keeps the server publisher as the final
+authority while preventing a known-dead send from reaching it in ordinary UI.
+
+The Figma `ConnectionErrorstate` warning treatment is shared chrome: a 40px
+surface-danger-light / border-danger warning button beside the user chip with
+the requested tooltip, and a warning diamond plus border-danger treatment on
+the Connections sidebar item. Either warning route leads to the project's
+Connections page. The entry warning uses the existing one-action confirmation
+modal pattern: the corner X dismisses and the named action navigates.

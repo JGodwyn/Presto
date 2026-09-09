@@ -36,9 +36,10 @@ const RECONNECT_CHIP_CORNER_RADIUS = 8
 //   active    green block, "Connected as …", Disconnect, grey countdown
 //   expiring  same block, but the countdown turns text-warning and grows a
 //             "Renew now" chip (≤ 7 days — see EXPIRY_WARNING_DAYS)
-//   expired   block turns surface-danger and reads "Connection expired" over a
-//             WarningDiamond; the action becomes a success-green "Reconnect",
-//             and the countdown goes away entirely (the strip has said it)
+//   expired   block turns surface-danger and keeps the account identity visible;
+//             "Connection expired" moves underneath with a WarningDiamond,
+//             the action becomes a success-green "Reconnect", and the
+//             countdown goes away entirely
 //   revoked   the expired treatment exactly, reading "Connection revoked" —
 //             no Figma frame draws this, because it isn't a date at all: the
 //             member removed Presto's access at LinkedIn's end, so a token
@@ -154,61 +155,46 @@ function ConnectedAccountRow({
         />
 
         <div className="flex items-center gap-dist-sm px-pad-md">
-          {isDead ? (
-            <WarningDiamond
-              weight="bold"
-              className="size-4 shrink-0 text-icon-inverse"
-            />
-          ) : (
-            /* LinkedIn's `picture` claim when the member has one, falling back
-               to the same gradient avatar the navbar chip uses — the export
-               draws the gradient, and a photoless account still needs a mark.
-               rounded-full, not squircled: a 16px circle has no straight edge
-               for corner smoothing (same call as toast.tsx).
-
-               **The fallback also covers a URL that has gone stale.** LinkedIn
-               serves profile photos from time-limited, dynamically-keyed CDN
-               URLs and its own media docs say to re-fetch them periodically —
-               but this one is stored for as long as the connection lives (up
-               to 60 days), so it can expire well before the row does. Rather
-               than show a broken image, a failed load drops to the gradient;
-               the next connect refreshes the URL. */
-            <Image
-              src={
-                avatarFailed || !account.avatarUrl
-                  ? GRADIENT_AVATAR
-                  : account.avatarUrl
-              }
-              alt=""
-              width={16}
-              height={16}
-              className="size-4 shrink-0 rounded-full object-cover"
-              onError={() => setAvatarFailed(true)}
-            />
-          )}
+          {/* The export keeps the connected person's identity visible in the
+              danger strip. A failed or absent provider image falls back to the
+              same gradient avatar used by the healthy state. */}
+          <Image
+            src={
+              avatarFailed || !account.avatarUrl
+                ? GRADIENT_AVATAR
+                : account.avatarUrl
+            }
+            alt=""
+            width={16}
+            height={16}
+            className="size-4 shrink-0 rounded-full object-cover"
+            onError={() => setAvatarFailed(true)}
+          />
           <span className="truncate text-body-md-bold text-text-inverse">
-            {status === "revoked"
-              ? "Connection revoked"
-              : status === "expired"
-                ? "Connection expired"
-                : // The handle is the more recognisable identity on X, and the
-                  // one that disambiguates two accounts under the same display
-                  // name. LinkedIn has none, so it falls back to the name
-                  // alone rather than the row needing to know the platform.
-                  `Connected as ${
-                    account.accountHandle
-                      ? `@${account.accountHandle}`
-                      : account.accountName
-                  }`}
+            {isDead
+              ? account.accountHandle
+                ? `@${account.accountHandle}`
+                : account.accountName
+              : `Connected as ${
+                  account.accountHandle
+                    ? `@${account.accountHandle}`
+                    : account.accountName
+                }`}
           </span>
         </div>
       </div>
 
-      {/* Dropped once dead: the red strip above already says so, and a
-          countdown underneath it would be reporting either a deadline that has
-          already passed or — for a revoked connection — days remaining on a
-          token that stopped working regardless. */}
-      {!isDead && (
+      {isDead ? (
+        <div className="flex items-center justify-center gap-dist-sm px-pad-sm text-text-danger">
+          <WarningDiamond
+            weight="bold"
+            className="size-5 shrink-0 text-icon-danger"
+          />
+          <span className="text-body-lg-bold">
+            {status === "revoked" ? "Connection revoked" : "Connection expired"}
+          </span>
+        </div>
+      ) : (
         <div className="flex items-center justify-center gap-dist-md px-pad-sm">
           <div className="flex items-center gap-dist-sm">
             <Timer

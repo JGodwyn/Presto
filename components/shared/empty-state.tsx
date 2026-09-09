@@ -68,7 +68,9 @@ export function EmptyState({
       <EmptyIcon weight="bold" className={cn(scale.icon, "text-icon-minimal")} />
       {/* Both text blocks are a fixed 272px in the export rather than fluid,
           which is what gives the title its deliberate 3-4 line wrap. */}
-      <p className="w-68 text-center text-body-md text-text-subtle">{caption}</p>
+      {caption !== null && caption !== undefined && (
+        <p className="w-68 text-center text-body-md text-text-subtle">{caption}</p>
+      )}
       <div className="flex flex-col items-center gap-dist-xl">
         {/* font-display (Phudu) renders caps on its own — no `uppercase`. */}
         <Title

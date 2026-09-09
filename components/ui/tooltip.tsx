@@ -10,11 +10,10 @@ import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 // px number for the squircle path math (see hooks/use-squircle-clip-path.ts).
 const TOOLTIP_CORNER_RADIUS = 12
 
-// The export's tail/pointer asset (Type=Down, Theme=light — assets/tooltip-
-// pointers.svg) drawn once and rotated per side rather than swapped for one
-// of the export's 4 direction-specific files: the Top/Left/Right variants
-// are the same path mirrored/rotated (confirmed against tooltip-pointers-3
-// and pointer.svg), so a single <path> covers every side.
+// The export's top pointer asset (assets/tooltip-pointers.svg) drawn once and
+// rotated per side. Base UI supplies the cross-axis position but deliberately
+// leaves the side placement to CSS, so each side anchors the pointer just
+// outside the popup instead of letting it sit in normal flow below the card.
 function TooltipPointer({
   theme,
   className,
@@ -26,9 +25,10 @@ function TooltipPointer({
     <TooltipPrimitive.Arrow
       data-slot="tooltip-arrow"
       className={cn(
-        // Base shape points down (side=top, tooltip above the anchor).
-        // Rotate clockwise/counterclockwise for the other three sides.
-        "z-50 data-[side=bottom]:rotate-180 data-[side=left]:-rotate-90 data-[side=right]:rotate-90",
+        // Base shape points up (side=bottom, tooltip below the anchor), exactly
+        // as exported. `*-full` keeps the point touching the popup edge without
+        // introducing a made-up pixel offset.
+        "absolute z-50 data-[side=bottom]:bottom-full data-[side=top]:top-full data-[side=top]:rotate-180 data-[side=left]:left-full data-[side=left]:rotate-90 data-[side=right]:right-full data-[side=right]:-rotate-90",
         className
       )}
     >
@@ -40,7 +40,7 @@ function TooltipPointer({
         xmlns="http://www.w3.org/2000/svg"
       >
         <path
-          d="M9.73649 7.96115C8.9687 9.30478 7.0313 9.30478 6.26351 7.96115L1.70987 -0.00772251C0.94798 -1.34104 1.91071 -3 3.44636 -3L12.5536 -3C14.0893 -3 15.052 -1.34103 14.2901 -0.00772141L9.73649 7.96115Z"
+          d="M6.26351 3.03885C7.0313 1.69522 8.9687 1.69522 9.73649 3.03885L14.2901 11.0077C15.052 12.341 14.0893 14 12.5536 14L3.44636 14C1.91071 14 0.94798 12.341 1.70987 11.0077L6.26351 3.03885Z"
           className={theme === "dark" ? "fill-surface-inverse" : "fill-surface-4"}
         />
       </svg>

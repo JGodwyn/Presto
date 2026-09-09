@@ -50,6 +50,7 @@ import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
 import type { ConnectedSocialAccount } from "@/types/social-account"
+import { useExpiredConnection } from "@/components/connections/expired-connection-provider"
 
 // The strong ease-out from .agents/skills/review-animations/STANDARDS.md —
 // entering and exiting both use it ("never ease-in on UI": it delays the
@@ -267,6 +268,7 @@ export function DayDeck({
   onPostsChange: (updater: (prev: Post[]) => Post[]) => void
 }) {
   const router = useRouter()
+  const { blockPostingWithExpiredConnection } = useExpiredConnection()
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const animations = React.useRef(new Map<string, Animation>())
   const openedRef = React.useRef(false)
@@ -636,6 +638,8 @@ export function DayDeck({
     )
 
   const handleDateChange = (post: Post, date: Date) => {
+    if (blockPostingWithExpiredConnection(post.platform, post.isTryout)) return
+
     const previous = { scheduledFor: post.scheduledFor, status: post.status }
     const patch = {
       scheduledFor: date.toISOString(),
@@ -1034,7 +1038,16 @@ export function DayDeck({
                         statusMarker={<PostStatusMarker post={post} />}
                         onPublish={
                           canAttemptPublish(post, accounts)
-                            ? () => setPublishTarget(post)
+                            ? () => {
+                                if (
+                                  !blockPostingWithExpiredConnection(
+                                    post.platform,
+                                    post.isTryout
+                                  )
+                                ) {
+                                  setPublishTarget(post)
+                                }
+                              }
                             : undefined
                         }
                         publishComingSoon={publishComingSoon(post, accounts)}

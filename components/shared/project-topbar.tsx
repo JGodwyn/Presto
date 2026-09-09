@@ -3,6 +3,7 @@
 import { ProjectsNavbar } from "@/components/projects/projects-navbar"
 import { OnboardingTopbar } from "@/components/onboarding/onboarding-topbar"
 import { useOnboarding } from "@/components/onboarding/onboarding-context"
+import { useExpiredConnection } from "@/components/connections/expired-connection-provider"
 
 // Swaps the project's normal navbar for the onboarding bar while the tour
 // is active (steps 1-5 — the cover overlay replaces everything, so it isn't
@@ -22,6 +23,7 @@ export function ProjectTopbar({
   profileHref: string
 }) {
   const { step } = useOnboarding()
+  const { hasExpiredLinkedIn, connectionsHref } = useExpiredConnection()
 
   if (typeof step === "number") return <OnboardingTopbar />
 
@@ -33,6 +35,9 @@ export function ProjectTopbar({
       gradientId={gradientId}
       profileHref={profileHref}
       backHref="/projects"
+      expiredConnectionHref={
+        hasExpiredLinkedIn ? connectionsHref : undefined
+      }
     />
   )
 }

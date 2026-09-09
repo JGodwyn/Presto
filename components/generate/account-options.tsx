@@ -38,17 +38,14 @@ export interface AccountOption extends SelectPillOption {
   triggerIcon: React.ReactNode
 }
 
-// `connectedPlatforms` is which platforms this project has a row for in
-// public.social_accounts. A connection that is *expired, or revoked at
-// LinkedIn's end*, still counts as connected: generation never touches the
-// access token — publishing, which would, is deliberately not built
-// (AGENTS.md, "Hard constraint — publishing") — so greying a dead account out
-// would block a choice that works perfectly well. The health of a connection
-// is Connections' business, and it says so there.
+// `connectedPlatforms` is the caller's health-filtered set of usable account
+// rows. Expired and revoked connections remain visible on Connections so they
+// can be repaired, but stay disabled here because generated scheduled posts
+// must eventually publish through them.
 export function buildAccountOptions(
-  connectedPlatforms: PostPlatform[]
+  healthyPlatforms: PostPlatform[]
 ): AccountOption[] {
-  const connected = new Set(connectedPlatforms)
+  const connected = new Set(healthyPlatforms)
 
   return [
     {

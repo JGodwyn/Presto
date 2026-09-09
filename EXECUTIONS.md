@@ -7386,3 +7386,124 @@ closed.
 
 Nothing has been published. The first real send will be the 2026-10-02 post
 unless something is scheduled sooner.
+
+## 2026-09-08 — Expired LinkedIn connection UX
+
+Working directly on `main` per the owner's explicit instruction; no worktrees
+are in flight. Read the local Next App Router docs, INTERFACE/LEARNINGS, both
+Figma Bridge skill layers, and the complete `design-sync/connectionerrorstate`
+export. Confirmed the pre-existing Connections row already implements the
+expired/revoked treatment and Reconnect action; the missing pieces were the
+project-entry modal, chrome warnings, and posting interception.
+
+Added one project-shell provider fed by server-derived LinkedIn health. It owns
+the exact requested entry/blocking modal, the project Connections destination,
+and one guard shared by every posting surface. Implemented the Figma warning
+button/tooltip beside the user chip and warning icon/border on the Connections
+sidebar item. Guarded calendar-based generation, date assignment on the
+generating screen, Content post details, and Content day decks; manual Publish
+on both Content surfaces now opens the expiry modal before the existing publish
+confirmation. Try-out posts and X remain outside the LinkedIn guard. Added pure
+connection-health predicates and unit coverage for expiry, revocation,
+platform, and Try out boundaries.
+
+Mid-task verification: targeted TypeScript is clean and `git diff --check` is
+clean. Targeted ESLint reports only the two pre-existing baseline
+`react-hooks/set-state-in-effect` findings in generating-view and
+project-sidebar; none originate in the new code.
+
+Final gates: `npm test` **442 passed / 1 skipped**; `tsc --noEmit` clean;
+production build clean (the sandboxed attempt could not reach Google Fonts,
+then the network-enabled retry passed); full ESLint remains exactly the known
+17-error main baseline. Browser smoke test reached the local login screen, but
+the available in-app browser had no authenticated Presto session and no Chrome
+connection was available, so authenticated visual interaction was not forced
+with credentials. No publish or scheduling server action was invoked.
+
+## 2026-09-09 — Temporary expired-connection simulator
+
+The owner connected a signed-in Chrome profile and made it the default for
+future authenticated testing; recorded that durable preference in AGENTS.md.
+Added a deliberately obvious, development-only constant in the shared
+connection-health helper that forces `hasExpiredLinkedIn` true locally. It does not update Supabase,
+change the real account, reach the scheduler, or activate in a production
+build. The constant, helper, and two call sites are marked for deletion after
+manual testing.
+
+Extended the simulator through the Connections page's display data so the real
+LinkedIn row renders its existing expired state locally too, still without a
+database write. Verified in the owner's signed-in Chrome session on port 3000:
+entry modal and exact copy; both modal actions; navbar warning, exact hover
+tooltip, and navigation; sidebar warning; expired Connections row and Reconnect
+label. On a queued real-LinkedIn post, clicking `Publish post now` opened the
+expiry modal before the ordinary publish confirmation (`Publish this post?`
+was absent). No publish, schedule, OAuth, or mutation action was invoked.
+
+Post-simulator gates: `npm test -- --run` **442 passed / 1 skipped**;
+`tsc --noEmit` clean; production build clean after the expected network-enabled
+Google Fonts retry; `git diff --check` clean.
+
+## 2026-09-09 — Connection warning Figma corrections
+
+Re-read the `ConnectionErrorstate` frame JSON, its screenshot and exported
+WarningDiamond / tooltip-pointer SVGs. Changed every warning introduced by the
+expiry feature from Phosphor fill to bold. The navbar warning now uses the
+owner-requested `surface-danger` fill, `border-danger` border, a 24px inverse
+icon, and token utilities; the active Connections item switches its warning to
+`icon-inverse`, while the inactive warning remains danger-colored.
+
+Fixed the shared tooltip arrow rather than masking the one call site: Base UI
+only supplied its cross-axis position, so the pointer had remained in normal
+flow below the popup. It now uses the export's exact upward-pointing SVG path
+and side-aware absolute placement. Chrome visual verification confirmed the
+active sidebar icon is legible, the navbar control is danger-filled, and the
+tooltip pointer sits above the below-trigger bubble. Agentation remains loaded
+in the local app for owner annotations.
+
+Gates: `npm test -- --run` **442 passed / 1 skipped**; `tsc --noEmit` clean;
+changed-file ESLint clean except the existing ProjectSidebar
+`react-hooks/set-state-in-effect` baseline at line 151; `git diff --check`
+clean.
+
+Follow-up visual pass: confirmed the navbar warning is clipped by Button's
+`useSquircleClipPath` at rad-md and aligned its fallback radius to the same
+token. Increased its danger border to `stroke-lg` (`border-2`) and verified the
+heavier smoothed control in signed-in Chrome.
+
+## 2026-09-09 — Disable unhealthy accounts in Generate and remove simulator
+
+Found that Generate previously built account availability from social-account
+row existence alone; its comment still claimed publishing was not built. Added
+`healthyConnectedPlatforms`, using the same expiry/revocation rules as the
+project-shell warning, and fed that filtered result into Generate's account
+options. Expired and revoked platforms now render disabled, and the existing
+saved-selection repair falls back to `Try out` once account data loads. Added
+unit coverage for healthy, expired, and revoked rows.
+
+Removed the development-only expired-LinkedIn switch, its display-data mapper,
+and both call sites. Local UI now reflects the real stored connection again;
+no Supabase rows or publishing state were changed. The modal guards remain as
+defense for existing posts and a connection that expires after page load.
+
+Final gates: `npm test -- --run` **443 passed / 1 skipped**; `tsc --noEmit`
+clean; changed-file ESLint clean apart from the separately confirmed existing
+`generating-view` baseline; `git diff --check` clean; production build clean
+after the expected network-enabled Google Fonts retry. Chrome reload confirmed
+the simulated modal and expired row were gone.
+
+## 2026-09-09 — Expired connection identity follow-up
+
+Applied the owner's revised navbar treatment: rad-sm warning control,
+surface-danger-light fill, border-danger border, and a bold 24px danger icon
+without a color-changing hover state. Removed the zero-active count badge
+entirely when stored connection rows exist but none are usable.
+
+Matched the Figma export's expired LinkedIn row hierarchy: the stored provider
+avatar and `accountName` remain visible inside the danger strip; the bold
+WarningDiamond and `Connection expired` status now sit centered underneath.
+This uses data already returned by `fetchSocialAccounts`; no schema or database
+change was needed. Chrome confirmed the real simulated row displays `Godwin
+John`, the separate expired message, and no `No connections active` badge.
+
+Gates: `npm test -- --run` **442 passed / 1 skipped**; `tsc --noEmit`,
+changed-file ESLint, and `git diff --check` clean.

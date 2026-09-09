@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowLeftIcon } from "@phosphor-icons/react"
+import { ArrowLeftIcon, WarningDiamond } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { UserAvatar } from "@/components/shared/user-avatar"
@@ -12,6 +12,11 @@ import {
   useGenerationLock,
 } from "@/hooks/use-generation-lock"
 import { cn } from "@/lib/utils"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 // Figma --rad-lg as a pixel number for the squircle path math (same reason
 // as dialog.tsx: the clip-path calculation can't read CSS vars).
@@ -52,6 +57,7 @@ export function ProjectsNavbar({
   gradientId,
   profileHref = "/profile",
   backHref,
+  expiredConnectionHref,
 }: {
   userName: string
   userId?: string | null
@@ -59,6 +65,7 @@ export function ProjectsNavbar({
   gradientId?: string | null
   profileHref?: string
   backHref?: string
+  expiredConnectionHref?: string
 }) {
   const { ref: chipRef, style: chipStyle } =
     useSquircleClipPath<HTMLAnchorElement>({
@@ -96,25 +103,54 @@ export function ProjectsNavbar({
       {/* The chip is the only way into the profile screen now that the gear
           is gone, so it's a real link — same press feedback as the folder
           cards on /projects (150ms per the animation standards). */}
-      <Link
-        ref={chipRef}
-        href={profileHref}
-        style={chipStyle}
-        className="flex items-center gap-dist-md rounded-rad-lg bg-surface-inverse py-pad-xs pr-pad-md pl-pad-sm transition-[scale] duration-150 ease-out active:scale-[0.97]"
-      >
-        <UserAvatar
-          userId={userId}
-          avatarUrl={avatarUrl}
-          gradientId={gradientId}
-          size={28}
-        />
-        {/* max-w + truncate so a very long name can't stretch the chip off
-            the edge of the navbar; min-w-0 is what lets a flex child shrink
-            below its content width at all. */}
-        <span className="min-w-0 max-w-40 truncate text-heading-sm font-display text-text-inverse">
-          {userName}
-        </span>
-      </Link>
+      <div className="flex items-center gap-dist-md">
+        <Link
+          ref={chipRef}
+          href={profileHref}
+          style={chipStyle}
+          className="flex items-center gap-dist-md rounded-rad-lg bg-surface-inverse py-pad-xs pr-pad-md pl-pad-sm transition-[scale] duration-150 ease-out active:scale-[0.97]"
+        >
+          <UserAvatar
+            userId={userId}
+            avatarUrl={avatarUrl}
+            gradientId={gradientId}
+            size={28}
+          />
+          {/* max-w + truncate so a very long name can't stretch the chip off
+              the edge of the navbar; min-w-0 is what lets a flex child shrink
+              below its content width at all. */}
+          <span className="min-w-0 max-w-40 truncate text-heading-sm font-display text-text-inverse">
+            {userName}
+          </span>
+        </Link>
+
+        {expiredConnectionHref && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  nativeButton={false}
+                  render={
+                    <Link
+                      href={expiredConnectionHref}
+                      aria-label="LinkedIn connection expired. Go to connections"
+                    />
+                  }
+                  variant="outline"
+                  size="icon-md"
+                  cornerRadius={8}
+                  className="size-10 rounded-[var(--rad-xmd)] !border-2 !border-border-danger !bg-surface-danger-light !text-icon-danger hover:!bg-surface-danger-light hover:!text-icon-danger"
+                >
+                  <WarningDiamond weight="bold" className="size-6" />
+                </Button>
+              }
+            />
+            <TooltipContent side="bottom" align="end" className="w-66">
+              Your LinkedIn connection expired. Reconnect for your posts to go live.
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
     </header>
   )
 }

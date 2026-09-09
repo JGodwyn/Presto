@@ -85,6 +85,12 @@ file is too long to hold:
 more files it nudges mid-task, and the `Stop` hook refuses to end the turn until
 EXECUTIONS.md has been updated. Threshold override: `PRESTO_LARGE_TASK_FILES`.
 
+## Browser verification
+
+Use the owner's signed-in Chrome profile through the ChatGPT Chrome extension
+for authenticated app testing (`@Chrome`). Use the built-in browser only when
+Chrome is unavailable or the task explicitly asks for it.
+
 ## Parallel work — branches and worktrees
 
 Several workstreams can be in flight at once, each on its own branch in its own

@@ -49,6 +49,7 @@ import { setGenerationLock } from "@/lib/generation-lock"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
+import { useExpiredConnection } from "@/components/connections/expired-connection-provider"
 
 // Figma --rad-md as px for the squircle path math (the status pill).
 const STATUS_PILL_CORNER_RADIUS = 8
@@ -175,6 +176,7 @@ export function GeneratingView({
   model: string
 }) {
   const router = useRouter()
+  const { blockPostingWithExpiredConnection } = useExpiredConnection()
   // The heading loops and cards keep revealing only while status is
   // "generating"; Close is the only way off this page (it navigates away,
   // unmounting everything, which is what actually stops every animation —
@@ -443,6 +445,8 @@ export function GeneratingView({
   }
 
   const handlePostDateChange = (post: GeneratedPost, date: Date) => {
+    if (blockPostingWithExpiredConnection(post.social, post.isTryout)) return
+
     const previousDate = post.date
     setPosts((prev) =>
       prev.map((p) => (p.id === post.id ? { ...p, date } : p))

@@ -71,6 +71,7 @@ import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { cn } from "@/lib/utils"
 import type { Post } from "@/types/post"
 import type { ConnectedSocialAccount } from "@/types/social-account"
+import { useExpiredConnection } from "@/components/connections/expired-connection-provider"
 
 // How long the regenerate stream may go without producing a single byte
 // before it is given up on. This is the "the agent hung" case: the request
@@ -163,6 +164,7 @@ export function PostDetails({
   backHref: string
 }) {
   const router = useRouter()
+  const { blockPostingWithExpiredConnection } = useExpiredConnection()
   const [isNavigatingBack, startNavigateBack] = React.useTransition()
 
   // A local mutable copy: this page owns the one post it's showing, the same
@@ -413,6 +415,15 @@ export function PostDetails({
   // back a full moment either way, so a time-only edit arrives here as a
   // date whose day happens to be unchanged, and needs no separate path.
   const handleDateChange = (date: Date) => {
+    if (
+      blockPostingWithExpiredConnection(
+        currentPost.platform,
+        currentPost.isTryout
+      )
+    ) {
+      return
+    }
+
     const previous = {
       scheduledFor: currentPost.scheduledFor,
       status: currentPost.status,
@@ -1078,7 +1089,18 @@ export function PostDetails({
                       comingSoon
                     }
                     onClick={
-                      comingSoon ? undefined : () => setPublishOpen(true)
+                      comingSoon
+                        ? undefined
+                        : () => {
+                            if (
+                              !blockPostingWithExpiredConnection(
+                                currentPost.platform,
+                                currentPost.isTryout
+                              )
+                            ) {
+                              setPublishOpen(true)
+                            }
+                          }
                     }
                   >
                     {isPublishing ? (
