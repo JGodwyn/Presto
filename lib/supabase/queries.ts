@@ -155,6 +155,22 @@ export async function fetchUserAiModels(
   }))
 }
 
+// Supabase does not add an email identity when an OAuth user later sets a
+// password. This tiny user-owned row is therefore the durable source for the
+// Profile disclosure instead of auth.users.identities.
+export async function fetchUserHasPassword(
+  supabase: SupabaseClient
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("user_password_states")
+    .select("user_id")
+    .maybeSingle()
+
+  if (error) throw error
+
+  return Boolean(data)
+}
+
 // One post, for its own page. RLS scopes this to the signed-in user, so
 // someone else's id reads as a post that doesn't exist — the project filter is
 // there so a post from another of *your* projects doesn't answer either.

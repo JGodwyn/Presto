@@ -1090,11 +1090,12 @@ content straight on the page background, same as Connections.
   the strong ease-out both ways, and a 140ms content fade *offset* from the
   height rather than parallel to it so text never smears against the closing
   edge. Closed panels are `inert`, not hidden.
-- **Password disclosure labels follow the account's identities.** An account
-  with an email/password identity keeps the two-field **Change password** form;
-  an OAuth-only account gets **Set password**, one new-password field, and a
-  **Password added** Toast. The server independently enforces the same split,
-  so a crafted set-password request cannot bypass current-password verification.
+- **Password disclosure labels follow durable password state, not auth
+  identities.** Supabase does not add an email identity after an OAuth user sets
+  a password. `user_password_states` therefore distinguishes the two-field
+  **Change password** form from the one-field **Set password** form, with a
+  **Password added** Toast. The record is user-owned, RLS-protected, and is
+  created only after Supabase accepts the password.
 - **The log-out button** is a 40px `surface-danger` circle carrying the
   export's own red glow (`0 4px 16px 4px rgba(162,0,0,0.2)` — dilate 4, dy 4,
   stdDeviation 8 read off the exported SVG's filter). Not a token; the same

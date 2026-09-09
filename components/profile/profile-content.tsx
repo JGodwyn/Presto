@@ -1,6 +1,6 @@
 import { logout } from "@/app/(auth)/logout/actions"
 import { ProfileScreen } from "@/components/profile/profile-screen"
-import { fetchUserAiModels } from "@/lib/supabase/queries"
+import { fetchUserAiModels, fetchUserHasPassword } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 
 // The account screen's data, in one place because it renders in two: inside a
@@ -15,9 +15,10 @@ import { createClient } from "@/lib/supabase/server"
 // ProfileScreen).
 export async function ProfileContent({ projectId }: { projectId?: string }) {
   const supabase = await createClient()
-  const [{ data: userData }, aiModels] = await Promise.all([
+  const [{ data: userData }, aiModels, hasPassword] = await Promise.all([
     supabase.auth.getUser(),
     fetchUserAiModels(supabase),
+    fetchUserHasPassword(supabase),
   ])
   const user = userData.user
 
@@ -27,11 +28,6 @@ export async function ProfileContent({ projectId }: { projectId?: string }) {
     (user?.user_metadata?.avatar_url as string | undefined) ?? null
   const avatarGradientId =
     (user?.user_metadata?.avatar_gradient as string | undefined) ?? null
-  // An email identity is the password sign-in method. OAuth-only users are
-  // authenticated already, but have no current password to verify.
-  const hasPassword = user?.identities?.some(
-    (identity) => identity.provider === "email"
-  ) ?? true
   // Long form rather than lib/format-date.ts's ordinal helpers: those exist
   // for scheduled dates, where the day is the thing being picked. A join date
   // is a fact about the account, and the export shows month and year only.

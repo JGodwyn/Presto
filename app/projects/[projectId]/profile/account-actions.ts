@@ -172,9 +172,8 @@ export async function changePassword(
 }
 
 // An OAuth-only user has a verified, authenticated session but no password to
-// re-authenticate with. Supabase permits that session to add an email/password
-// identity directly; reject password identities here so this path can never
-// bypass changePassword's current-password check.
+// re-authenticate with. Supabase does not add an email identity when that user
+// adds one later, so user_password_states is the durable guard for this path.
 export async function setPassword(
   input: SetPasswordInput
 ): Promise<ChangePasswordError | { success: true }> {
@@ -194,7 +193,17 @@ export async function setPassword(
   if (userError && isNetworkError(userError)) return networkActionError()
   if (!userData.user) return { error: "You need to be signed in to do that." }
 
-  if (userData.user.identities?.some((identity) => identity.provider === "email")) {
+  const { data: passwordState, error: passwordStateError } = await supabase
+    .from("user_password_states")
+    .select("user_id")
+    .maybeSingle()
+
+  if (passwordStateError) {
+    if (isNetworkError(passwordStateError)) return networkActionError()
+    return { error: "Couldn't check your password status. Please try again." }
+  }
+
+  if (passwordState) {
     return { error: "You already have a password.", field: "new" }
   }
 
@@ -205,6 +214,17 @@ export async function setPassword(
   if (error) {
     if (isNetworkError(error)) return networkActionError()
     return { error: error.message, field: "new" }
+  }
+
+  const { error: insertPasswordStateError } = await supabase
+    .from("user_password_states")
+    .insert({ user_id: userData.user.id })
+
+  if (insertPasswordStateError) {
+    if (isNetworkError(insertPasswordStateError)) return networkActionError()
+    return {
+      error: "Your password was added, but we couldn't finish setup. Please try again.",
+    }
   }
 
   return { success: true }

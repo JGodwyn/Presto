@@ -1752,6 +1752,22 @@ in turn and watching the matching case fail. A row-matching Supabase fake would
 have been worse than useless here: this repo has already been bitten by one
 diverging from PostgREST and hiding a bug that disabled publishing outright.
 
+## OAuth password setup does not create an email identity
+
+**Symptom.** An OAuth-only user could set a password in Profile and immediately
+saw the disclosure promote to Change password, but a page refresh returned it
+to Set password.
+
+**Cause.** `supabase.auth.updateUser({ password })` updates the user's password
+hash but does not add `email` to `auth.users.identities` or
+`app_metadata.providers`. Those auth metadata fields describe how the account
+was first linked, not every credential added later.
+
+**Rule.** Never infer a password from Supabase identities. For product UI that
+needs that distinction, use a minimal RLS-protected application record keyed to
+the user; backfill it once from existing password hashes, and write it only
+after the Auth update succeeds.
+
 ## A Vercel project made by `vercel project add` has no framework, and the build still passes
 
 **Symptom.** First production deploy reported `readyState: READY`,

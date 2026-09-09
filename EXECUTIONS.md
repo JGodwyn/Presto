@@ -7562,3 +7562,21 @@ changed-file ESLint, and `git diff --check` clean.
 - Follow-up: the Profile disclosure now promotes itself to Change password
   immediately after a successful first password, rather than waiting for a
   navigation to reload the server-supplied identities.
+
+### Follow-up — persist password state after OAuth setup
+
+- The identity-based detection above was not durable: Supabase accepts an
+  OAuth user's `updateUser({ password })` request without adding an `email`
+  identity. A refresh therefore reverted the Profile disclosure to Set password.
+- Applied the live, additive `public.user_password_states` migration through
+  the Presto Supabase SQL editor: user-id primary key, RLS-protected own-row
+  select/insert policies, and an idempotent backfill from existing
+  `auth.users.encrypted_password` values. The dashboard returned “Success. No
+  rows returned”.
+- Profile now reads that durable state and `setPassword` writes it only after
+  Supabase accepts the password. The existing local success state remains so
+  the field still promotes immediately, before the next server render.
+- Gates: changed-file ESLint, `tsc --noEmit`, `npm test -- --run` (**443 passed
+  / 1 skipped**), and `git diff --check` clean. The production build remains
+  intentionally skipped because the owner's active `next dev` process holds
+  the main checkout's Next build lock.
