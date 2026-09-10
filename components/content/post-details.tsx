@@ -114,6 +114,10 @@ const REGENERATING_LINE_ENTRANCE = {
   blur: 1,
 }
 
+// The account/topic rail only needs a small dissolve at either edge: it is a
+// compact metadata row, unlike the body reader below it.
+const METADATA_ROW_FADE_PX = 16
+
 interface ToastAction {
   icon: React.ReactNode
   label: string
@@ -211,6 +215,11 @@ export function PostDetails({
   const headingDate = publishedAt ?? scheduled
 
   const { ref: contentFadeRef, onScroll: onContentScroll } = useScrollFade()
+  const { ref: metadataRowRef, onScroll: onMetadataRowScroll } = useScrollFade({
+    axis: "x",
+    start: METADATA_ROW_FADE_PX,
+    end: METADATA_ROW_FADE_PX,
+  })
   // A separate instance for the streaming view specifically: during the
   // ~300ms the old view is fading out (AnimatePresence, below), both it and
   // the streaming view are briefly mounted at once, and a single shared
@@ -1020,7 +1029,7 @@ export function PostDetails({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-dist-xl p-pad-2xl">
+    <div className="flex min-h-0 flex-1 flex-col gap-dist-xl p-pad-md md:p-pad-2xl">
       <div className="flex shrink-0 items-center justify-between">
         {/* A button with its own transition rather than a plain <Link>: going
             back re-runs the Content page's own server work, and until that
@@ -1205,7 +1214,7 @@ export function PostDetails({
           items-center on this wrapper is what centres the column; items-start
           inside it is what left-aligns the contents. */}
       <div className="flex min-h-0 flex-1 flex-col items-center">
-        <div className="flex w-100 min-h-0 flex-1 flex-col items-start gap-dist-lg">
+        <div className="flex w-full min-h-0 flex-1 flex-col items-start gap-dist-lg md:w-100">
           {/* Date • time on the heading line itself, the same shape the post
             cards read in — the time no longer sits on a line of its own
             below, and the icon that led it is gone with it (the bullet is the
@@ -1295,7 +1304,14 @@ export function PostDetails({
             tappable when only one real account is connected. Topics are
             display-only here (they're assigned at generation), and one whose
             topic has since been deleted from Instructions renders retired. */}
-          <div className="flex shrink-0 flex-wrap items-center gap-dist-md">
+          <div
+            ref={metadataRowRef}
+            onScroll={onMetadataRowScroll}
+            className={cn(
+              "flex w-full shrink-0 items-center gap-dist-md overflow-x-auto",
+              HIDE_NATIVE_SCROLLBAR_CLASSNAME
+            )}
+          >
             {/* Leads the row when there is something wrong: the card's version
                 of this shows a two-word label, and here — where there is room
                 and where the fix lives — it carries the reason as well. */}
@@ -1322,7 +1338,7 @@ export function PostDetails({
                   : nextPostAccount(currentPost, accounts)
               }
               onSelect={handleSocialChange}
-              className="max-w-60"
+              className="max-w-none shrink-0"
             />
             {currentPost.topics.map((topic) => (
               <Chip
@@ -1338,7 +1354,10 @@ export function PostDetails({
                 // things describing the post. A retired chip keeps its own
                 // text-minimal — the point of that state is that it has faded
                 // out of the project, which a bold label would undo.
-                className={activeTopicSet.has(topic) ? "text-text-bold" : undefined}
+                className={cn(
+                  "max-w-none shrink-0",
+                  activeTopicSet.has(topic) ? "text-text-bold" : undefined
+                )}
               >
                 {topic}
               </Chip>

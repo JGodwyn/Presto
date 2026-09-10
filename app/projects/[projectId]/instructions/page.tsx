@@ -37,7 +37,7 @@ export default async function InstructionsPage({
     // without it, an unbreakable long chip/word can force that column past
     // its flex-basis share, shrinking the other two. xl:max-w-md caps how
     // wide any one column can grow on top of that.
-    <div className="flex flex-1 flex-col items-start gap-dist-md transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px] @3xl/section:flex-row">
+    <div className="flex flex-1 flex-col items-start gap-dist-xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px] @3xl/section:flex-row @3xl/section:gap-dist-md">
       <MyVoiceCard
         projectId={projectId}
         initial={instructions}

@@ -217,6 +217,10 @@ export function ContentView({
     useSquircleClipPath<HTMLButtonElement>({
       cornerRadius: SHOW_AS_CORNER_RADIUS,
     })
+  const { ref: desktopShowAsRef, style: desktopShowAsStyle } =
+    useSquircleClipPath<HTMLButtonElement>({
+      cornerRadius: SHOW_AS_CORNER_RADIUS,
+    })
   // One hook for both layouts: only ever one of the two scroll areas below is
   // mounted, and a callback ref follows whichever it is.
   const { ref: monthsRef, onScroll: onMonthsScroll } = useScrollFade({
@@ -247,25 +251,87 @@ export function ContentView({
   // Turns the icon on each tap — see hooks/use-icon-spin.ts for why this is
   // an animation rather than a transition on the inline `rotate`.
   const { ref: iconRef, style: iconStyle, spin } = useIconSpin()
+  const {
+    ref: desktopIconRef,
+    style: desktopIconStyle,
+    spin: spinDesktopIcon,
+  } = useIconSpin()
 
-  const cycleView = () => {
+  const changeView = () => {
     const index = CONTENT_VIEWS.findIndex((entry) => entry.value === view)
     const next = CONTENT_VIEWS[(index + 1) % CONTENT_VIEWS.length].value
-    spin()
     // Writing to the store is what re-renders this — there's no local copy of
     // the view to keep in step with it. The icon's angle stays local: the spin
     // belongs to the act of switching, not to the state, so a restored view
     // starts unrotated.
     setContentView(projectId, next)
   }
+  const cycleMobileView = () => {
+    spin()
+    changeView()
+  }
+  const cycleDesktopView = () => {
+    spinDesktopIcon()
+    changeView()
+  }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-dist-xl p-pad-2xl">
+    <div className="flex min-h-0 flex-1 flex-col gap-dist-xl p-pad-md md:p-pad-2xl">
+      {/* The mobile export keeps the three header controls in a single 136px
+          stack: title/show-as, tabs, then a full-width search field. Desktop
+          retains its wider two-row composition below. */}
+      <div className="flex flex-col gap-dist-lg md:hidden">
+        <div className="flex items-center justify-between gap-dist-md">
+          <h1 className="text-heading-sm font-display text-text-bold">Content</h1>
+          <button
+            ref={showAsRef}
+            style={showAsStyle}
+            type="button"
+            onClick={cycleMobileView}
+            aria-label={`Showing as ${CONTENT_VIEWS.find((entry) => entry.value === view)?.label} — tap to change`}
+            className="flex shrink-0 cursor-pointer items-center gap-dist-md rounded-rad-xmd bg-surface-3 px-pad-md py-pad-xs transition-[background-color,scale] duration-150 ease-out outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
+          >
+            <span className="text-body-lg text-text-subtle">Show as:</span>
+            <span className="text-body-lg text-text-bold">
+              {CONTENT_VIEWS.find((entry) => entry.value === view)?.label}
+            </span>
+            <ArrowsClockwise
+              ref={iconRef}
+              weight="bold"
+              style={iconStyle}
+              className="size-5 text-icon-bold"
+            />
+          </button>
+        </div>
+
+        <SegmentedControl
+          className="w-full"
+          value={tab}
+          onValueChange={(value) => handleTabChange(value as ContentTab)}
+          items={CONTENT_TABS}
+        />
+
+        <div className="flex items-center gap-dist-md">
+          <ContentSearch
+            value={query}
+            onValueChange={handleQueryChange}
+            defaultOpen
+            stayOpen
+            className="w-auto flex-1"
+          />
+          <ContentFilterMenu
+            filter={filter}
+            onFilterChange={handleFilterChange}
+            topics={topics}
+          />
+        </div>
+      </div>
+
       {/* The search control sits at the header's opposite end, and is what
           the panel's info marker used to be on this page (see the page's
           `showInfoMarker={false}`) — the corner marker had no behavior, this
           does. */}
-      <div className="flex flex-col items-start gap-dist-lg @2xl/section:flex-row @2xl/section:items-center @2xl/section:justify-between">
+      <div className="hidden flex-col items-start gap-dist-lg @2xl/section:flex-row @2xl/section:items-center @2xl/section:justify-between md:flex">
         <h1 className="text-heading-md font-display text-text-bold">Content</h1>
         <div className="flex items-center gap-dist-md">
           <ContentSearch value={query} onValueChange={handleQueryChange} />
@@ -277,7 +343,7 @@ export function ContentView({
         </div>
       </div>
 
-      <div className="flex flex-col gap-dist-md">
+      <div className="hidden flex-col gap-dist-md md:flex">
         <div className="flex flex-col items-start gap-dist-md @2xl/section:flex-row @2xl/section:items-center @2xl/section:justify-between">
           <SegmentedControl
             className="w-90"
@@ -290,10 +356,10 @@ export function ContentView({
               per tap (it isn't a state indicator, it's the act of switching),
               and the pill itself takes the app's standard 150ms press scale. */}
           <button
-            ref={showAsRef}
-            style={showAsStyle}
+            ref={desktopShowAsRef}
+            style={desktopShowAsStyle}
             type="button"
-            onClick={cycleView}
+            onClick={cycleDesktopView}
             aria-label={`Showing as ${CONTENT_VIEWS.find((entry) => entry.value === view)?.label} — tap to change`}
             className="flex cursor-pointer items-center gap-dist-md rounded-rad-xmd bg-surface-3 px-pad-md py-pad-xs transition-[background-color,scale] duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
           >
@@ -302,9 +368,9 @@ export function ContentView({
               {CONTENT_VIEWS.find((entry) => entry.value === view)?.label}
             </span>
             <ArrowsClockwise
-              ref={iconRef}
+              ref={desktopIconRef}
               weight="bold"
-              style={iconStyle}
+              style={desktopIconStyle}
               className="size-5 text-icon-bold"
             />
           </button>

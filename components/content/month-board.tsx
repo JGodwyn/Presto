@@ -14,10 +14,6 @@ import { cn } from "@/lib/utils"
 const ELASTIC_SETTLE_MS = 200
 const EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)"
 
-// Taller than the export's 256px, by request — three cards fit in a column
-// now instead of two.
-const BOARD_HEIGHT_CLASSNAME = "h-100"
-
 // Below this many posts in a month's busiest day, the board hugs its content
 // instead: a row of one- and two-card columns shouldn't leave a band of empty
 // tray under every one of them just to reserve room for a third. At three the
@@ -56,6 +52,10 @@ export function MonthBoard({
   // on a column inside an auto-height row simply resolves to auto.
   const tallestColumn = Math.max(...month.days.map((day) => day.posts.length))
   const hugContent = tallestColumn <= HUG_CONTENT_MAX_POSTS
+  // Mobile preserves the export's 256px canvas even for a single card: the
+  // next column is intentionally visible at the right edge as a scroll cue.
+  // Desktop keeps its content-hugging treatment for sparse months.
+  const boardHeightClassName = hugContent ? "h-64 md:h-auto" : "h-64 md:h-100"
 
   return (
     <section className="flex w-full flex-col gap-dist-md">
@@ -70,7 +70,7 @@ export function MonthBoard({
         onPointerUp={dragScroll.onPointerUp}
         onPointerCancel={dragScroll.onPointerCancel}
         className={cn(
-          !hugContent && BOARD_HEIGHT_CLASSNAME,
+          boardHeightClassName,
           "w-full overflow-x-auto overscroll-x-contain",
           dragScroll.isDragging && "cursor-grabbing select-none",
           HIDE_NATIVE_SCROLLBAR_CLASSNAME

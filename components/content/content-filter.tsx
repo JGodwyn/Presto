@@ -215,7 +215,7 @@ export function ContentFilterMenu({
   const allTopics = filter.topics.length === 0
 
   return (
-    <div ref={anchorRef} className="relative flex">
+    <div ref={anchorRef} className="relative flex shrink-0">
       <button
         ref={chipRef}
         style={chipStyle}

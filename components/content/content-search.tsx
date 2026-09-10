@@ -51,14 +51,21 @@ export function ContentSearch({
   value,
   onValueChange,
   className,
+  defaultOpen = false,
+  stayOpen = false,
 }: {
   value: string
   onValueChange: (value: string) => void
   className?: string
+  // Mobile gives search a permanent, full-width field; desktop keeps the
+  // compact disclosure from the original Content export.
+  defaultOpen?: boolean
+  stayOpen?: boolean
 }) {
-  const [open, setOpen] = React.useState(false)
+  const [open, setOpen] = React.useState(defaultOpen)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
+  const focusOnOpenRef = React.useRef(false)
   // The clip-path is recomputed from the element's real size on every resize,
   // so it follows the width transition frame by frame rather than snapping to
   // the end shape — see hooks/use-squircle-clip-path.ts.
@@ -70,12 +77,14 @@ export function ContentSearch({
   // zero-width one, and Chrome blocks (and warns about) focus retained inside
   // an aria-hidden subtree.
   React.useLayoutEffect(() => {
-    if (open) inputRef.current?.focus()
+    if (!open || !focusOnOpenRef.current) return
+    inputRef.current?.focus()
+    focusOnOpenRef.current = false
   }, [open])
 
   const collapse = () => {
     onValueChange("")
-    setOpen(false)
+    if (!stayOpen) setOpen(false)
   }
 
   return (
@@ -85,7 +94,7 @@ export function ContentSearch({
       className={cn(
         // rounded-rad-xmd is the fallback shape until the squircle clip-path
         // is measured on mount, same as everywhere else in the app.
-        "flex h-8 items-center rounded-rad-xmd bg-surface-3 transition-[width,background-color,scale] duration-200 ease-[cubic-bezier(0.77,0,0.175,1)]",
+        "flex h-8 min-w-0 items-center rounded-rad-xmd bg-surface-3 transition-[width,background-color,scale] duration-200 ease-[cubic-bezier(0.77,0,0.175,1)]",
         // Collapsed it's a button, so it takes the app's hover tint and press
         // scale (`:active` matches the ancestors of the pressed element, so
         // the whole chip scales rather than just the icon inside it).
@@ -106,7 +115,14 @@ export function ContentSearch({
         // puts the caret back in the input rather than closing what you just
         // opened. Escape, the clear button and blurring an empty field are
         // what close it.
-        onClick={() => (open ? inputRef.current?.focus() : setOpen(true))}
+        onClick={() => {
+          if (open) {
+            inputRef.current?.focus()
+            return
+          }
+          focusOnOpenRef.current = true
+          setOpen(true)
+        }}
         aria-label="Search posts"
         aria-expanded={open}
         className="flex h-8 w-11 shrink-0 cursor-pointer items-center justify-center rounded-rad-xmd outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -130,7 +146,7 @@ export function ContentSearch({
           // Keyboard users land back on the icon button they opened, rather
           // than at the top of the document.
           collapse()
-          buttonRef.current?.focus()
+          if (!stayOpen) buttonRef.current?.focus()
         }}
         // A field with something typed in it stays open when you look away —
         // the query is still filtering what you're looking at. An empty one
@@ -140,7 +156,7 @@ export function ContentSearch({
         // before that click, while the value is still there, so the field
         // can't collapse out from under it.
         onBlur={() => {
-          if (value.trim() === "") collapse()
+          if (value.trim() === "" && !stayOpen) collapse()
         }}
         className={cn(
           "min-w-0 flex-1 bg-transparent text-body-lg text-text-bold outline-none placeholder:text-text-subtle",
