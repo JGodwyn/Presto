@@ -811,7 +811,11 @@ export const GenerateCard = React.forwardRef<
             )}
           </div>
         ) : (
-          <div className="flex w-full items-start gap-dist-5xl">
+          <div className="flex w-full flex-col items-start gap-dist-5xl @4xl/section:flex-row">
+            {/* Calendar selection is a two-column task only once the shared
+                shell can fit both fixed-width controls without squeezing either
+                one. Below 2xl, stack the two complete controls instead of
+                creating a horizontal overflow strip in the section. */}
             <div className="flex w-110 max-w-full shrink-0 flex-col items-center gap-dist-xl">
               {/* dist-lg — this trio (cadence, date-select, model/account
                 pills) groups tighter than the outer dist-xl rhythm, per the

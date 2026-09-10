@@ -25,7 +25,31 @@ export function ProjectTopbar({
   const { step } = useOnboarding()
   const { hasExpiredLinkedIn, connectionsHref } = useExpiredConnection()
 
-  if (typeof step === "number") return <OnboardingTopbar />
+  // On phones the exported tour keeps the normal compact brand bar visible;
+  // its teaching surface lives over the section below, while the desktop tour
+  // uses the dedicated progress/action bar.
+  if (typeof step === "number") {
+    return (
+      <>
+        {/* Mobile keeps the familiar brand bar from the export, but the
+            callout is the tour's sole control. Leave this chrome visible
+            without letting Back or Profile interrupt the sequence. */}
+        <div inert className="md:hidden">
+          <ProjectsNavbar
+            userName={userName}
+            userId={userId}
+            avatarUrl={avatarUrl}
+            gradientId={gradientId}
+            profileHref={profileHref}
+            backHref="/projects"
+          />
+        </div>
+        <div className="hidden md:block">
+          <OnboardingTopbar />
+        </div>
+      </>
+    )
+  }
 
   return (
     <ProjectsNavbar

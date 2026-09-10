@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { FlickerProbe } from "@/components/shared/flicker-probe"
 import { ProjectSidebar } from "@/components/shared/project-sidebar"
+import { MobileProjectNavigation } from "@/components/shared/mobile-project-navigation"
 import { SectionContent } from "@/components/shared/section-content"
 import { SectionScrollArea } from "@/components/shared/section-scroll-area"
 import { ProjectTopbar } from "@/components/shared/project-topbar"
@@ -73,28 +74,45 @@ export default async function ProjectLayout({
             overflowing content visibly runs past the sidebar's foot rather
             than clipping at the padding line; the inner pb restores the same
             breathing room at the end of the scroll. */}
-        <div className="flex h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl xl:px-pad-9xl">
-          <ProjectTopbar
-            userName={firstName}
-            userId={user?.id}
-            avatarUrl={
-              (user?.user_metadata?.avatar_url as string | undefined) ?? null
-            }
-            gradientId={
-              (user?.user_metadata?.avatar_gradient as string | undefined) ??
-              null
-            }
-            profileHref={`/projects/${projectId}/profile`}
-          />
+        {/* The desktop gutter grows continuously, rather than jumping at a
+            viewport breakpoint: it reaches the Figma frame's 256px cap on a
+            16-inch MacBook Pro's full-width viewport, then gives space back
+            as the sidebar's section rail approaches its comfortable measure.
+            The curve reserves the original 256px only at 1728px and above,
+            freeing meaningful page width at 1440px–1512px. Clamp still keeps
+            scaled-down desktops at or above the 48px token minimum. */}
+        <div className="flex h-dvh w-full flex-col gap-dist-lg bg-surface-3 px-pad-xl py-pad-xl md:h-screen md:gap-dist-2xl md:py-pad-4xl md:px-[clamp(var(--pad-4xl),calc(37.037vw-var(--pad-9xl)-var(--pad-7xl)),var(--pad-9xl))]">
+          {/* The top bar shares the entire content rail below: sidebar plus
+              section, bounded by the same responsive outer gutters. */}
+          <div className="w-full">
+            <ProjectTopbar
+              userName={firstName}
+              userId={user?.id}
+              avatarUrl={
+                (user?.user_metadata?.avatar_url as string | undefined) ?? null
+              }
+              gradientId={
+                (user?.user_metadata?.avatar_gradient as string | undefined) ??
+                null
+              }
+              profileHref={`/projects/${projectId}/profile`}
+            />
+          </div>
 
-          <div className="flex min-h-0 flex-1 items-stretch gap-dist-xl">
-            <ProjectSidebar projectName={project.name} />
+          <div className="flex min-h-0 w-full flex-1 items-stretch gap-dist-xl">
+            <div className="hidden md:flex">
+              <ProjectSidebar projectName={project.name} />
+            </div>
             {/* <main> and its top fade — see section-scroll-area.tsx for why
                 that fade is an overlay strip rather than the CSS mask every
                 other scroller in this app uses. */}
             <SectionScrollArea overlay={<OnboardingCallout />}>
               <SectionContent>{children}</SectionContent>
             </SectionScrollArea>
+          </div>
+
+          <div className="w-full md:hidden">
+            <MobileProjectNavigation />
           </div>
         </div>
 

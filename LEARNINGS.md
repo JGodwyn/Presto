@@ -1813,3 +1813,35 @@ entirely. Suspect the platform's idea of what it is serving before suspecting
 the code. And when some hosts "respond" and others 404, check what the
 responding ones actually returned: an SSO redirect is the edge answering, not
 the application.
+
+## 2026-09-10 — A transparent fade endpoint still exposes the hard clip
+
+**Symptom.** Mobile scroll content looked softly faded near the bottom, but a
+high-contrast button or card edge still revealed a thin, sharp cutoff at the
+actual overflow boundary.
+
+**Cause.** The overlay gradient reached the boundary at its most opaque colour
+but relied on the exact terminal sample of that gradient to cover the cut. At
+device-pixel rounding boundaries, a contrasting edge could still meet the
+overflow clip before it was completely hidden.
+
+**Rule.** When a scroll fade terminates at an internal overflow boundary, end
+it with a short opaque cap in the canvas colour before beginning the gradient.
+The cap guarantees the content is already invisible when it reaches the hard
+clip; keep the pure edge-to-transparent gradient for boundaries that genuinely
+bleed off-screen.
+
+## 2026-09-10 — Optimistic navigation belongs to the destination
+
+**Symptom.** The mobile tab highlight worked on the first navigation but became
+unreliable after several taps, especially when a second tab was chosen before
+the first route finished loading.
+
+**Cause.** Pending selection state was keyed to the pathname where the click
+started. When an older route committed, that origin no longer matched and the
+newest optimistic selection was discarded even though its own navigation was
+still in flight.
+
+**Rule.** Track an optimistic navigation by its destination. Keep the newest
+selection authoritative through intermediate commits, and yield to the URL
+only when that destination arrives or navigation leaves the tab system.

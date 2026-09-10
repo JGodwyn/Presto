@@ -79,7 +79,7 @@ function AuthFlow() {
       </div>
 
       {isTabStep ? (
-        <div className="flex w-full max-w-sm flex-col items-start gap-dist-xl">
+        <div className="flex w-full max-w-sm flex-col items-start gap-pad-3xl md:gap-dist-xl">
           <SegmentedControl
             value={step.name}
             onValueChange={(newValue) => {
@@ -102,7 +102,7 @@ function AuthFlow() {
           <div className="grid w-full">
             <div
               className={cn(
-                "col-start-1 row-start-1 flex flex-col items-start gap-dist-xl",
+                "col-start-1 row-start-1 flex flex-col items-start gap-pad-3xl md:gap-dist-xl",
                 step.name !== "create-account" && "invisible"
               )}
               inert={step.name !== "create-account"}
@@ -116,7 +116,7 @@ function AuthFlow() {
             </div>
             <div
               className={cn(
-                "col-start-1 row-start-1 flex flex-col items-start gap-dist-xl",
+                "col-start-1 row-start-1 flex flex-col items-start gap-pad-3xl md:gap-dist-xl",
                 step.name !== "login" && "invisible"
               )}
               inert={step.name !== "login"}

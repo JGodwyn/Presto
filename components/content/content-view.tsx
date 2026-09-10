@@ -265,7 +265,7 @@ export function ContentView({
           the panel's info marker used to be on this page (see the page's
           `showInfoMarker={false}`) — the corner marker had no behavior, this
           does. */}
-      <div className="flex items-center justify-between gap-dist-lg">
+      <div className="flex flex-col items-start gap-dist-lg @2xl/section:flex-row @2xl/section:items-center @2xl/section:justify-between">
         <h1 className="text-heading-md font-display text-text-bold">Content</h1>
         <div className="flex items-center gap-dist-md">
           <ContentSearch value={query} onValueChange={handleQueryChange} />
@@ -278,7 +278,7 @@ export function ContentView({
       </div>
 
       <div className="flex flex-col gap-dist-md">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col items-start gap-dist-md @2xl/section:flex-row @2xl/section:items-center @2xl/section:justify-between">
           <SegmentedControl
             className="w-90"
             value={tab}

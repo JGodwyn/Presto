@@ -31,10 +31,17 @@ import { useExpiredConnection } from "@/components/connections/expired-connectio
 const CARD_CORNER_RADIUS = 16 // rad-lg
 const ITEM_CORNER_RADIUS = 12 // rad-xmd
 
+// Responsive sidebar sizing lives here: tablet is 192px (152 + 24 + 16),
+// while desktop is 248px (the previous 272px minus 24).
+const TABLET_SIDEBAR_WIDTH_CLASSNAME =
+  "w-[calc(var(--dist-8xl)+var(--dist-xl)+var(--dist-lg))]"
+const DESKTOP_SIDEBAR_WIDTH_CLASSNAME =
+  "lg:w-[calc(var(--pad-9xl)+var(--dist-lg)-var(--dist-4xl))]"
+
 // Section paths inside a project — prefixed with /projects/<id> at render
 // time. Labels follow the Figma "Dashboard" frame ("Content", not "Content
 // Calendar"); the calendar route keeps its existing path.
-const NAV_ITEMS: { path: string; label: string; icon: Icon }[] = [
+export const PROJECT_NAV_ITEMS: { path: string; label: string; icon: Icon }[] = [
   { path: "dashboard", label: "Dashboard", icon: HouseSimple },
   { path: "instructions", label: "Instructions", icon: ChalkboardTeacher },
   { path: "generate", label: "Generate", icon: MagicWand },
@@ -133,23 +140,30 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
   // it stops. See lib/generation-lock.ts.
   const locked = useGenerationLock()
   const { projectId } = useParams<{ projectId: string }>()
-  const { activePath } = useOnboarding()
+  const { activePath, step } = useOnboarding()
   const { hasExpiredLinkedIn } = useExpiredConnection()
   // The clicked item highlights immediately (optimistic), not when the
   // route commits — section navigations hit the server and the gap between
   // click and pathname change otherwise reads as a dead click.
-  const [pendingPath, setPendingPath] = React.useState<string | null>(null)
+  const [pending, setPending] = React.useState<{
+    fromPathname: string
+    path: string
+  } | null>(null)
+  // Once Next commits any different route, the URL resumes ownership of the
+  // active state. Storing the origin avoids a cleanup effect and also means a
+  // cancelled navigation cannot leave a stale optimistic highlight behind.
+  const pendingPath =
+    pending?.fromPathname === pathname ? pending.path : null
+  // Onboarding names these items in place, rather than navigating through
+  // them. Keep the sidebar visible as the tour's visual reference, but leave
+  // the callout's Next/Complete button as the only way to advance.
+  const onboardingLocked = typeof step === "number"
+  const interactionLocked = locked || onboardingLocked
   const { ref: cardRef, style: cardStyle } =
     useSquircleClipPath<HTMLElement>({
       cornerRadius: CARD_CORNER_RADIUS,
       cornerSmoothing: 1,
     })
-
-  // Navigation committed (or was abandoned for another route) — hand the
-  // highlight back to the real pathname.
-  React.useEffect(() => {
-    setPendingPath(null)
-  }, [pathname])
 
   return (
     <aside
@@ -161,9 +175,11 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
       // so max-content adds them up correctly on its own. Below that natural
       // height the card stops shrinking with the viewport and holds this
       // size instead.
-      inert={locked}
+      inert={interactionLocked}
       className={cn(
-        "relative flex w-64 min-h-max shrink-0 flex-col overflow-hidden rounded-rad-lg bg-surface-4 p-pad-md",
+        "relative flex min-h-max shrink-0 flex-col overflow-hidden rounded-rad-lg bg-surface-4 p-pad-md",
+        TABLET_SIDEBAR_WIDTH_CLASSNAME,
+        DESKTOP_SIDEBAR_WIDTH_CLASSNAME,
         locked ? CHROME_LOCK_CLASSNAME : CHROME_UNLOCK_CLASSNAME
       )}
     >
@@ -192,7 +208,7 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
       />
 
       <nav className="relative flex flex-col gap-dist-md">
-        {NAV_ITEMS.map(({ path, label, icon }) => {
+        {PROJECT_NAV_ITEMS.map(({ path, label, icon }) => {
           const href = `/projects/${projectId}/${path}`
           // During the onboarding tour, the callout forces one item to
           // read as active regardless of the actual route — the tour
@@ -214,7 +230,7 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
               // (generate/generating) the Generate tab still highlights, but
               // tapping it has somewhere real to go and must not be a no-op.
               current={pathname === href}
-              onNavigate={() => setPendingPath(path)}
+              onNavigate={() => setPending({ fromPathname: pathname, path })}
               warning={path === "connections" && hasExpiredLinkedIn}
             />
           )

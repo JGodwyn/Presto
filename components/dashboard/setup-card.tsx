@@ -122,7 +122,7 @@ export function SetupCard({
     <section className={cn("flex flex-col gap-dist-md", className)}>
       <DashboardCardTitle>Setup</DashboardCardTitle>
 
-      <div className="grid grid-cols-3 gap-dist-md">
+      <div className="grid grid-cols-2 gap-dist-md @4xl/section:grid-cols-3">
         {rows.map((row) => (
           <SetupTile key={row.label} row={row} />
         ))}

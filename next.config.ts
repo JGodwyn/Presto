@@ -36,7 +36,7 @@ const nextConfig: NextConfig = {
   // and dev toolbars are all silently refused: it renders, but nothing works.
   //
   // Development only — the option has no effect on a production build.
-  allowedDevOrigins: ["127.0.0.1"],
+  allowedDevOrigins: ["127.0.0.1", "192.168.0.160"],
   experimental: {
     // Powers the blur transition between the Generate page and the
     // Generating page (React's <ViewTransition>, used in

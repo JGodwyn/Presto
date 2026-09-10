@@ -15,7 +15,10 @@ export function OnboardingTopbar() {
   const isLastStep = step === 5
 
   return (
-    <header className="flex items-center justify-between">
+    // Numbered tour steps advance only through the callout below. Keeping the
+    // top bar visible preserves the Figma chrome while `inert` prevents its
+    // End onboarding control from bypassing that sequence.
+    <header inert={typeof step === "number"} className="flex items-center justify-between">
       <span className="text-heading-sm font-display text-text-subtle">
         Onboarding
       </span>

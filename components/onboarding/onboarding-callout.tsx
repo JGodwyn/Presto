@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import { ArrowRight, Check } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
@@ -89,8 +90,12 @@ export function OnboardingCallout() {
           out. */}
       <div
         ref={ref}
-        style={{ ...style, translate: calloutOffset(index) }}
-        className="absolute top-0 left-pad-lg w-86 rounded-rad-lg border-[length:var(--stroke-xl)] border-purple-700 bg-purple-500 p-pad-xl transition-[translate,opacity,filter,scale] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-95 starting:opacity-0 starting:blur-[8px]"
+        style={{
+          ...style,
+          "--callout-mobile-offset": "0 0",
+          "--callout-desktop-offset": calloutOffset(index),
+        } as React.CSSProperties}
+        className="absolute bottom-0 left-0 w-full translate-[var(--callout-mobile-offset)] rounded-rad-lg border-[length:var(--stroke-xl)] border-purple-700 bg-purple-500 p-pad-xl transition-[translate,opacity,filter,scale] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-95 starting:opacity-0 starting:blur-[8px] md:top-0 md:bottom-auto md:left-pad-lg md:w-86 md:translate-[var(--callout-desktop-offset)]"
       >
         {/* Keyed on step so each one is a fresh element: the icon/heading/
             description/button swap gets its own starting-style entrance

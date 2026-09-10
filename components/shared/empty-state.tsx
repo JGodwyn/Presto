@@ -71,7 +71,7 @@ export function EmptyState({
       {caption !== null && caption !== undefined && (
         <p className="w-68 text-center text-body-md text-text-subtle">{caption}</p>
       )}
-      <div className="flex flex-col items-center gap-dist-xl">
+      <div className="flex w-full flex-col items-center gap-dist-xl">
         {/* font-display (Phudu) renders caps on its own — no `uppercase`. */}
         <Title
           className={cn(

@@ -183,7 +183,7 @@ export function DashboardView({
       <div className="flex flex-col gap-dist-lg">
         <TotalPostsCard totals={totals} />
 
-        <div className="flex flex-col gap-dist-md xl:flex-row">
+        <div className="flex flex-col gap-dist-md lg:flex-row">
           <StatCard
             label="To go out this month"
             icon={CalendarCheck}
@@ -214,20 +214,22 @@ export function DashboardView({
 
       <DottedDivider />
 
-      {/* The calendar card sizes this row; the Next-up column then fills
-          exactly that height and scrolls its own content, which is what the
-          export draws (it clips mid-"Recently out"). An absolutely-positioned
-          child is what makes that possible — out of flow, it contributes
-          nothing to the row's content-based height, so a long list can't grow
-          the row. Same trick as the Content page's panel. */}
-      <div className="flex flex-col gap-dist-lg xl:flex-row xl:items-stretch">
+      {/* At laptop width the calendar takes two fifths of the row, leaving the
+          post list the larger three-fifths share from the full-screen export.
+          The calendar still sizes that row; the Next-up column then fills
+          exactly that height and scrolls its own content (it clips mid-
+          "Recently out"). An absolutely-positioned child is what makes that
+          possible — out of flow, it contributes nothing to the row's
+          content-based height, so a long list can't grow the row. Same trick
+          as the Content page's panel. */}
+      <div className="flex flex-col gap-dist-lg lg:flex-row lg:items-stretch">
         <MonthCalendarCard
           summary={summary}
           projectId={projectId}
           contentHref={hrefs.content}
           postBase={hrefs.postBase}
           postIdsByDay={postIdsByDay}
-          className="xl:w-90 xl:shrink-0"
+          className="lg:w-2/5 lg:shrink-0"
         />
         <div className="relative min-h-100 min-w-0 flex-1">
           <NextUpColumn
@@ -242,7 +244,7 @@ export function DashboardView({
 
       <DottedDivider />
 
-      <div className="flex flex-col gap-dist-lg xl:flex-row xl:items-start">
+      <div className="flex flex-col gap-dist-lg @4xl/section:flex-row @4xl/section:items-start">
         {/* Every post, not this month's — the card asks what you write about,
             which is a property of the library rather than of a calendar page,
             and its title carries no month to say otherwise. It *was* scoped to
@@ -253,9 +255,9 @@ export function DashboardView({
           topics={topTopics(posts, TOP_TOPICS_LIMIT)}
           split={platformSplit(posts)}
           total={posts.length}
-          className="xl:w-108 xl:shrink-0"
+          className="@4xl/section:w-108 @4xl/section:shrink-0"
         />
-        <SetupCard rows={setupRows} className="xl:min-w-0 xl:flex-1" />
+        <SetupCard rows={setupRows} className="@4xl/section:min-w-0 @4xl/section:flex-1" />
       </div>
     </div>
   )

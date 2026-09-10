@@ -86,18 +86,35 @@ export function ProjectsNavbar({
         locked ? CHROME_LOCK_CLASSNAME : CHROME_UNLOCK_CLASSNAME
       )}
     >
-      <div className="flex items-center gap-dist-md">
+      <div className="flex items-center gap-dist-sm md:gap-dist-md">
         {backHref && (
-          <Button
-            variant="brand-secondary"
-            size="icon-md"
-            nativeButton={false}
-            render={<Link href={backHref} aria-label="Back to projects" />}
-          >
-            <ArrowLeftIcon weight="bold" />
-          </Button>
+          <>
+            <div className="flex h-9 items-end md:hidden">
+              <Button
+                variant="brand-secondary"
+                size="icon-sm"
+                nativeButton={false}
+                render={<Link href={backHref} aria-label="Back to projects" />}
+              >
+                <ArrowLeftIcon weight="bold" />
+              </Button>
+            </div>
+            <Button
+              variant="brand-secondary"
+              size="icon-md"
+              className="hidden md:inline-flex"
+              nativeButton={false}
+              render={<Link href={backHref} aria-label="Back to projects" />}
+            >
+              <ArrowLeftIcon weight="bold" />
+            </Button>
+          </>
         )}
-        <PrestoLogoMono />
+        <div className="relative h-10 w-24 md:h-14 md:w-34">
+          <div className="absolute top-0 left-0 origin-top-left scale-[0.714] md:scale-100">
+            <PrestoLogoMono />
+          </div>
+        </div>
       </div>
 
       {/* The chip is the only way into the profile screen now that the gear
@@ -108,18 +125,28 @@ export function ProjectsNavbar({
           ref={chipRef}
           href={profileHref}
           style={chipStyle}
-          className="flex items-center gap-dist-md rounded-rad-lg bg-surface-inverse py-pad-xs pr-pad-md pl-pad-sm transition-[scale] duration-150 ease-out active:scale-[0.97]"
+          className="flex items-center gap-dist-sm rounded-rad-lg bg-surface-inverse py-pad-xs pr-pad-md pl-pad-sm transition-[scale] duration-150 ease-out active:scale-[0.97] md:gap-dist-md"
         >
-          <UserAvatar
+          <span className="md:hidden">
+            <UserAvatar
+              userId={userId}
+              avatarUrl={avatarUrl}
+              gradientId={gradientId}
+              size={16}
+            />
+          </span>
+          <span className="hidden md:block">
+            <UserAvatar
             userId={userId}
             avatarUrl={avatarUrl}
             gradientId={gradientId}
             size={28}
           />
+          </span>
           {/* max-w + truncate so a very long name can't stretch the chip off
               the edge of the navbar; min-w-0 is what lets a flex child shrink
               below its content width at all. */}
-          <span className="min-w-0 max-w-40 truncate text-heading-sm font-display text-text-inverse">
+          <span className="min-w-0 max-w-40 truncate text-title-lg font-display text-text-inverse md:text-heading-sm">
             {userName}
           </span>
         </Link>

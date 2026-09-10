@@ -165,7 +165,7 @@ function MyVoiceCard({
       </div>
 
       <InstructionsCard
-        title="My voice"
+        title="Voice"
         description="Tell Presto how to think, write, and behave when creating your posts."
         className={className}
       >
@@ -173,7 +173,7 @@ function MyVoiceCard({
           <div
             ref={toggleRowRef}
             style={toggleRowStyle}
-            className="flex items-center gap-dist-lg rounded-rad-lg border-[length:var(--stroke-lg)] border-border-subtle bg-surface-3 py-pad-xs pr-pad-xs pl-pad-md"
+            className="flex items-start gap-dist-lg rounded-rad-lg border-[length:var(--stroke-lg)] border-border-subtle bg-surface-3 py-pad-xs pr-pad-xs pl-pad-md"
           >
             <label
               htmlFor={switchId}
@@ -187,7 +187,7 @@ function MyVoiceCard({
               onCheckedChange={handleToggle}
             />
           </div>
-          <div className="flex items-center gap-dist-md text-text-subtle">
+          <div className="flex items-start gap-dist-md text-text-subtle">
             <Info className="size-5 shrink-0" />
             <p className="text-body-md">Write everything in one single field</p>
           </div>

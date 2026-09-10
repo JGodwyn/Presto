@@ -45,8 +45,8 @@ function InstructionsCard({
         className
       )}
     >
-      <div className="flex items-center justify-between gap-dist-md">
-        <h2 className="text-heading-sm font-display text-text-bold">
+      <div className="flex items-start justify-between gap-dist-md">
+        <h2 className="min-w-0 flex-1 truncate text-heading-sm font-display text-text-bold">
           {title}
         </h2>
         {headerAction}
