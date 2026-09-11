@@ -4,6 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   ArrowClockwise,
+  CaretLeft,
   EyeClosed,
   Info,
   Pause,
@@ -11,7 +12,6 @@ import {
   SpinnerGap,
   StopCircle,
   Warning,
-  X,
 } from "@phosphor-icons/react"
 
 import {
@@ -731,6 +731,9 @@ export function GeneratingView({
       generatedSoFar > 0 &&
       generatedSoFar >= count
     ) {
+      // The completion state is intentionally synchronized from the batch
+      // counters after paint; the generating loop owns those counters.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus("completed")
       if (failedCount > 0) {
         showGenerationError(
@@ -954,7 +957,7 @@ export function GeneratingView({
 
       <div className="flex w-full flex-col gap-dist-xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
       <div className="flex w-full flex-col gap-dist-md">
-        <div className="flex w-full items-center justify-between">
+        <div className="flex w-full flex-col gap-dist-md md:flex-row md:items-center md:justify-between">
           {/* Trying out nyxui.com's "elastic" AnimateText effect
             (components/ui/animated-text.tsx) on this heading specifically
             — a spot for tweaking animations, per the reason this page
@@ -970,10 +973,10 @@ export function GeneratingView({
                 ? availablePostCount === 0
                   ? "no post generated"
                   : `here's ${availablePostCount} ${availablePostCount === 1 ? "post" : "posts"} for you`
-                : `generating ${count} ${count === 1 ? "post" : "posts"} . . .`
+                : `generating ${count} ${count === 1 ? "post" : "posts"}…`
             }
             type="elastic"
-            className="text-heading-sm font-display text-text-bold"
+            className="w-full text-center text-heading-sm font-display text-text-bold md:w-auto md:text-left"
             offset={HEADING_ANIMATION.offset}
             stagger={HEADING_ANIMATION.stagger}
             duration={HEADING_ANIMATION.duration}
@@ -982,7 +985,7 @@ export function GeneratingView({
             loopDelay={HEADING_ANIMATION.loopDelay}
           />
 
-          <div className="flex items-center gap-dist-md">
+          <div className="flex w-full items-center gap-dist-md md:w-auto">
             {/* design-sync/generatepoststatus — visible while there's still
               something to generate or resume (generating or stopped),
               gone once the batch is actually done. Spinner while
@@ -1009,7 +1012,12 @@ export function GeneratingView({
             )}
 
             {status === "generating" ? (
-              <Button variant="danger" size="sm" onClick={handleStop}>
+              <Button
+                variant="danger"
+                size="sm"
+                className="flex-1 md:flex-none"
+                onClick={handleStop}
+              >
                 <StopCircle weight="bold" />
                 Stop
               </Button>
@@ -1017,6 +1025,7 @@ export function GeneratingView({
               <Button
                 variant={status === "stopped" ? "success" : "brand"}
                 size="sm"
+                className="flex-1 md:flex-none"
                 onClick={status === "stopped" ? handleResume : handleRestart}
               >
                 {/* Two top-level children (not one wrapped in a fragment)
@@ -1038,6 +1047,7 @@ export function GeneratingView({
               <Button
                 variant="brand-secondary"
                 size="icon-sm"
+                className="order-first md:order-none"
                 aria-label="Close"
                 onClick={goBack}
                 disabled={isNavigatingBack}
@@ -1045,7 +1055,7 @@ export function GeneratingView({
                 {isNavigatingBack ? (
                   <SpinnerGap weight="bold" className="animate-spin" />
                 ) : (
-                  <X weight="bold" />
+                  <CaretLeft weight="bold" />
                 )}
               </Button>
             )}
@@ -1061,7 +1071,7 @@ export function GeneratingView({
             {generationErrorMessage}
           </p>
         ) : (
-          <p className="flex items-center gap-dist-md text-body-md text-text-subtle">
+          <p className="hidden items-center gap-dist-md text-body-md text-text-subtle md:flex">
             <Info className="size-4 text-icon-subtle" />
             Double-tap to edit posts
           </p>

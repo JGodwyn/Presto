@@ -215,6 +215,9 @@ export function PostDetails({
   const headingDate = publishedAt ?? scheduled
 
   const { ref: contentFadeRef, onScroll: onContentScroll } = useScrollFade()
+  // Mobile uses this panel as the sole reader so its metadata moves with the
+  // copy. The desktop body retains contentFadeRef's dedicated reader mask.
+  const { ref: mobilePageFadeRef, onScroll: onMobilePageScroll } = useScrollFade()
   const { ref: metadataRowRef, onScroll: onMetadataRowScroll } = useScrollFade({
     axis: "x",
     start: METADATA_ROW_FADE_PX,
@@ -1213,8 +1216,15 @@ export function PostDetails({
 
           items-center on this wrapper is what centres the column; items-start
           inside it is what left-aligns the contents. */}
-      <div className="flex min-h-0 flex-1 flex-col items-center">
-        <div className="flex w-full min-h-0 flex-1 flex-col items-start gap-dist-lg md:w-100">
+      <div
+        ref={mobilePageFadeRef}
+        onScroll={onMobilePageScroll}
+        className={cn(
+          "flex min-h-0 flex-1 flex-col items-center overflow-y-auto md:overflow-visible",
+          HIDE_NATIVE_SCROLLBAR_CLASSNAME,
+        )}
+      >
+        <div className="flex w-full flex-col items-start gap-dist-lg md:min-h-0 md:flex-1 md:w-100">
           {/* Date • time on the heading line itself, the same shape the post
             cards read in — the time no longer sits on a line of its own
             below, and the icon that led it is gone with it (the bullet is the
@@ -1381,7 +1391,7 @@ export function PostDetails({
               onBlur={commitContentEdit}
               onScroll={onContentScroll}
               className={cn(
-                "w-full min-h-0 flex-1 resize-none bg-transparent text-body-lg whitespace-pre-wrap text-text-bold outline-none",
+                "w-full resize-none bg-transparent text-body-lg whitespace-pre-wrap text-text-bold outline-none md:min-h-0 md:flex-1",
                 HIDE_NATIVE_SCROLLBAR_CLASSNAME
               )}
             />
@@ -1391,7 +1401,7 @@ export function PostDetails({
             // in normal flow, so it can fade away over a genuinely blank area
             // instead of pushing the streaming view below it down for the
             // ~300ms the exit takes.
-            <div className="relative w-full min-h-0 flex-1">
+            <div className="relative w-full md:min-h-0 md:flex-1">
               <AnimatePresence>
                 {!isRegenerating && (
                   <motion.div
@@ -1404,7 +1414,7 @@ export function PostDetails({
                     exit={{ opacity: 0, filter: "blur(8px)" }}
                     transition={{ duration: 0.3, ease: STRONG_EASE_OUT_TUPLE }}
                     className={cn(
-                      "absolute inset-0 overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
+                      "text-body-lg whitespace-pre-wrap text-text-bold md:absolute md:inset-0 md:overflow-y-auto",
                       // The only affordance this box has. Dropped once the
                       // post is live, so the pointer stops promising an edit
                       // that handleContentClick now refuses.
@@ -1426,7 +1436,7 @@ export function PostDetails({
                   ref={streamFadeRef}
                   onScroll={onStreamScroll}
                   className={cn(
-                    "h-full overflow-y-auto text-body-lg whitespace-pre-wrap text-text-bold",
+                    "text-body-lg whitespace-pre-wrap text-text-bold md:h-full md:overflow-y-auto",
                     HIDE_NATIVE_SCROLLBAR_CLASSNAME
                   )}
                 >

@@ -1,7 +1,7 @@
 "use client"
 
-import Link from "next/link"
-import { ArrowLeftIcon, WarningDiamond } from "@phosphor-icons/react"
+import Link, { useLinkStatus } from "next/link"
+import { SpinnerGap, WarningDiamond, XIcon } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { UserAvatar } from "@/components/shared/user-avatar"
@@ -18,9 +18,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-// Figma --rad-lg as a pixel number for the squircle path math (same reason
+// Figma --rad-xmd as a pixel number for the squircle path math (same reason
 // as dialog.tsx: the clip-path calculation can't read CSS vars).
-const CHIP_CORNER_RADIUS = 16
+const CHIP_CORNER_RADIUS = 12
 
 // Figma "Logo / Type=mono": three copies of the wordmark stacked with small
 // x-offsets (2 / 10 / 6px, last on top) to fake an extruded edge — dark left,
@@ -42,6 +42,18 @@ function PrestoLogoMono() {
         Presto
       </span>
     </div>
+  )
+}
+
+// Rendered inside the Link supplied through Button's render prop, which is the
+// nearest Link useLinkStatus observes. Its fixed footprint avoids navbar shift.
+function ProjectsBackIcon() {
+  const { pending } = useLinkStatus()
+
+  return pending ? (
+    <SpinnerGap weight="bold" className="animate-spin" />
+  ) : (
+    <XIcon weight="bold" />
   )
 }
 
@@ -96,7 +108,7 @@ export function ProjectsNavbar({
                 nativeButton={false}
                 render={<Link href={backHref} aria-label="Back to projects" />}
               >
-                <ArrowLeftIcon weight="bold" />
+                <ProjectsBackIcon />
               </Button>
             </div>
             <Button
@@ -106,7 +118,7 @@ export function ProjectsNavbar({
               nativeButton={false}
               render={<Link href={backHref} aria-label="Back to projects" />}
             >
-              <ArrowLeftIcon weight="bold" />
+              <ProjectsBackIcon />
             </Button>
           </>
         )}
@@ -125,23 +137,23 @@ export function ProjectsNavbar({
           ref={chipRef}
           href={profileHref}
           style={chipStyle}
-          className="flex items-center gap-dist-sm rounded-rad-lg bg-surface-inverse py-pad-xs pr-pad-md pl-pad-sm transition-[scale] duration-150 ease-out active:scale-[0.97] md:gap-dist-md"
+          className="flex h-pad-2xl items-center gap-dist-sm rounded-rad-xl bg-surface-inverse py-pad-xs pr-pad-md pl-pad-sm transition-[scale] duration-150 ease-out active:scale-[0.97] md:h-auto md:gap-dist-md"
         >
           <span className="md:hidden">
             <UserAvatar
               userId={userId}
               avatarUrl={avatarUrl}
               gradientId={gradientId}
-              size={16}
+              size={20}
             />
           </span>
           <span className="hidden md:block">
             <UserAvatar
-            userId={userId}
-            avatarUrl={avatarUrl}
-            gradientId={gradientId}
-            size={28}
-          />
+              userId={userId}
+              avatarUrl={avatarUrl}
+              gradientId={gradientId}
+              size={28}
+            />
           </span>
           {/* max-w + truncate so a very long name can't stretch the chip off
               the edge of the navbar; min-w-0 is what lets a flex child shrink

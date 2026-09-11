@@ -228,6 +228,15 @@ export function ContentView({
     start: PAGE_FADE_TOP_PX,
     end: PAGE_FADE_BOTTOM_PX,
   })
+  // Mobile scrolls the complete page within this panel, including its controls.
+  // Keep a dedicated mask on that scroller; the desktop month list still owns
+  // its narrower reader fade above.
+  const { ref: mobileContentRef, onScroll: onMobileContentScroll } =
+    useScrollFade({
+      axis: "y",
+      start: PAGE_FADE_TOP_PX,
+      end: PAGE_FADE_BOTTOM_PX,
+    })
   // Keyed on the layout and tab as well as the project: each shows a different
   // list, so one of them's offset means nothing in another. Switching tabs
   // therefore restores where you'd been in *that* tab, which falls out of the
@@ -277,11 +286,9 @@ export function ContentView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-dist-xl p-pad-md md:p-pad-2xl">
-      {/* The mobile export keeps the three header controls in a single 136px
-          stack: title/show-as, tabs, then a full-width search field. Desktop
-          retains its wider two-row composition below. */}
-      <div className="flex flex-col gap-dist-lg md:hidden">
-        <div className="flex items-center justify-between gap-dist-md">
+      {/* The top mobile row stays visible while the tab/search controls and
+          month content scroll underneath it. */}
+      <div className="flex items-center justify-between gap-dist-md md:hidden">
           <h1 className="text-heading-sm font-display text-text-bold">Content</h1>
           <button
             ref={showAsRef}
@@ -302,30 +309,39 @@ export function ContentView({
               className="size-5 text-icon-bold"
             />
           </button>
-        </div>
-
-        <SegmentedControl
-          className="w-full"
-          value={tab}
-          onValueChange={(value) => handleTabChange(value as ContentTab)}
-          items={CONTENT_TABS}
-        />
-
-        <div className="flex items-center gap-dist-md">
-          <ContentSearch
-            value={query}
-            onValueChange={handleQueryChange}
-            defaultOpen
-            stayOpen
-            className="w-auto flex-1"
-          />
-          <ContentFilterMenu
-            filter={filter}
-            onFilterChange={handleFilterChange}
-            topics={topics}
-          />
-        </div>
       </div>
+
+      <div
+        ref={mobileContentRef}
+        onScroll={onMobileContentScroll}
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-dist-lg overflow-y-auto md:contents",
+          HIDE_NATIVE_SCROLLBAR_CLASSNAME,
+        )}
+      >
+        <div className="flex flex-col gap-dist-lg md:hidden">
+          <SegmentedControl
+            className="w-full"
+            value={tab}
+            onValueChange={(value) => handleTabChange(value as ContentTab)}
+            items={CONTENT_TABS}
+          />
+
+          <div className="flex items-center gap-dist-md">
+            <ContentSearch
+              value={query}
+              onValueChange={handleQueryChange}
+              defaultOpen
+              stayOpen
+              className="w-auto flex-1"
+            />
+            <ContentFilterMenu
+              filter={filter}
+              onFilterChange={handleFilterChange}
+              topics={topics}
+            />
+          </div>
+        </div>
 
       {/* The search control sits at the header's opposite end, and is what
           the panel's info marker used to be on this page (see the page's
@@ -388,11 +404,9 @@ export function ContentView({
         ) : null}
       </div>
 
-      {/* Only this part scrolls (per direct feedback): the panel is exactly
-          the viewport's height, so the title, tabs and info line stay put
-          while the months move under them. min-h-0 is what bounds it — a flex
-          item's automatic minimum is its content, which would otherwise push
-          the column past the panel and take the whole page with it. */}
+      {/* Mobile's panel scroller includes the controls above, so they travel
+          with the months under the same edge fade. Desktop keeps this nested
+          month reader, where the wider header remains persistent. */}
       {months.length === 0 ? (
         // A search or filter that matched nothing reads differently from a tab
         // that has nothing in it: one is something to correct, the other is
@@ -436,7 +450,7 @@ export function ContentView({
           ref={setMonthsNode}
           onScroll={handleMonthsScroll}
           className={cn(
-            "flex min-h-0 flex-1 flex-col gap-dist-xl overflow-y-auto",
+            "flex flex-none flex-col gap-dist-xl md:min-h-0 md:flex-1 md:overflow-y-auto",
             HIDE_NATIVE_SCROLLBAR_CLASSNAME
           )}
         >
@@ -455,7 +469,7 @@ export function ContentView({
           ref={setMonthsNode}
           onScroll={handleMonthsScroll}
           className={cn(
-            "flex min-h-0 flex-1 flex-col gap-dist-xl overflow-y-auto",
+            "flex flex-none flex-col gap-dist-xl md:min-h-0 md:flex-1 md:overflow-y-auto",
             HIDE_NATIVE_SCROLLBAR_CLASSNAME
           )}
         >
@@ -480,6 +494,8 @@ export function ContentView({
           ))}
         </div>
       )}
+
+      </div>
 
       {openDay && openEntry ? (
         <DayDeck

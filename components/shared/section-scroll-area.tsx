@@ -55,6 +55,7 @@ export function SectionScrollArea({
   const topFadeRef = React.useRef<HTMLDivElement | null>(null)
   const bottomFadeRef = React.useRef<HTMLDivElement | null>(null)
   const scrollAreaRef = React.useRef<HTMLElement | null>(null)
+  const contentObserverRef = React.useRef<MutationObserver | null>(null)
 
   // Writes opacity straight to the strip rather than going through state:
   // this runs on every scroll frame, and a setState here would re-render the
@@ -82,13 +83,44 @@ export function SectionScrollArea({
     [applyFade]
   )
 
+  // Disclosure panels grow through CSS grid transitions. That changes the
+  // main element's scrollHeight without inserting a node or resizing the
+  // main element itself, so neither the observer nor a ResizeObserver on main
+  // would notice. Transition events bubble: remeasure at the settled size so
+  // the mobile bottom fade appears without requiring a first scroll gesture.
+  const handleTransitionEnd = React.useCallback(
+    (event: React.TransitionEvent<HTMLElement>) =>
+      applyFade(event.currentTarget),
+    [applyFade]
+  )
+
   // A callback ref, not an effect: it fires on the actual attach, so a section
   // restored mid-scroll (the Content page remembers its offset) shows the
   // right strip on arrival instead of only after the first wheel event.
   const mainRef = React.useCallback(
     (node: HTMLElement | null) => {
+      contentObserverRef.current?.disconnect()
+      contentObserverRef.current = null
       scrollAreaRef.current = node
-      if (node) applyFade(node)
+      if (!node) return
+
+      // The project layout (and therefore this scroll container) survives a
+      // section navigation. New server-rendered page content can arrive later
+      // without resizing <main>, so neither this callback nor its scroll
+      // handler would run again. Observe that insertion and measure the new
+      // scroll height immediately; otherwise the bottom fade waits for the
+      // first user scroll to appear.
+      const contentObserver = new MutationObserver(() => applyFade(node))
+      contentObserver.observe(node, {
+        childList: true,
+        subtree: true,
+        // Covers reduced-motion mode, where the disclosure class changes but
+        // there is no transitionend event to provide the final measurement.
+        attributes: true,
+        attributeFilter: ["class", "hidden", "aria-expanded"],
+      })
+      contentObserverRef.current = contentObserver
+      applyFade(node)
     },
     [applyFade]
   )
@@ -132,6 +164,7 @@ export function SectionScrollArea({
       <main
         ref={mainRef}
         onScroll={handleScroll}
+        onTransitionEnd={handleTransitionEnd}
         inert={onboardingLocked}
         className={cn(
           // The small mobile tail keeps the final card's rounded border clear

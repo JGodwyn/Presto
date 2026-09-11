@@ -5,7 +5,7 @@ import Image from "next/image"
 // shell with different content in the middle.
 function AuthShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-surface-4">
+    <div className="relative h-dvh min-h-0 w-full overflow-clip bg-surface-4">
       <div className="absolute inset-x-0 bottom-0 h-[56vw] max-h-[810px] min-h-[420px] w-full">
         <Image
           src="/images/auth/signup-background.png"
@@ -17,7 +17,7 @@ function AuthShell({ children }: { children: React.ReactNode }) {
         />
       </div>
 
-      <div className="relative flex min-h-screen items-center justify-center p-6">
+      <div className="relative flex h-full min-h-0 items-center justify-center p-6">
         {children}
       </div>
 

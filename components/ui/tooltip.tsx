@@ -9,6 +9,10 @@ import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 // Figma "Tooltip" (design-sync/tooltip) card radius — rad-xmd — as a literal
 // px number for the squircle path math (see hooks/use-squircle-clip-path.ts).
 const TOOLTIP_CORNER_RADIUS = 12
+// Base UI's default 5px lets the 16px pointer crowd a squircle's curved edge
+// after collision positioning. Keep its centre one corner-radius inward so it
+// remains visually attached to the bubble on either viewport edge.
+const TOOLTIP_ARROW_EDGE_PADDING = 12
 
 // The export's top pointer asset (assets/tooltip-pointers.svg) drawn once and
 // rotated per side. Base UI supplies the cross-axis position but deliberately
@@ -26,9 +30,10 @@ function TooltipPointer({
       data-slot="tooltip-arrow"
       className={cn(
         // Base shape points up (side=bottom, tooltip below the anchor), exactly
-        // as exported. `*-full` keeps the point touching the popup edge without
-        // introducing a made-up pixel offset.
-        "absolute z-50 data-[side=bottom]:bottom-full data-[side=top]:top-full data-[side=top]:rotate-180 data-[side=left]:left-full data-[side=left]:rotate-90 data-[side=right]:right-full data-[side=right]:-rotate-90",
+        // as exported. The pointer overlaps the bubble by stroke-lg: on a
+        // device's fractional pixel grid, edge-to-edge fills can otherwise
+        // anti-alias into a hairline of the page background between them.
+        "absolute z-50 data-[side=bottom]:bottom-[calc(100%-var(--stroke-lg))] data-[side=top]:top-[calc(100%-var(--stroke-lg))] data-[side=top]:rotate-180 data-[side=left]:left-[calc(100%-var(--stroke-lg))] data-[side=left]:rotate-90 data-[side=right]:right-[calc(100%-var(--stroke-lg))] data-[side=right]:-rotate-90",
         className
       )}
     >
@@ -53,6 +58,30 @@ function TooltipPointer({
 // default, which is why the global Provider exists rather than this default
 // alone. A nested Provider can still override it for one group.
 const TOOLTIP_OPEN_DELAY_MS = 200
+const MOBILE_TOOLTIP_MEDIA_QUERY = "(max-width: 767px)"
+const LONG_PRESS_DELAY_MS = 500
+
+type TooltipTouchBehavior = "tap" | "long-press" | "none"
+
+const TooltipTapContext = React.createContext<{
+  isMobile: boolean
+  touchBehavior: TooltipTouchBehavior
+  openFromTap: () => void
+} | null>(null)
+
+function useMobileTooltipLayout() {
+  const [isMobile, setIsMobile] = React.useState(false)
+
+  React.useEffect(() => {
+    const mediaQuery = window.matchMedia(MOBILE_TOOLTIP_MEDIA_QUERY)
+    const update = () => setIsMobile(mediaQuery.matches)
+    update()
+    mediaQuery.addEventListener("change", update)
+    return () => mediaQuery.removeEventListener("change", update)
+  }, [])
+
+  return isMobile
+}
 
 function TooltipProvider({
   delay = TOOLTIP_OPEN_DELAY_MS,
@@ -67,19 +96,121 @@ function TooltipProvider({
   )
 }
 
-function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+function Tooltip({
+  open: openProp,
+  onOpenChange,
+  touchBehavior = "long-press",
+  ...props
+}: TooltipPrimitive.Root.Props & { touchBehavior?: TooltipTouchBehavior }) {
+  const isMobile = useMobileTooltipLayout()
+  const [mobileOpen, setMobileOpen] = React.useState(false)
+
+  const openFromTap = React.useCallback(() => {
+    if (isMobile) setMobileOpen(true)
+  }, [isMobile])
+
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean, eventDetails: TooltipPrimitive.Root.ChangeEventDetails) => {
+      if (isMobile) setMobileOpen(nextOpen)
+      onOpenChange?.(nextOpen, eventDetails)
+    },
+    [isMobile, onOpenChange]
+  )
+
+  return (
+    <TooltipTapContext.Provider value={{ isMobile, touchBehavior, openFromTap }}>
+      <TooltipPrimitive.Root
+        data-slot="tooltip"
+        open={isMobile ? mobileOpen : openProp}
+        onOpenChange={handleOpenChange}
+        {...props}
+      />
+    </TooltipTapContext.Provider>
+  )
 }
 
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+function TooltipTrigger({
+  onPointerDown,
+  onPointerUp,
+  onPointerCancel,
+  onClickCapture,
+  closeOnClick,
+  ...props
+}: TooltipPrimitive.Trigger.Props) {
+  const tapContext = React.useContext(TooltipTapContext)
+  const longPressTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const suppressClickRef = React.useRef(false)
+
+  const clearLongPress = React.useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }, [])
+
+  React.useEffect(() => clearLongPress, [clearLongPress])
+
+  // A tap-only marker opens on press. Base UI normally treats that same press
+  // as a request to dismiss an already-open tooltip, so it would immediately
+  // close the controlled mobile state on release. Informational markers have
+  // no second trigger action, so their next tap does not need to dismiss it:
+  // outside press and Escape still do.
+  const closeOnTap =
+    tapContext?.isMobile && tapContext.touchBehavior === "tap"
+      ? false
+      : closeOnClick
+
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      closeOnClick={closeOnTap}
+      onPointerDown={(event) => {
+        onPointerDown?.(event)
+        if (event.defaultPrevented || event.pointerType === "mouse" || !tapContext?.isMobile) {
+          return
+        }
+
+        if (tapContext.touchBehavior === "tap") {
+          tapContext.openFromTap()
+        } else if (tapContext.touchBehavior === "long-press") {
+          suppressClickRef.current = false
+          longPressTimerRef.current = setTimeout(() => {
+            suppressClickRef.current = true
+            tapContext.openFromTap()
+          }, LONG_PRESS_DELAY_MS)
+        }
+      }}
+      onPointerUp={(event) => {
+        clearLongPress()
+        onPointerUp?.(event)
+      }}
+      onPointerCancel={(event) => {
+        clearLongPress()
+        onPointerCancel?.(event)
+      }}
+      onClickCapture={(event) => {
+        if (suppressClickRef.current) {
+          event.preventDefault()
+          event.stopPropagation()
+          suppressClickRef.current = false
+        }
+        onClickCapture?.(event)
+      }}
+      {...props}
+    />
+  )
 }
 
 interface TooltipContentProps
   extends React.ComponentProps<"div">,
     Pick<
       TooltipPrimitive.Positioner.Props,
-      "align" | "alignOffset" | "side" | "sideOffset" | "collisionPadding"
+      | "align"
+      | "alignOffset"
+      | "side"
+      | "sideOffset"
+      | "collisionPadding"
+      | "arrowPadding"
     > {
   // Figma ships both as literal component variants (not a light/dark app
   // theme — this app is light-mode only per AGENTS.md). "dark" is the
@@ -101,6 +232,7 @@ function TooltipContent({
   align = "center",
   alignOffset = 0,
   collisionPadding = 8,
+  arrowPadding = TOOLTIP_ARROW_EDGE_PADDING,
   theme = "dark",
   children,
   ...props
@@ -122,6 +254,7 @@ function TooltipContent({
         side={side}
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
+        arrowPadding={arrowPadding}
         className="z-50"
       >
         <TooltipPrimitive.Popup

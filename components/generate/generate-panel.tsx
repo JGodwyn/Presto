@@ -35,6 +35,10 @@ export function GeneratePanel({
 
   return (
     <GlowPanel
+      // The mobile export is taller than the section viewport: the shared
+      // page scroll reveals its lower calendar and actions. Desktop retains
+      // the panel-height layout used by Content.
+      className="min-h-full flex-none md:min-h-0 md:flex-1"
       // Off per direct request: the marker was static, with no behavior
       // wired to it, and this corner already carries a control that does
       // something. GlowPanel keeps drawing it for the Content page.

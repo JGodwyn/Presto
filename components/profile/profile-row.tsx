@@ -36,7 +36,7 @@ export function ProfileRow({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex h-pad-3xl w-full cursor-pointer items-center gap-dist-lg rounded-rad-lg bg-surface-4 py-pad-sm pr-pad-sm pl-pad-md text-left transition-[background-color,scale] duration-150 ease-out hover:bg-surface-2 active:scale-[0.98]",
+        "flex h-pad-3xl w-full cursor-pointer items-center gap-dist-lg rounded-rad-lg bg-surface-4 py-pad-sm pr-pad-sm pl-pad-md text-left transition-[background-color,scale] duration-150 ease-out hover:bg-surface-2 active:scale-[0.98] max-md:h-pad-4xl",
         className
       )}
     >

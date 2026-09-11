@@ -135,6 +135,31 @@ forms, which go full width.
 
 ## 4. Layout rules
 
+- **Auth:** the branded auth shell is a fixed dynamic-viewport canvas
+  (`h-dvh`, `overflow-clip`), never a page-height minimum. Its centered form,
+  bottom gradient, and `Presto` wordmark therefore remain a single composition
+  as mobile browser chrome expands or collapses; auth pages do not scroll.
+
+- **Generate on mobile:** the panel expands with its content and is revealed by
+  the shared section scroll. Its form uses the full inner rail: calendar mode
+  reads cadence/date selection → calendar → model/account → scheduled count
+  and action; its desktop two-column grouping remains unchanged.
+
+- **Generate selectors:** model and social-account triggers are 40px on mobile
+  (32px from `md` upward). Their portaled menus choose the roomier vertical
+  side of the trigger, cap themselves to its available height, and stay within
+  the viewport's horizontal gutter.
+
+- **Tooltips on mobile:** functional controls reveal their tooltip on a
+  long-press (and suppress the control action for that gesture); informational
+  markers opt into a regular tap. Desktop retains hover/focus behavior and its
+  app-wide delay.
+
+- **Generating posts on mobile:** the title is centered above a separate
+  32px action row. Its primary action fills the remaining width beside the
+  status indicator or left-caret exit control; desktop retains its inline
+  heading/actions layout.
+
 - **Mobile project chrome (below `md`):** the in-project canvas uses the
   fluid viewport rail inside the existing `pad-xl` gutter, a compact 40px
   back/logo/profile top bar, and the five-section icon navigation as a 64px
@@ -343,6 +368,21 @@ account. Onboarding completion is global, not per project
 - Dates render with an ordinal suffix via `lib/format-date.ts`
   (`formatFullDate` "July 5th, 2026", `formatShortDate` "Sept 15th, 2026",
   chips "5th"). `Intl` has no ordinal, hence the hand-built string.
+- **Content on mobile:** the header is one compact stack — title with the
+  Show-as control, tabs, then a permanently expanded search/filter row. Calendar
+  day chips become a drag-scrollable rail; Kanban preserves a 256px board even
+  for sparse months so the next day column remains visible as the horizontal
+  scroll cue. Desktop retains the existing wrapped/hugging layouts.
+- **Post details on mobile:** its action row and metadata sit on the same
+  320px inner rail as the reading area. The desktop's fixed 400px reading
+  column becomes full-width below `md`, preventing clipping inside the mobile
+  glow panel.
+- **Content day deck:** multi-post decks begin at their first card on mobile,
+  leaving the next card as a horizontal-scroll cue; desktop keeps its centred
+  starting composition. Every visible card animates from the day chip;
+  offscreen wrappers reserve their scroll space while full interactive cards
+  mount only within a one-viewport overscan window. Once mounted, a card stays
+  mounted so a reader never loses an edit while scrolling away and back.
 - **Motion values get tuned on a DialKit panel and then frozen in code.** The
   panel is a means, not a fixture: once the feel is right the numbers become
   named constants in the file that animates them, and the panel is deleted (git
@@ -1175,6 +1215,58 @@ group* — Base UI shows the next tooltip in a group instantly, so sliding acros
 the bar's bands or from one pill to the other doesn't re-wait. That grouping
 now also spans the app as a whole, so moving between any two triggers while one
 tooltip is open is instant.
+
+Tooltip pointers overlap their bubble by `stroke-lg`: fractional mobile pixel
+rounding can otherwise reveal a page-coloured hairline at a merely touching
+edge. The shared overlap applies at every pointer side.
+
+## Mobile control targets
+
+Text-bearing `Button` primitives and `PillInput` fields have a mobile-only
+minimum `pad-4xl` (48px) target. Icon-only buttons retain their authored
+dimensions. Enlarged text buttons use `rad-lg` with a matching dynamic
+squircle clip path, so the larger mobile footprint keeps the intended curve.
+The token scale has no 44px value, so this meets the requested 44pt
+accessibility minimum without creating an off-scale size; desktop keeps each
+component's authored size. The Profile log-out button is deliberately 48px on
+every viewport.
+
+## Content page mobile scrolling
+
+Mobile Content keeps its top Content/show-as row fixed, with tabs, search,
+filter, and months together in a faded scroll surface. Post details similarly
+keeps back/actions fixed and scrolls date, metadata, and copy together below.
+Desktop retains the bounded inner content readers and persistent controls.
+
+## Profile mobile scale
+
+Profile list rows are 48px on mobile. The profile avatar grows from 56px to
+72px, while the actual red log-out control grows from 40px to 56px. The avatar
+picker popover is wide enough for five 56px upload/gradient choices per row on
+mobile; the wrapped choice grid is center-aligned so a partial last row does
+not leave visual weight on the right. Its increased padding and swatch
+footprint supply the additional height.
+
+Mobile page-edge fades remeasure after descendant layout transitions finish,
+and after relevant visibility/class mutations. Expanding a Profile disclosure
+therefore reveals the bottom fade as soon as the new overflow settles, without
+waiting for a scroll gesture; reduced-motion mode follows the mutation path.
+
+## Avatar uploads
+
+Avatar compression falls back from `createImageBitmap` to an object-URL
+`<img>` decode when mobile WebKit cannot decode a selected file through the
+bitmap API, and falls back from WebP to JPEG if that browser cannot encode
+WebP canvas output. Profile-avatar error toasts omit the warning icon by
+request. Upload paths prefer `crypto.randomUUID()` but fall back to a
+timestamp/random identifier on insecure mobile dev-server origins, where that
+secure-context API is unavailable.
+
+## Navbar profile chip
+
+The navbar profile chip uses `rad-xmd` (12px) with a matching squircle path on
+both viewports. On mobile its 32px height is fixed while the avatar grows to
+20px, preserving the topbar's rhythm without making the chip taller.
 
 ## AI models list (Profile) — from the "ProfileScreenRedesign" export
 

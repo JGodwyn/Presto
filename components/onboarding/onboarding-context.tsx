@@ -53,6 +53,9 @@ export function OnboardingProvider({
   // first client render disagree about whether the cover is showing.
   useEffect(() => {
     const seen = window.localStorage.getItem(STORAGE_KEY)
+    // Hydration must begin with the server's null state; localStorage can
+    // only decide whether to show the cover after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!seen) setStep("cover")
   }, [])
 

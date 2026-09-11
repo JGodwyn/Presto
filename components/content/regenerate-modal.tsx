@@ -224,7 +224,7 @@ export function RegenerateModal({
         {copy.note ? (
           <p className="-mt-dist-md flex items-center gap-dist-sm text-body-lg text-text-subtle">
             {copy.note}
-            <Tooltip>
+            <Tooltip touchBehavior="tap">
               <TooltipTrigger
                 render={
                   <button

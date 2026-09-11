@@ -30,11 +30,13 @@ export function AvatarPicker({
   initialUrl,
   initialGradientId,
   size = 40,
+  mobileSize,
 }: {
   userId: string;
   initialUrl: string | null;
   initialGradientId: string | null;
   size?: number;
+  mobileSize?: number;
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [url, setUrl] = React.useState(initialUrl);
@@ -117,9 +119,14 @@ export function AvatarPicker({
       const compressed = await compressImage(file);
 
       // Owner-scoped path: the bucket's RLS requires the first segment to be
-      // the caller's own uid. The uuid means a new upload never collides with
-      // the old one, so no cache can serve a stale picture.
-      const path = `${userId}/${crypto.randomUUID()}.webp`;
+      // the caller's own uid. A phone commonly reaches the dev server through
+      // an insecure HTTP LAN origin, where randomUUID is unavailable even
+      // though desktop localhost is treated as secure. The timestamp/random
+      // fallback preserves unique, cache-busting paths in that environment.
+      const uploadId = globalThis.crypto?.randomUUID?.()
+        ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const extension = compressed.name.split(".").pop() || "webp";
+      const path = `${userId}/${uploadId}.${extension}`;
 
       const { error: uploadError } = await supabase.storage
         .from("avatars")
@@ -174,6 +181,7 @@ export function AvatarPicker({
           onOpenChange={setToastOpen}
           variant="danger"
           direction="top"
+          showIcon={false}
         >
           {toastMessage}
         </Toast>
@@ -205,8 +213,13 @@ export function AvatarPicker({
           type="button"
           disabled={uploading}
           aria-label="Change your profile picture"
-          style={{ width: size, height: size }}
-          className="group/avatar relative shrink-0 cursor-pointer overflow-hidden rounded-full transition-[scale] duration-150 ease-out active:scale-[0.95] disabled:cursor-default"
+          style={
+            {
+              "--avatar-size": `${size}px`,
+              "--avatar-mobile-size": `${mobileSize ?? size}px`,
+            } as React.CSSProperties
+          }
+          className="group/avatar relative size-[var(--avatar-size)] shrink-0 cursor-pointer overflow-hidden rounded-full transition-[scale] duration-150 ease-out active:scale-[0.95] disabled:cursor-default max-md:size-[var(--avatar-mobile-size)]"
         >
           {url ? (
             // object-cover + a fixed square box is what centres any aspect ratio
@@ -219,7 +232,12 @@ export function AvatarPicker({
               className="size-full object-cover object-center"
             />
           ) : (
-            <GradientAvatar seed={userId} gradientId={gradientId} size={size} />
+            <GradientAvatar
+              seed={userId}
+              gradientId={gradientId}
+              size={size}
+              className="size-full"
+            />
           )}
 
           {/* One overlay, shown on hover/focus and pinned on while an upload

@@ -12,9 +12,18 @@ import {
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { cn } from "@/lib/utils"
 
-// The pill is a full capsule (--rad-rd) at 32px tall, so the squircle path
-// wants half the height as its radius.
+// The desktop pill is 32px tall; mobile grows to 40px while retaining this
+// Figma smoothed-corner radius.
 const PILL_CORNER_RADIUS = 16
+// The menu uses MenuItem's md rows (40px) and its existing max-h-70 cap
+// (280px). These values let the portaled positioner choose a side before the
+// menu has painted, so it never first appears beyond a phone edge.
+const MENU_ITEM_HEIGHT_PX = 40
+const MENU_MAX_HEIGHT_PX = 280
+const MENU_GAP_PX = 8
+const VIEWPORT_EDGE_GUTTER_PX = 8
+
+type MenuPlacement = "above" | "below"
 
 export interface SelectPillOption {
   value: string
@@ -65,6 +74,8 @@ export function SelectPill({
     top: number
     left: number
     width: number
+    maxHeight: number
+    placement: MenuPlacement
   } | null>(null)
 
   const { ref: squircleRef, style: squircleStyle } =
@@ -120,16 +131,52 @@ export function SelectPill({
     const updateRect = () => {
       const rect = triggerRef.current?.getBoundingClientRect()
       if (!rect) return
-      setMenuRect({ top: rect.bottom + 8, left: rect.left, width: rect.width })
+      const desiredHeight = Math.min(
+        MENU_MAX_HEIGHT_PX,
+        options.length * MENU_ITEM_HEIGHT_PX
+      )
+      const spaceBelow = Math.max(
+        0,
+        window.innerHeight - rect.bottom - MENU_GAP_PX - VIEWPORT_EDGE_GUTTER_PX
+      )
+      const spaceAbove = Math.max(
+        0,
+        rect.top - MENU_GAP_PX - VIEWPORT_EDGE_GUTTER_PX
+      )
+      const placement: MenuPlacement =
+        spaceBelow >= desiredHeight || spaceBelow >= spaceAbove
+          ? "below"
+          : "above"
+      const availableHeight = placement === "below" ? spaceBelow : spaceAbove
+      const maxHeight = Math.min(desiredHeight, availableHeight)
+
+      setMenuRect({
+        top:
+          placement === "below"
+            ? rect.bottom + MENU_GAP_PX
+            : rect.top - MENU_GAP_PX - maxHeight,
+        left: Math.max(
+          VIEWPORT_EDGE_GUTTER_PX,
+          Math.min(
+            rect.left,
+            window.innerWidth - rect.width - VIEWPORT_EDGE_GUTTER_PX
+          )
+        ),
+        width: rect.width,
+        maxHeight,
+        placement,
+      })
     }
     updateRect()
     window.addEventListener("scroll", updateRect, true)
     window.addEventListener("resize", updateRect)
+    window.visualViewport?.addEventListener("resize", updateRect)
     return () => {
       window.removeEventListener("scroll", updateRect, true)
       window.removeEventListener("resize", updateRect)
+      window.visualViewport?.removeEventListener("resize", updateRect)
     }
-  }, [open])
+  }, [open, options.length])
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!open) {
@@ -175,7 +222,7 @@ export function SelectPill({
       // off this button's aria-expanded without SelectPill exposing its
       // open state.
       className={cn(
-        "group/select-pill flex h-8 cursor-pointer items-center gap-dist-sm rounded-full bg-surface-3 px-pad-md text-body-lg transition-colors duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50",
+        "group/select-pill flex h-10 cursor-pointer items-center gap-dist-sm rounded-full bg-surface-3 px-pad-md text-body-lg transition-colors duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50 md:h-8",
         className
       )}
     >
@@ -208,6 +255,7 @@ export function SelectPill({
                 // under it.
                 minWidth: menuRect.width,
                 width: "max-content",
+                maxWidth: `calc(100vw - ${VIEWPORT_EDGE_GUTTER_PX * 2}px)`,
               }}
               className="z-50"
             >
@@ -219,8 +267,14 @@ export function SelectPill({
                 // is clicked — otherwise the trigger's blur closes the menu
                 // before the click lands.
                 onMouseDown={(event) => event.preventDefault()}
-                containerClassName="transition-[opacity,translate] duration-150 ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:starting:translate-y-0"
+                containerClassName={cn(
+                  "transition-[opacity,translate] duration-150 ease-out starting:opacity-0 motion-reduce:starting:translate-y-0",
+                  menuRect.placement === "below"
+                    ? "starting:-translate-y-1"
+                    : "starting:translate-y-1"
+                )}
                 className="max-h-70"
+                style={{ maxHeight: menuRect.maxHeight }}
               >
                 {options.map((option, index) => (
                   <MenuItem

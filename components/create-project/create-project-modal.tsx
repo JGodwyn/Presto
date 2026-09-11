@@ -79,21 +79,16 @@ function CreateProjectModal({ trigger }: { trigger?: React.ReactNode }) {
     startNavigation(() => router.push("/projects"))
   }
 
-  // Slide the toast back out once the navigation commits. (When creating
-  // from /create-project the whole page — this component included — unmounts
-  // at that same moment, so the toast leaves with it; the exit transition
-  // only gets to play for creations made from /projects itself.)
-  React.useEffect(() => {
-    if (!isNavigating) setShowCreatingToast(false)
-  }, [isNavigating])
-
   return (
     <>
       {/* Same top-center placement as the signup flow's toast, but `fixed`
           (there's no positioned shell to anchor to from inside a modal). */}
       <div className="pointer-events-none fixed inset-x-0 top-pad-2xl z-50 flex justify-center">
         <Toast
-          open={showCreatingToast}
+          // Keep the progress toast only through the server action and its
+          // following transition. Deriving this avoids an extra state update
+          // when the transition completes.
+          open={showCreatingToast && (isSubmitting || isNavigating)}
           onOpenChange={setShowCreatingToast}
           variant="info"
           direction="top"
@@ -133,6 +128,7 @@ function CreateProjectModal({ trigger }: { trigger?: React.ReactNode }) {
                 design feedback — and swaps with the validation message
                 rather than stacking under it. */}
             <PillInput
+              autoFocus
               placeholder="Project name"
               aria-invalid={!!errors.name}
               helperText={errors.name?.message ?? "Eg. Product design content"}

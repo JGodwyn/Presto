@@ -70,16 +70,16 @@ const buttonVariants = cva(
       },
       size: {
         default:
-          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 max-md:min-h-[var(--pad-4xl)] max-md:min-w-[var(--pad-4xl)] max-md:rounded-rad-lg",
         // Overrides base's always-on rounded-lg/text-sm/font-medium with our
         // token scale via bracket syntax (see pill-input.tsx for why:
         // tailwind-merge doesn't recognize custom-named theme utilities as
         // belonging to the same group as Tailwind's built-in ones).
-        xl: "h-[var(--pad-3xl)] gap-[var(--dist-md)] rounded-[var(--rad-lg)] px-[var(--pad-lg)] text-[length:var(--text-btn-lg)] leading-[var(--text-btn-lg--line-height)] tracking-[var(--text-btn-lg--letter-spacing)] font-bold [&_svg:not([class*='size-'])]:size-5",
+        xl: "h-[var(--pad-3xl)] gap-[var(--dist-md)] rounded-[var(--rad-lg)] px-[var(--pad-lg)] text-[length:var(--text-btn-lg)] leading-[var(--text-btn-lg--line-height)] tracking-[var(--text-btn-lg--letter-spacing)] font-bold max-md:min-h-[var(--pad-4xl)] max-md:min-w-[var(--pad-4xl)] [&_svg:not([class*='size-'])]:size-5",
         // Figma "TextField"-sibling "Buttton" component (node 46:512) basic/sm.
-        sm: "h-[var(--pad-2xl)] gap-[var(--dist-md)] rounded-[var(--rad-xmd)] p-[var(--pad-md)] text-[length:var(--text-btn-lg)] leading-[var(--text-btn-lg--line-height)] tracking-[var(--text-btn-lg--letter-spacing)] font-bold [&_svg:not([class*='size-'])]:size-5",
-        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        sm: "h-[var(--pad-2xl)] gap-[var(--dist-md)] rounded-[var(--rad-xmd)] p-[var(--pad-md)] text-[length:var(--text-btn-lg)] leading-[var(--text-btn-lg--line-height)] tracking-[var(--text-btn-lg--letter-spacing)] font-bold max-md:min-h-[var(--pad-4xl)] max-md:min-w-[var(--pad-4xl)] max-md:rounded-rad-lg [&_svg:not([class*='size-'])]:size-5",
+        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 max-md:min-h-[var(--pad-4xl)] max-md:min-w-[var(--pad-4xl)] max-md:rounded-rad-lg [&_svg:not([class*='size-'])]:size-3",
+        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 max-md:min-h-[var(--pad-4xl)] max-md:min-w-[var(--pad-4xl)] max-md:rounded-rad-lg",
         icon: "size-8",
         "icon-xs":
           "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
@@ -117,6 +117,22 @@ const SIZE_CORNER_RADIUS: Partial<Record<string, number>> = {
   "icon-xs": 4, // --rad-sm
 }
 
+const MOBILE_CONTROL_MEDIA_QUERY = "(max-width: 767px)"
+
+function useMobileTextButton() {
+  const [isMobile, setIsMobile] = React.useState(false)
+
+  React.useEffect(() => {
+    const mediaQuery = window.matchMedia(MOBILE_CONTROL_MEDIA_QUERY)
+    const update = () => setIsMobile(mediaQuery.matches)
+    update()
+    mediaQuery.addEventListener("change", update)
+    return () => mediaQuery.removeEventListener("change", update)
+  }, [])
+
+  return isMobile
+}
+
 interface ButtonProps
   extends ButtonPrimitive.Props,
     VariantProps<typeof buttonVariants> {
@@ -137,8 +153,13 @@ function Button({
   children,
   ...props
 }: ButtonProps) {
+  const isMobile = useMobileTextButton()
+  const isIconButton = size?.startsWith("icon")
   const resolvedCornerRadius =
-    cornerRadius ?? SIZE_CORNER_RADIUS[size ?? "default"]
+    cornerRadius ??
+    (isMobile && !isIconButton
+      ? 16
+      : SIZE_CORNER_RADIUS[size ?? "default"])
   const { ref: squircleRef, style: squircleStyle } =
     useSquircleClipPath<HTMLButtonElement>({
       cornerRadius: resolvedCornerRadius ?? 0,

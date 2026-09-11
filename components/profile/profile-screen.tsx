@@ -37,12 +37,12 @@ function PowerButton({
       onClick={onClick}
       aria-label="Log out"
       className={cn(
-        "flex size-10 cursor-pointer items-center justify-center rounded-full bg-surface-danger text-text-inverse transition-[background-color,scale] duration-150 ease-out active:scale-[0.95]",
+        "flex size-10 cursor-pointer items-center justify-center rounded-full bg-surface-danger text-text-inverse transition-[background-color,scale] duration-150 ease-out active:scale-[0.95] max-md:size-14",
         POWER_GLOW,
         className
       )}
     >
-      <Power weight="bold" className="size-5" />
+      <Power weight="bold" className="size-5 max-md:size-7" />
     </button>
   )
 }
@@ -151,6 +151,7 @@ export function ProfileScreen({
             initialUrl={avatarUrl}
             initialGradientId={avatarGradientId}
             size={56}
+            mobileSize={72}
           />
           <div className="flex w-full flex-col gap-dist-sm text-center">
             <EditableName projectId={projectId} name={name} />

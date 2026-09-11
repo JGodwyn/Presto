@@ -7787,3 +7787,187 @@ changed-file ESLint, and `git diff --check` clean.
   development-only `allowedDevOrigins`, alongside the existing loopback OAuth
   address. This lets a phone load HMR/client chunks rather than stopping after
   the initial server render; restart the dev server to apply configuration.
+
+## 2026-09-10 — Auth mobile viewport lock
+
+- Made the shared branded auth shell an exact dynamic viewport (`h-dvh`) with
+  clipped overflow instead of a scrollable minimum-height page. The centered
+  auth form, gradient artwork, and Presto wordmark now share one fixed mobile
+  canvas as browser chrome changes size.
+
+## 2026-09-10 — Mobile project creation focus
+
+- The Create project dialog now sends focus directly to its project-name field
+  when it opens, so the mobile keyboard is ready for immediate entry.
+
+## 2026-09-10 — Initial mobile section fade
+
+- The persistent project scroll container now observes arriving section DOM and
+  reapplies its fade measurement at that point. A first-open mobile page with
+  overflow therefore shows its bottom fade before the user scrolls.
+
+## 2026-09-10 — Generate mobile layouts
+
+- Read the `generate-number-based-mobile` and
+  `generate-calendar-based-mobile` Figma Bridge exports. Generate now uses the
+  full mobile rail, with stacked model/account pills; calendar mode orders its
+  cadence/date controls, calendar, model/account, count/action, and
+  instructions footer as exported. Its tall panel is revealed by the shared
+  section scroll above the mobile dock; desktop retains its two-column layout.
+
+## 2026-09-10 — Mobile Generate selector menus
+
+- Raised the mobile model/account triggers from 32px to 40px. Their portaled
+  menus now measure room above and below before paint, open on the side that
+  fits, constrain their own scrollable height to that room, and clamp to the
+  phone's horizontal edge.
+
+## 2026-09-10 — Mobile tooltip touch behavior
+
+- Updated the shared Tooltip primitive so functional controls use a long press
+  on mobile without firing their normal action, while information-only markers
+  explicitly use a regular tap. Desktop hover/focus behavior and its app-wide
+  delay remain unchanged.
+- Enabled the tap behavior for the Generate calendar info marker, the
+  missing-instructions notice, and the Regenerate modal's information icon.
+- Kept tap-only mobile tooltips open after their press by disabling Base UI's
+  otherwise-default trigger-click dismissal for that variant.
+
+## 2026-09-10 — Generate desktop selector alignment
+
+- Restored centered model and social-account pills for the number-based
+  desktop row; the mobile stacked controls remain full width.
+
+## 2026-09-10 — Project navbar close affordance
+
+- Replaced the shared in-project navbar's back-arrow icon with an X while
+  preserving its link to the projects picker.
+- Added a pending spinner to that X while its Projects link is navigating.
+
+## 2026-09-10 — Generated-posts back affordance
+
+- Changed the generated-posts screen's exit icon from X to a left caret.
+
+## 2026-09-10 — Generating-post mobile states
+
+- Rebuilt the mobile generating/completed header from the
+  `generating-post-stop` and `generating-post-restart` Figma exports:
+  centered heading, separate status/action row, fill-width Stop/Restart
+  action, and left-positioned caret exit. Desktop remains inline.
+
+## 2026-09-10 — Generate daily calendar mobile alignment
+
+- Centered the Daily Range/Pick-date instruction row and calendar card within
+  the mobile Generate layout; desktop remains left-aligned.
+
+## 2026-09-10 — Content mobile layouts
+
+- Read the `content-as-calendar-mobile` and `content-as-kanban-mobile` Figma
+  Bridge exports. Rebuilt Content's mobile control stack, persistent search
+  field, calendar chip rail, and fixed-height Kanban canvases while retaining
+  the existing desktop composition.
+- Verified with `npx tsc --noEmit`, targeted ESLint, and `git diff --check`.
+
+## 2026-09-11 — Responsive-layout handoff
+
+**Asked:** finish the completed responsiveness branch: commit, push, merge it
+to main, then remove the branch.
+
+- Audited Dashboard, Instructions, Generate, Content, Connections, Settings,
+  and Profile at 320px, 390px, 768px, and 1024px. No page-level horizontal
+  overflow; Content's Kanban row remains intentionally internally scrollable.
+- Handoff lint exposed React Compiler rules in five existing components.
+  Removed the redundant create-project completion effect, destructured the
+  carousel hook's render values, and documented the two hydration/callback-ref
+  exceptions where synchronous state/ref usage is intentional.
+
+**Verified:** `npx tsc --noEmit`, `npm run lint`, `npm run test` (443 passed,
+1 skipped), and `npm run build` pass.
+
+## 2026-09-11 — Day-deck mobile controls
+
+- Removed the edit-hint tooltip from locked/published deck cards; those cards
+  cannot enter quick edit. Increased mobile actions-menu rows to `pad-4xl` so
+  Publish, Open, and related controls have a more comfortable touch target.
+- Overlapped each tooltip arrow beneath its bubble by `stroke-lg`, eliminating
+  the fractional-pixel white seam visible on mobile.
+
+## 2026-09-11 — Mobile control targets
+
+- Added a mobile-only `pad-4xl` (48px) minimum target to shared text Button
+  and PillInput primitives, preserving every icon-only button's original
+  size. Mobile text buttons now use the matching `rad-lg` squircle; Profile's
+  log-out button is 48px at every viewport. This is the nearest tokenized size
+  at or above the requested 44pt; desktop dimensions otherwise remain
+  unchanged.
+
+## 2026-09-11 — Content mobile scrolling
+
+- Mobile Content keeps only its Content/show-as row fixed, with the tab/search/
+  filter controls and months in one faded scroll surface. Post details keeps
+  back/actions fixed and scrolls date, metadata, and copy together below;
+  desktop nested readers remain unchanged.
+
+## 2026-09-11 — Profile mobile scale
+
+- Set mobile Profile list rows to 48px, enlarged its avatar from 56px to 72px,
+  and enlarged the actual red log-out control from 40px to 56px.
+- Sized the mobile avatar picker for five 56px choices per row, increased its
+  vertical padding, and grew upload/gradient choices from 40px to 56px. The
+  wrapped grid is center-aligned so its partial final row is balanced.
+
+## 2026-09-11 — Mobile avatar upload fallback
+
+- Added an object-URL Image decode fallback when mobile WebKit rejects
+  `createImageBitmap`, preserving the existing compressed WebP upload path.
+  Added a JPEG canvas-encoding fallback for WebKit builds that cannot encode
+  WebP, and removed the warning icon from Profile avatar error toasts.
+- Set the Power glyph inside the mobile Profile log-out control to 28px.
+- Added a unique upload-path fallback for phones accessing the dev server over
+  an insecure HTTP LAN origin, where `crypto.randomUUID()` is unavailable.
+
+## 2026-09-11 — Navbar profile chip
+
+- Reduced the shared profile chip to the `rad-xmd` 12px squircle and increased
+  its mobile avatar from 16px to 20px while holding the mobile chip height at
+  32px.
+
+## 2026-09-11 — Dynamic mobile page fades
+
+- Updated `SectionScrollArea` to remeasure its edge fades when descendant
+  layout transitions finish and when visibility-related attributes change.
+  Profile disclosure overflow now activates the mobile bottom fade without a
+  preliminary scroll; reduced-motion mode is covered by the mutation path.
+
+## 2026-09-10 — Inner Content mobile page
+
+- Read the `inner-content-page-mobile` Figma Bridge export. Adapted the post
+  details panel to the mobile padding and full-width inner reading rail while
+  retaining its desktop 400px column.
+
+## 2026-09-10 — Post details metadata rail
+
+- Kept the account and topics on one horizontal, hidden-native-scrollbar rail
+  with a 16px edge fade, so long metadata remains reachable without wrapping.
+
+## 2026-09-10 — Instructions mobile spacing
+
+- Increased the vertical gap between Instructions cards on mobile; the desktop
+  three-column gap remains unchanged.
+
+## 2026-09-10 — Content search rail
+
+- Made the mobile Content search field shrink within its rail while reserving
+  the filter control's 44px width, including when the clear action appears.
+
+## 2026-09-11 — Content day deck motion
+
+- Kept desktop decks centred, while multi-post mobile decks now start at the
+  first post. Every visible card animates from the chip, while offscreen cards
+  reserve their space and mount only within a one-viewport overscan window;
+  mounted cards remain mounted to preserve in-progress edits. Entry/exit
+  timing is 260ms/300ms with a 150ms stagger cap.
+- Increased Base UI tooltip arrow padding from its 5px default to the shared
+  12px squircle radius so collision-positioned arrows do not crowd a bubble's
+  rounded edge.
+- Verified with `npx tsc --noEmit`, targeted ESLint, and `git diff --check`.
