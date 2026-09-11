@@ -33,7 +33,7 @@ export default async function ProjectsPage() {
     "there"
 
   return (
-    <div className="flex min-h-screen w-full flex-col gap-dist-5xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl xl:px-pad-9xl">
+    <div className="flex min-h-screen w-full flex-col gap-dist-5xl bg-surface-3 px-pad-xl py-pad-4xl md:px-[clamp(var(--pad-4xl),calc(37.037vw-var(--pad-9xl)-var(--pad-7xl)),var(--pad-9xl))]">
       <ProjectsNavbar
         userName={firstName}
         userId={user.id}

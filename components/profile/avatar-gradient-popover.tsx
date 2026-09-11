@@ -193,18 +193,18 @@ export function AvatarGradientPopover({
             <div
               ref={cardRef}
               style={cardStyle}
-              className="flex w-65.5 flex-col items-center gap-dist-lg rounded-rad-lg bg-surface-inverse pt-pad-sm pr-pad-md pb-pad-md pl-pad-md"
+              className="flex w-65.5 flex-col items-center gap-dist-lg rounded-rad-lg bg-surface-inverse pt-pad-sm pr-pad-md pb-pad-md pl-pad-md max-md:w-88 max-md:py-pad-lg"
             >
               <p className="text-body-md text-text-inverse">Profile image</p>
 
               {/* flex-wrap, not a fixed grid: the export's row is `wrap=True`
                   and the number of gradients is a list that grows. */}
-              <div className="flex flex-wrap gap-dist-md">
+              <div className="flex w-full flex-wrap justify-center gap-dist-md">
                 <button
                   type="button"
                   onClick={onPickUpload}
                   aria-label="Upload a picture"
-                  className="relative flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[scale] duration-150 ease-out active:scale-[0.95]"
+                  className="relative flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition-[scale] duration-150 ease-out active:scale-[0.95] max-md:size-14"
                 >
                   <DashedRing className="absolute inset-0 size-full" />
                   {/* The export's plus is a glyph, not a Phosphor icon — two
@@ -243,7 +243,11 @@ export function AvatarGradientPopover({
                           "ring-2 ring-surface-4 ring-offset-2 ring-offset-surface-inverse"
                       )}
                     >
-                      <GradientAvatar gradientId={gradient.id} size={40} />
+                      <GradientAvatar
+                        gradientId={gradient.id}
+                        size={40}
+                        className="max-md:size-14"
+                      />
                     </button>
                   )
                 })}

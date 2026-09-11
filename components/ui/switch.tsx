@@ -29,7 +29,11 @@ function Switch({
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
+      // The hook returns a callback ref, never a mutable ref read during
+      // render. The compiler rule cannot infer that generic hook contract.
+      // eslint-disable-next-line react-hooks/refs
       ref={track.ref}
+      // eslint-disable-next-line react-hooks/refs
       style={track.style}
       className={cn(
         // rounded-rad-* classes are the fallback shape until the squircle
@@ -43,7 +47,9 @@ function Switch({
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
+        // eslint-disable-next-line react-hooks/refs
         ref={thumb.ref}
+        // eslint-disable-next-line react-hooks/refs
         style={thumb.style}
         // Tailwind v4's translate-* utilities animate the standalone CSS
         // `translate` property, not `transform` — transitioning `transform`

@@ -235,7 +235,7 @@ function ConnectionsPanel({
   const rows = (
     <div
       className={cn(
-        "flex w-78 flex-col",
+        "flex w-full flex-col md:w-78",
         connectedCount > 0 ? "gap-dist-lg" : "gap-dist-md",
       )}
     >

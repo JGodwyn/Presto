@@ -74,7 +74,7 @@ export function ProfileDisclosure({
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => onOpenChange(!open)}
-        className="flex h-6 w-full cursor-pointer items-center gap-dist-lg text-left"
+        className="flex h-6 w-full cursor-pointer items-center gap-dist-lg text-left max-md:h-pad-2xl"
       >
         <span className="flex shrink-0 items-center gap-dist-md">
           <Icon weight="bold" className="size-5 text-icon-subtle" />

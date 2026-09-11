@@ -641,13 +641,14 @@ export const GenerateCard = React.forwardRef<
       // tooltips that share a provider, so moving from one pill to the other
       // shows the second immediately instead of waiting the delay out again.
       <TooltipProvider>
-        <div className="flex items-center gap-dist-md">
+        <div className="flex w-full flex-col items-stretch gap-dist-md @4xl:flex-row @4xl:items-center @4xl:justify-center">
           <SelectPill
             options={modelOptions}
             value={model}
             onChange={setModel}
             ariaLabel="AI model"
             tooltip="Model to use"
+            className="w-full justify-center @4xl:w-auto"
           >
             <span className="text-text-subtle">Using</span>
             <span className="text-text-bold">{selectedModel.label}</span>
@@ -662,6 +663,7 @@ export const GenerateCard = React.forwardRef<
             onChange={setAccount}
             ariaLabel="Social account"
             tooltip="Socials to generate for"
+            className="w-full justify-center @4xl:w-auto"
           >
             {selectedAccount.triggerIcon}
             <span className="text-text-bold">{selectedAccount.label}</span>
@@ -726,7 +728,7 @@ export const GenerateCard = React.forwardRef<
       // after an attempted navigation. Its tooltip is intentionally immediate
       // while the app-wide default remains 200ms for ordinary hover labels.
       <TooltipProvider delay={0}>
-        <Tooltip>
+        <Tooltip touchBehavior="tap">
           <TooltipTrigger
             render={
               <div
@@ -751,12 +753,12 @@ export const GenerateCard = React.forwardRef<
     )
 
     return (
-      <div className="mx-auto flex w-230 max-w-full flex-col items-center gap-dist-xl p-pad-2xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
+      <div className="mx-auto flex w-full max-w-full flex-col items-center gap-dist-xl px-pad-lg py-pad-2xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px] md:w-230 md:p-pad-2xl">
         <h1 className="text-heading-md font-display text-text-bold">Generate</h1>
 
         <div className="flex w-full flex-col items-center gap-dist-md">
           <SegmentedControl
-            className="w-82"
+            className="w-full md:w-82"
             value={mode}
             onValueChange={(value) => setMode(value as string)}
             items={[
@@ -811,8 +813,12 @@ export const GenerateCard = React.forwardRef<
             )}
           </div>
         ) : (
-          <div className="flex w-full items-start gap-dist-5xl">
-            <div className="flex w-110 max-w-full shrink-0 flex-col items-center gap-dist-xl">
+          <div className="flex w-full flex-col items-start gap-dist-xl @4xl/section:flex-row @4xl/section:gap-dist-5xl">
+            {/* Calendar selection is a two-column task only once the shared
+                shell can fit both fixed-width controls without squeezing either
+                one. Below 2xl, stack the two complete controls instead of
+                creating a horizontal overflow strip in the section. */}
+            <div className="flex w-full max-w-full shrink-0 flex-col items-center gap-dist-xl @4xl/section:w-110">
               {/* dist-lg — this trio (cadence, date-select, model/account
                 pills) groups tighter than the outer dist-xl rhythm, per the
                 "Layout change" export (design-sync/genrate-calendar-based-
@@ -838,33 +844,29 @@ export const GenerateCard = React.forwardRef<
                   />
                 ) : null}
 
-                {/* self-start: the group above centers via items-center (for
-                  the two full-width cards, which stretch edge to edge
-                  regardless), but the pills row is intrinsically sized —
-                  left it centered instead of flush with the cards' left
-                  edge, per the "Layout change" export (Frame 2147239357
-                  sits at the same x as the cards, x=0 within their shared
-                  parent, not centered). */}
-                <div className="self-start">{modelPills}</div>
+                {/* The desktop settings column includes the model/account
+                  choices here. Mobile places those controls after the
+                  calendar, matching the exported reading order. */}
+                <div className="hidden w-full @4xl/section:block">{modelPills}</div>
               </div>
 
-              <Equals className="size-5 text-icon-minimal" weight="bold" />
+              <div className="hidden w-full flex-col items-center gap-dist-xl @4xl/section:flex">
+                <Equals className="size-5 text-icon-minimal" weight="bold" />
 
-              {/* dist-sm — the count bar and button pair tightly (Frame
-                2147239404, gap 8), also distinct from the outer dist-xl. */}
-              <div className="flex w-full flex-col items-center gap-dist-lg">
-                <ScheduledPostsBar count={scheduledCount} />
-                {hasInstructions ? (
-                  generateButton
-                ) : (
-                  <div className="flex w-full flex-col items-center gap-dist-lg">
-                    {generateButton}
-                    {missingInstructionsNotice}
-                  </div>
-                )}
+                <div className="flex w-full flex-col items-center gap-dist-lg">
+                  <ScheduledPostsBar count={scheduledCount} />
+                  {hasInstructions ? (
+                    generateButton
+                  ) : (
+                    <div className="flex w-full flex-col items-center gap-dist-lg">
+                      {generateButton}
+                      {missingInstructionsNotice}
+                    </div>
+                  )}
+                </div>
+
+                {hasInstructions ? pluggedInFooter : null}
               </div>
-
-              {hasInstructions ? pluggedInFooter : null}
             </div>
 
             <GenerateCalendarColumn
@@ -895,6 +897,22 @@ export const GenerateCard = React.forwardRef<
               onPostTimeChange={setPostTime}
               showError={showError && !hasCalendarSelection}
             />
+
+            <div className="flex w-full flex-col items-center gap-dist-xl @4xl/section:hidden">
+              {modelPills}
+              <div className="flex w-full flex-col items-center gap-dist-lg">
+                <ScheduledPostsBar count={scheduledCount} />
+                {hasInstructions ? (
+                  generateButton
+                ) : (
+                  <div className="flex w-full flex-col items-center gap-dist-lg">
+                    {generateButton}
+                    {missingInstructionsNotice}
+                  </div>
+                )}
+              </div>
+              {hasInstructions ? pluggedInFooter : null}
+            </div>
           </div>
         )}
       </div>

@@ -10,7 +10,8 @@ const MAX_DIMENSION = 512
 // bridge converts exported PNGs to WebP at the same quality.
 const QUALITY = 0.8
 
-const OUTPUT_TYPE = "image/webp"
+const PREFERRED_OUTPUT_TYPE = "image/webp"
+const FALLBACK_OUTPUT_TYPE = "image/jpeg"
 
 // Guards the *decode*, not the upload: a canvas has to hold the full bitmap in
 // memory before it can be scaled down, so an absurd file is refused before it
@@ -18,8 +19,67 @@ const OUTPUT_TYPE = "image/webp"
 // far under the bucket's own 5MB ceiling.
 export const MAX_SOURCE_BYTES = 25 * 1024 * 1024
 
+interface DecodedImage {
+  source: CanvasImageSource
+  width: number
+  height: number
+  dispose: () => void
+}
+
+function encodeCanvas(
+  canvas: HTMLCanvasElement,
+  type: string,
+): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob(resolve, type, QUALITY)
+  })
+}
+
+// Mobile WebKit still does not expose createImageBitmap consistently for file
+// inputs. Keep its faster, orientation-aware path where it works, but fall
+// back to an object-URL Image so a valid phone JPEG never fails before upload.
+async function decodeImage(file: File): Promise<DecodedImage> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file, {
+        imageOrientation: "from-image",
+      })
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        dispose: () => bitmap.close(),
+      }
+    } catch {
+      // Fall through to the browser's <img> decoder below.
+    }
+  }
+
+  const objectUrl = URL.createObjectURL(file)
+  const image = new Image()
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error("Image decoding failed"))
+      image.src = objectUrl
+    })
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl)
+    throw error
+  }
+
+  return {
+    source: image,
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+    dispose: () => URL.revokeObjectURL(objectUrl),
+  }
+}
+
 /**
- * Scales an image down to fit MAX_DIMENSION and re-encodes it as WebP.
+ * Scales an image down to fit MAX_DIMENSION and re-encodes it as WebP, with a
+ * JPEG fallback for mobile WebKit builds that cannot encode WebP.
  *
  * Two details that matter:
  *
@@ -35,15 +95,15 @@ export const MAX_SOURCE_BYTES = 25 * 1024 * 1024
  * dimensions and is only re-encoded.
  */
 export async function compressImage(file: File): Promise<File> {
-  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" })
+  const image = await decodeImage(file)
 
   try {
     const scale = Math.min(
       1,
-      MAX_DIMENSION / Math.max(bitmap.width, bitmap.height)
+      MAX_DIMENSION / Math.max(image.width, image.height)
     )
-    const width = Math.max(1, Math.round(bitmap.width * scale))
-    const height = Math.max(1, Math.round(bitmap.height * scale))
+    const width = Math.max(1, Math.round(image.width * scale))
+    const height = Math.max(1, Math.round(image.height * scale))
 
     const canvas = document.createElement("canvas")
     canvas.width = width
@@ -51,21 +111,29 @@ export async function compressImage(file: File): Promise<File> {
 
     const context = canvas.getContext("2d")
     if (!context) throw new Error("Canvas 2D context unavailable")
-    context.drawImage(bitmap, 0, 0, width, height)
+    context.drawImage(image.source, 0, 0, width, height)
 
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, OUTPUT_TYPE, QUALITY)
-    })
+    // Older mobile WebKit can decode an image but either returns null for a
+    // WebP canvas encode or silently substitutes PNG. Upload JPEG in both
+    // cases: it is universally supported there and its type/extension remain
+    // truthful for Storage and every avatar reader.
+    let blob = await encodeCanvas(canvas, PREFERRED_OUTPUT_TYPE)
+    let outputType = PREFERRED_OUTPUT_TYPE
+    if (!blob || blob.type !== PREFERRED_OUTPUT_TYPE) {
+      blob = await encodeCanvas(canvas, FALLBACK_OUTPUT_TYPE)
+      outputType = FALLBACK_OUTPUT_TYPE
+    }
     if (!blob) throw new Error("Image encoding failed")
 
     // The name is rebuilt from the output type rather than the input's: the
     // extension has to match what's actually in the bytes, or Storage stores a
     // WebP called .png and every consumer has to guess.
     const base = file.name.replace(/\.[^.]+$/, "") || "avatar"
-    return new File([blob], `${base}.webp`, { type: OUTPUT_TYPE })
+    const extension = outputType === PREFERRED_OUTPUT_TYPE ? "webp" : "jpg"
+    return new File([blob], `${base}.${extension}`, { type: outputType })
   } finally {
     // Frees the decoded bitmap immediately instead of waiting for GC — these
     // are full-resolution and can be tens of megabytes in memory.
-    bitmap.close()
+    image.dispose()
   }
 }

@@ -7580,3 +7580,394 @@ changed-file ESLint, and `git diff --check` clean.
   / 1 skipped**), and `git diff --check` clean. The production build remains
   intentionally skipped because the owner's active `next dev` process holds
   the main checkout's Next build lock.
+## 2026-09-09 — Desktop-responsive layout
+
+- Began the desktop responsiveness pass at the shared in-project shell, where
+  the existing 152px/256px `lg`/`xl` horizontal gutters left only 440px/488px
+  for page content after the fixed sidebar at 1024px/1280px.
+- Replaced those frame-specific jumps with token-only progressive gutters:
+  24px, 48px from `md`, 64px from `xl`, 152px from `2xl`, and 256px only at
+  1920px+. Applied the same canvas rule to the projects picker and profile so
+  project navigation does not visibly reflow between those desktop routes.
+- Changed Generate's calendar mode to stack its two fixed-width controls below
+  `2xl`: at narrower desktop widths the prior 440px + 40px + 400px row could
+  exceed the usable section width despite the shell correction.
+- Gates: changed-file ESLint, `tsc --noEmit`, and `git diff --check` pass.
+
+## 2026-09-10 — Mobile layout foundation
+
+- Read the `mobile-auth`, `mobile-layout`, and `mobile-onboarding` Figma Bridge
+  exports. Implemented their shared 390px project shell: compact logo/profile
+  bar, scrollable white content rail, and a five-icon bottom dock with the
+  active purple state. The desktop sidebar and onboarding top bar remain from
+  `md` upward.
+- Adapted Instructions cards to merge into the mobile content rail while
+  retaining their desktop squircle cards, and matched the exported mobile
+  onboarding treatment: normal project top bar/dock remain visible and the
+  callout is centred in the rail.
+- Adjusted the auth tab/form spacing to the mobile export's 40px rhythm.
+- Verified at a 390×844 browser viewport and ran `npx tsc --noEmit` plus
+  `git diff --check` successfully. Full lint remains blocked by pre-existing
+  failures in create-project, generate, onboarding context, sidebar, and
+  switch components; none are in this change.
+- Corrected the first mobile pass after re-reading the exported layer
+  properties: restored the detached bordered/squircle Instructions cards and
+  transparent canvas between them; removed the dock border so its `pad-xs`
+  padding is not consumed by a stroke; restored the compact back button beside
+  the logo; and added a scroll-aware bottom fade above the dock to mirror the
+  top edge treatment.
+- Final 390×844 inspection measured the exported geometry exactly: 344px rail
+  at x=23, 40px top bar at y=24, first card at y=80, and 56px dock at y=764.
+  The inspection also caught the bottom strip attaching after the initial
+  scroll measurement; callback refs now remeasure on strip attachment so the
+  fade is visible before the first scroll.
+- Follow-up: removed the fixed 344px maximum that added extra whitespace on
+  wider phones; mobile now uses the existing `pad-xl` viewport gutter. Moved
+  the dock shadow outside its squircle-clipped nav and strengthened it from
+  0/4/24 at 15% black to 0/8/32 at 28% black. The named constant beside the
+  component is the single adjustment point for future shadow tuning.
+- Increased the mobile dock by the requested 8px (`pad-5xl` 56px → `pad-6xl`
+  64px). Kept the proven 24px top fade unchanged; lengthened only the mobile
+  bottom fade to 32px and added an 8px scroll tail so the final card's rounded
+  border clears the overflow boundary instead of appearing clipped.
+- Replaced the stepped desktop gutters with one token-bounded fluid formula:
+  48px–256px from `md` upward, yielding 64px at 1024px and 152px at 1280px
+  while retaining the full-screen 256px cap. The navbar remains inside that
+  exact same rail.
+- Made `SectionScrollArea` the named `section` container. Instructions,
+  Dashboard, and Generate now choose multi-panel layouts only at a 56rem
+  section width; Content's compact header controls switch at 42rem. Verified
+  Tailwind emitted the fluid padding and named container queries in the active
+  dev CSS; changed-file ESLint, `tsc --noEmit`, and `git diff --check` pass.
+- Follow-up: Instructions' three cards needed less room than Dashboard or
+  Generate. Lowered only its named-container threshold from 56rem to 48rem,
+  retaining the full-screen gutter while keeping the desktop row at the user's
+  normal window width.
+- Follow-up: shortened the first two Instructions card labels to “Voice” and
+  “Writing style”. Card titles now have a truncating flex slot and header
+  actions align to the top, preventing a compact add button from centring
+  awkwardly against a wrapped title.
+- Follow-up: adjusted the fluid gutter to retain its 256px cap only at the
+  1728px full-screen target while reducing it around 1440px–1512px. This gives
+  the Instructions row enough width to remain comfortable without changing
+  the full-screen composition; the shared navbar follows the same rail.
+- The Voice card's single-prompt control row and its explanatory icon/text row
+  now use top alignment, so wrapped copy never centres vertically against its
+  switch or icon.
+- Correction: the in-project top bar shares the full sidebar-plus-section rail,
+  not the section alone. Restored its direct placement in the outer shell.
+- Follow-up: restored the original `pad-9xl` (256px) gutters from 1440px so a
+  full-screen desktop retains its intentionally narrow page measure.
+- Refined the responsive balance: 1280px+ now uses the 152px gutter too, while
+  full-width 1440px+ retains 256px. Instructions and the Dashboard's broad
+  content rows defer their multi-column layouts to 1536px (`2xl`) so the
+  intentional narrow measure never compresses their panels.
+- Restored the original `xl` 256px gutters as requested, retaining 48px at
+  `md` and 64px at `lg` for scaled-down desktops. Project top bars now align
+  with the section rail; compact Dashboard and Content arrangements remain in
+  effect below `2xl` to protect the narrower full-screen content measure.
+- Gates: changed-file ESLint, `tsc --noEmit`, and `git diff --check` pass.
+
+## 2026-09-10 — Mobile bottom fade and optimistic tab motion
+
+- Kept the owner's manually tuned mobile dock geometry, padding, icon sizing,
+  colours, and shadow unchanged.
+- Added an optimistic active-tab path so the selected tab updates before the
+  destination route commits or its loading state appears. Replaced the static
+  active plate with one squircle indicator that translates between measured
+  tab positions over 200ms using the standard strong ease-in-out curve;
+  reduced-motion users get an immediate position change.
+- Removed the remaining visible hard cut at the mobile scroll boundary by
+  giving the existing 32px bottom fade an opaque 8px terminal cap. The top fade
+  is unchanged.
+- Verified at a phone viewport with the Instructions scroller at its start,
+  midpoint, and end. A high-contrast text area fully dissolves before the lower
+  boundary, while the final References card and its button remain fully visible
+  when the fade retires. Captured the Generate tab selected over the prior
+  Instructions content during the pending route state, confirming the
+  optimistic handoff; the indicator reports a 200ms transform transition.
+- `npx tsc --noEmit`, targeted ESLint, and `git diff --check` pass.
+
+## 2026-09-10 — Mobile dashboard, account, and onboarding refinement
+
+- Made Dashboard Setup a two-column grid on compact sections. The Total-posts
+  graph now fills its mobile card, and Drafts/Queued/Published stack as complete
+  cards until the section is wide enough for their desktop row.
+- Removed the mobile-only fixed widths from Profile’s disclosure list and the
+  Connections list. Both now span the project rail while retaining their
+  desktop measures.
+- Anchored the mobile onboarding callout to the bottom of the content rail,
+  immediately above the tab dock, matching the `mobile-onboarding` export.
+- Fixed the mobile dock’s active-path fallback: account routes retain the last
+  project section’s active treatment (Dashboard for a direct account visit),
+  so the visible purple plate and icon remain inverse through Profile and after
+  onboarding ends.
+- Verified at a phone viewport: Setup renders two tiles per row; the 225-post
+  graph spans the card with three full-width stacked stat cards; Profile and
+  Connections span the rail; and the onboarding callout sits immediately above
+  the dock. `npx tsc --noEmit`, targeted ESLint, and `git diff --check` pass.
+
+## 2026-09-10 — Onboarding dock lock and tablet breakpoints
+
+- Made the mobile dock inert during numbered onboarding steps. It remains
+  visible at full strength, but cannot change the blurred route by touch or
+  keyboard.
+- Profile now intentionally has no active dock item. The indicator hides with
+  the route instead of leaving a purple plate paired with a subtle icon.
+- Moved the Drafts/Queued/Published row to the `lg` (1024px) breakpoint.
+  Below that it stacks as full cards; at laptop width and above it stays
+  horizontal.
+- Reduced the sidebar to the `dist-8xl` (152px) token width from `md` through
+  tablet, restoring its 256px width at `lg`.
+- Verified the 1024px dashboard has the narrower sidebar and horizontal stat
+ cards. In a phone onboarding step, the dock is no longer exposed as an
+ accessible navigation target, which confirms `inert` blocks its interaction.
+ Restored the browser to its normal viewport. `npx tsc --noEmit`, targeted
+ ESLint, and `git diff --check` pass.
+
+## 2026-09-10 — Dashboard row breakpoint and profile dock correction
+
+- Increased the compact desktop/tablet sidebar from 152px to a token-composed
+  176px (`dist-8xl + dist-xl`), the closest token-only match to the requested
+  ~180px, while retaining the 256px width at `lg` and above.
+- Gave the three monthly Dashboard stats the same 1024px row/stack breakpoint
+  as Drafts/Queued/Published.
+- Replaced the mobile dock’s imperative Profile hide with declarative
+  `data-active` styling. After an actual Generate-tab activation followed by a
+  Profile navigation, the dock rendered with no selected item without reload.
+- `npx tsc --noEmit`, targeted ESLint, and `git diff --check` pass.
+
+## 2026-09-10 — Profile dock removal and dashboard laptop split
+
+- Made the mobile dock’s selection plate conditional rather than transparent:
+  on Profile (and any other non-tab route) it is not rendered, so a previously
+  selected purple plate cannot survive a route change.
+- Set the Dashboard calendar/posts row to stack below `lg`/1024px and split
+  horizontally at that breakpoint. Calendar takes two fifths; the post scroller
+  receives the larger remaining space.
+- Kept the tablet sidebar at token-composed 176px and raised only desktop to
+  272px (the original 256px plus `dist-lg`). `TABLET_SIDEBAR_WIDTH_CLASSNAME`
+  and `DESKTOP_SIDEBAR_WIDTH_CLASSNAME` are the intended adjustment points.
+- Verified the Profile route at a 390px viewport after a tab-route handoff:
+  the dock exposed zero `aria-current` links and no selection-plate element.
+  `npx tsc --noEmit`, targeted ESLint, and `git diff --check` pass.
+
+## 2026-09-10 — Repeated mobile tab reliability and sidebar widths
+
+- Reproduced the mobile tab race by overlapping route changes: pending state
+  was tied to the origin pathname, so an older route commit could discard a
+  newer selection. Pending state now follows the latest destination until that
+  exact route commits; account routes still remove the selection entirely.
+- Ran ten sequential tab transitions and four rapid three-tap sequences at a
+  390px viewport. Every requested tab was active immediately and every final
+  route/active state matched the last request. Repeated Profile round-trips also
+  returned to the requested tab, with no active link or plate once Profile had
+  committed.
+- Increased tablet sidebar width by 16px to token-composed 192px and reduced
+  desktop width by 24px to token-composed 248px. The named constants remain the
+  adjustment point.
+- `npx tsc --noEmit`, targeted ESLint, and `git diff --check` pass. Restored the
+  browser viewport after verification.
+
+## 2026-09-10 — Onboarding interaction lock
+
+- Made numbered onboarding steps modal for interaction without changing their
+  visual layering: the blurred section content, desktop sidebar, desktop tour
+  top bar, mobile dock, and retained mobile brand bar are inert. The callout
+  remains outside those locked regions, leaving Next (and final Complete) as
+  the only flow action.
+- Replayed onboarding at a 390px viewport. Its accessibility tree contained
+  only the callout and Next—no background profile, dock, or content controls—
+  and Next advanced successfully to step two. Restored the browser viewport.
+- `npx tsc --noEmit`, targeted ESLint, and `git diff --check` pass.
+
+## 2026-09-10 — Mobile device development origin
+
+- Added the Mac's current LAN address (`192.168.0.160`) to Next's
+  development-only `allowedDevOrigins`, alongside the existing loopback OAuth
+  address. This lets a phone load HMR/client chunks rather than stopping after
+  the initial server render; restart the dev server to apply configuration.
+
+## 2026-09-10 — Auth mobile viewport lock
+
+- Made the shared branded auth shell an exact dynamic viewport (`h-dvh`) with
+  clipped overflow instead of a scrollable minimum-height page. The centered
+  auth form, gradient artwork, and Presto wordmark now share one fixed mobile
+  canvas as browser chrome changes size.
+
+## 2026-09-10 — Mobile project creation focus
+
+- The Create project dialog now sends focus directly to its project-name field
+  when it opens, so the mobile keyboard is ready for immediate entry.
+
+## 2026-09-10 — Initial mobile section fade
+
+- The persistent project scroll container now observes arriving section DOM and
+  reapplies its fade measurement at that point. A first-open mobile page with
+  overflow therefore shows its bottom fade before the user scrolls.
+
+## 2026-09-10 — Generate mobile layouts
+
+- Read the `generate-number-based-mobile` and
+  `generate-calendar-based-mobile` Figma Bridge exports. Generate now uses the
+  full mobile rail, with stacked model/account pills; calendar mode orders its
+  cadence/date controls, calendar, model/account, count/action, and
+  instructions footer as exported. Its tall panel is revealed by the shared
+  section scroll above the mobile dock; desktop retains its two-column layout.
+
+## 2026-09-10 — Mobile Generate selector menus
+
+- Raised the mobile model/account triggers from 32px to 40px. Their portaled
+  menus now measure room above and below before paint, open on the side that
+  fits, constrain their own scrollable height to that room, and clamp to the
+  phone's horizontal edge.
+
+## 2026-09-10 — Mobile tooltip touch behavior
+
+- Updated the shared Tooltip primitive so functional controls use a long press
+  on mobile without firing their normal action, while information-only markers
+  explicitly use a regular tap. Desktop hover/focus behavior and its app-wide
+  delay remain unchanged.
+- Enabled the tap behavior for the Generate calendar info marker, the
+  missing-instructions notice, and the Regenerate modal's information icon.
+- Kept tap-only mobile tooltips open after their press by disabling Base UI's
+  otherwise-default trigger-click dismissal for that variant.
+
+## 2026-09-10 — Generate desktop selector alignment
+
+- Restored centered model and social-account pills for the number-based
+  desktop row; the mobile stacked controls remain full width.
+
+## 2026-09-10 — Project navbar close affordance
+
+- Replaced the shared in-project navbar's back-arrow icon with an X while
+  preserving its link to the projects picker.
+- Added a pending spinner to that X while its Projects link is navigating.
+
+## 2026-09-10 — Generated-posts back affordance
+
+- Changed the generated-posts screen's exit icon from X to a left caret.
+
+## 2026-09-10 — Generating-post mobile states
+
+- Rebuilt the mobile generating/completed header from the
+  `generating-post-stop` and `generating-post-restart` Figma exports:
+  centered heading, separate status/action row, fill-width Stop/Restart
+  action, and left-positioned caret exit. Desktop remains inline.
+
+## 2026-09-10 — Generate daily calendar mobile alignment
+
+- Centered the Daily Range/Pick-date instruction row and calendar card within
+  the mobile Generate layout; desktop remains left-aligned.
+
+## 2026-09-10 — Content mobile layouts
+
+- Read the `content-as-calendar-mobile` and `content-as-kanban-mobile` Figma
+  Bridge exports. Rebuilt Content's mobile control stack, persistent search
+  field, calendar chip rail, and fixed-height Kanban canvases while retaining
+  the existing desktop composition.
+- Verified with `npx tsc --noEmit`, targeted ESLint, and `git diff --check`.
+
+## 2026-09-11 — Responsive-layout handoff
+
+**Asked:** finish the completed responsiveness branch: commit, push, merge it
+to main, then remove the branch.
+
+- Audited Dashboard, Instructions, Generate, Content, Connections, Settings,
+  and Profile at 320px, 390px, 768px, and 1024px. No page-level horizontal
+  overflow; Content's Kanban row remains intentionally internally scrollable.
+- Handoff lint exposed React Compiler rules in five existing components.
+  Removed the redundant create-project completion effect, destructured the
+  carousel hook's render values, and documented the two hydration/callback-ref
+  exceptions where synchronous state/ref usage is intentional.
+
+**Verified:** `npx tsc --noEmit`, `npm run lint`, `npm run test` (443 passed,
+1 skipped), and `npm run build` pass.
+
+## 2026-09-11 — Day-deck mobile controls
+
+- Removed the edit-hint tooltip from locked/published deck cards; those cards
+  cannot enter quick edit. Increased mobile actions-menu rows to `pad-4xl` so
+  Publish, Open, and related controls have a more comfortable touch target.
+- Overlapped each tooltip arrow beneath its bubble by `stroke-lg`, eliminating
+  the fractional-pixel white seam visible on mobile.
+
+## 2026-09-11 — Mobile control targets
+
+- Added a mobile-only `pad-4xl` (48px) minimum target to shared text Button
+  and PillInput primitives, preserving every icon-only button's original
+  size. Mobile text buttons now use the matching `rad-lg` squircle; Profile's
+  log-out button is 48px at every viewport. This is the nearest tokenized size
+  at or above the requested 44pt; desktop dimensions otherwise remain
+  unchanged.
+
+## 2026-09-11 — Content mobile scrolling
+
+- Mobile Content keeps only its Content/show-as row fixed, with the tab/search/
+  filter controls and months in one faded scroll surface. Post details keeps
+  back/actions fixed and scrolls date, metadata, and copy together below;
+  desktop nested readers remain unchanged.
+
+## 2026-09-11 — Profile mobile scale
+
+- Set mobile Profile list rows to 48px, enlarged its avatar from 56px to 72px,
+  and enlarged the actual red log-out control from 40px to 56px.
+- Sized the mobile avatar picker for five 56px choices per row, increased its
+  vertical padding, and grew upload/gradient choices from 40px to 56px. The
+  wrapped grid is center-aligned so its partial final row is balanced.
+
+## 2026-09-11 — Mobile avatar upload fallback
+
+- Added an object-URL Image decode fallback when mobile WebKit rejects
+  `createImageBitmap`, preserving the existing compressed WebP upload path.
+  Added a JPEG canvas-encoding fallback for WebKit builds that cannot encode
+  WebP, and removed the warning icon from Profile avatar error toasts.
+- Set the Power glyph inside the mobile Profile log-out control to 28px.
+- Added a unique upload-path fallback for phones accessing the dev server over
+  an insecure HTTP LAN origin, where `crypto.randomUUID()` is unavailable.
+
+## 2026-09-11 — Navbar profile chip
+
+- Reduced the shared profile chip to the `rad-xmd` 12px squircle and increased
+  its mobile avatar from 16px to 20px while holding the mobile chip height at
+  32px.
+
+## 2026-09-11 — Dynamic mobile page fades
+
+- Updated `SectionScrollArea` to remeasure its edge fades when descendant
+  layout transitions finish and when visibility-related attributes change.
+  Profile disclosure overflow now activates the mobile bottom fade without a
+  preliminary scroll; reduced-motion mode is covered by the mutation path.
+
+## 2026-09-10 — Inner Content mobile page
+
+- Read the `inner-content-page-mobile` Figma Bridge export. Adapted the post
+  details panel to the mobile padding and full-width inner reading rail while
+  retaining its desktop 400px column.
+
+## 2026-09-10 — Post details metadata rail
+
+- Kept the account and topics on one horizontal, hidden-native-scrollbar rail
+  with a 16px edge fade, so long metadata remains reachable without wrapping.
+
+## 2026-09-10 — Instructions mobile spacing
+
+- Increased the vertical gap between Instructions cards on mobile; the desktop
+  three-column gap remains unchanged.
+
+## 2026-09-10 — Content search rail
+
+- Made the mobile Content search field shrink within its rail while reserving
+  the filter control's 44px width, including when the clear action appears.
+
+## 2026-09-11 — Content day deck motion
+
+- Kept desktop decks centred, while multi-post mobile decks now start at the
+  first post. Every visible card animates from the chip, while offscreen cards
+  reserve their space and mount only within a one-viewport overscan window;
+  mounted cards remain mounted to preserve in-progress edits. Entry/exit
+  timing is 260ms/300ms with a 150ms stagger cap.
+- Increased Base UI tooltip arrow padding from its 5px default to the shared
+  12px squircle radius so collision-positioned arrows do not crowd a bubble's
+  rounded edge.
+- Verified with `npx tsc --noEmit`, targeted ESLint, and `git diff --check`.

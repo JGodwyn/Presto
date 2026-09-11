@@ -37,12 +37,12 @@ function PowerButton({
       onClick={onClick}
       aria-label="Log out"
       className={cn(
-        "flex size-10 cursor-pointer items-center justify-center rounded-full bg-surface-danger text-text-inverse transition-[background-color,scale] duration-150 ease-out active:scale-[0.95]",
+        "flex size-10 cursor-pointer items-center justify-center rounded-full bg-surface-danger text-text-inverse transition-[background-color,scale] duration-150 ease-out active:scale-[0.95] max-md:size-14",
         POWER_GLOW,
         className
       )}
     >
-      <Power weight="bold" className="size-5" />
+      <Power weight="bold" className="size-5 max-md:size-7" />
     </button>
   )
 }
@@ -144,13 +144,14 @@ export function ProfileScreen({
 
       {/* Same unified blur+opacity mount-in as every other section (see
           /create-project for the @starting-style rationale). */}
-      <div className="flex flex-1 flex-col items-center justify-center gap-dist-lg p-pad-2xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]">
+      <div className="flex flex-1 flex-col items-center justify-center gap-dist-lg py-pad-2xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px] md:p-pad-2xl">
         <div className="flex w-68 flex-col items-center gap-dist-md">
           <AvatarPicker
             userId={userId}
             initialUrl={avatarUrl}
             initialGradientId={avatarGradientId}
             size={56}
+            mobileSize={72}
           />
           <div className="flex w-full flex-col gap-dist-sm text-center">
             <EditableName projectId={projectId} name={name} />
@@ -161,7 +162,7 @@ export function ProfileScreen({
           </div>
         </div>
 
-        <div className="flex w-78 flex-col gap-dist-md">
+        <div className="flex w-full flex-col gap-dist-md md:w-78">
           <ProfileDisclosure
             icon={Password}
             label={hasPasswordIdentity ? "Change password" : "Set password"}

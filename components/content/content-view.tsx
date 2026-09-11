@@ -217,6 +217,10 @@ export function ContentView({
     useSquircleClipPath<HTMLButtonElement>({
       cornerRadius: SHOW_AS_CORNER_RADIUS,
     })
+  const { ref: desktopShowAsRef, style: desktopShowAsStyle } =
+    useSquircleClipPath<HTMLButtonElement>({
+      cornerRadius: SHOW_AS_CORNER_RADIUS,
+    })
   // One hook for both layouts: only ever one of the two scroll areas below is
   // mounted, and a callback ref follows whichever it is.
   const { ref: monthsRef, onScroll: onMonthsScroll } = useScrollFade({
@@ -224,6 +228,15 @@ export function ContentView({
     start: PAGE_FADE_TOP_PX,
     end: PAGE_FADE_BOTTOM_PX,
   })
+  // Mobile scrolls the complete page within this panel, including its controls.
+  // Keep a dedicated mask on that scroller; the desktop month list still owns
+  // its narrower reader fade above.
+  const { ref: mobileContentRef, onScroll: onMobileContentScroll } =
+    useScrollFade({
+      axis: "y",
+      start: PAGE_FADE_TOP_PX,
+      end: PAGE_FADE_BOTTOM_PX,
+    })
   // Keyed on the layout and tab as well as the project: each shows a different
   // list, so one of them's offset means nothing in another. Switching tabs
   // therefore restores where you'd been in *that* tab, which falls out of the
@@ -247,25 +260,94 @@ export function ContentView({
   // Turns the icon on each tap — see hooks/use-icon-spin.ts for why this is
   // an animation rather than a transition on the inline `rotate`.
   const { ref: iconRef, style: iconStyle, spin } = useIconSpin()
+  const {
+    ref: desktopIconRef,
+    style: desktopIconStyle,
+    spin: spinDesktopIcon,
+  } = useIconSpin()
 
-  const cycleView = () => {
+  const changeView = () => {
     const index = CONTENT_VIEWS.findIndex((entry) => entry.value === view)
     const next = CONTENT_VIEWS[(index + 1) % CONTENT_VIEWS.length].value
-    spin()
     // Writing to the store is what re-renders this — there's no local copy of
     // the view to keep in step with it. The icon's angle stays local: the spin
     // belongs to the act of switching, not to the state, so a restored view
     // starts unrotated.
     setContentView(projectId, next)
   }
+  const cycleMobileView = () => {
+    spin()
+    changeView()
+  }
+  const cycleDesktopView = () => {
+    spinDesktopIcon()
+    changeView()
+  }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-dist-xl p-pad-2xl">
+    <div className="flex min-h-0 flex-1 flex-col gap-dist-xl p-pad-md md:p-pad-2xl">
+      {/* The top mobile row stays visible while the tab/search controls and
+          month content scroll underneath it. */}
+      <div className="flex items-center justify-between gap-dist-md md:hidden">
+          <h1 className="text-heading-sm font-display text-text-bold">Content</h1>
+          <button
+            ref={showAsRef}
+            style={showAsStyle}
+            type="button"
+            onClick={cycleMobileView}
+            aria-label={`Showing as ${CONTENT_VIEWS.find((entry) => entry.value === view)?.label} — tap to change`}
+            className="flex shrink-0 cursor-pointer items-center gap-dist-md rounded-rad-xmd bg-surface-3 px-pad-md py-pad-xs transition-[background-color,scale] duration-150 ease-out outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
+          >
+            <span className="text-body-lg text-text-subtle">Show as:</span>
+            <span className="text-body-lg text-text-bold">
+              {CONTENT_VIEWS.find((entry) => entry.value === view)?.label}
+            </span>
+            <ArrowsClockwise
+              ref={iconRef}
+              weight="bold"
+              style={iconStyle}
+              className="size-5 text-icon-bold"
+            />
+          </button>
+      </div>
+
+      <div
+        ref={mobileContentRef}
+        onScroll={onMobileContentScroll}
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-dist-lg overflow-y-auto md:contents",
+          HIDE_NATIVE_SCROLLBAR_CLASSNAME,
+        )}
+      >
+        <div className="flex flex-col gap-dist-lg md:hidden">
+          <SegmentedControl
+            className="w-full"
+            value={tab}
+            onValueChange={(value) => handleTabChange(value as ContentTab)}
+            items={CONTENT_TABS}
+          />
+
+          <div className="flex items-center gap-dist-md">
+            <ContentSearch
+              value={query}
+              onValueChange={handleQueryChange}
+              defaultOpen
+              stayOpen
+              className="w-auto flex-1"
+            />
+            <ContentFilterMenu
+              filter={filter}
+              onFilterChange={handleFilterChange}
+              topics={topics}
+            />
+          </div>
+        </div>
+
       {/* The search control sits at the header's opposite end, and is what
           the panel's info marker used to be on this page (see the page's
           `showInfoMarker={false}`) — the corner marker had no behavior, this
           does. */}
-      <div className="flex items-center justify-between gap-dist-lg">
+      <div className="hidden flex-col items-start gap-dist-lg @2xl/section:flex-row @2xl/section:items-center @2xl/section:justify-between md:flex">
         <h1 className="text-heading-md font-display text-text-bold">Content</h1>
         <div className="flex items-center gap-dist-md">
           <ContentSearch value={query} onValueChange={handleQueryChange} />
@@ -277,8 +359,8 @@ export function ContentView({
         </div>
       </div>
 
-      <div className="flex flex-col gap-dist-md">
-        <div className="flex items-center justify-between">
+      <div className="hidden flex-col gap-dist-md md:flex">
+        <div className="flex flex-col items-start gap-dist-md @2xl/section:flex-row @2xl/section:items-center @2xl/section:justify-between">
           <SegmentedControl
             className="w-90"
             value={tab}
@@ -290,10 +372,10 @@ export function ContentView({
               per tap (it isn't a state indicator, it's the act of switching),
               and the pill itself takes the app's standard 150ms press scale. */}
           <button
-            ref={showAsRef}
-            style={showAsStyle}
+            ref={desktopShowAsRef}
+            style={desktopShowAsStyle}
             type="button"
-            onClick={cycleView}
+            onClick={cycleDesktopView}
             aria-label={`Showing as ${CONTENT_VIEWS.find((entry) => entry.value === view)?.label} — tap to change`}
             className="flex cursor-pointer items-center gap-dist-md rounded-rad-xmd bg-surface-3 px-pad-md py-pad-xs transition-[background-color,scale] duration-150 ease-out outline-none hover:bg-[color-mix(in_oklch,var(--surface-3),var(--foreground)_5%)] focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
           >
@@ -302,9 +384,9 @@ export function ContentView({
               {CONTENT_VIEWS.find((entry) => entry.value === view)?.label}
             </span>
             <ArrowsClockwise
-              ref={iconRef}
+              ref={desktopIconRef}
               weight="bold"
-              style={iconStyle}
+              style={desktopIconStyle}
               className="size-5 text-icon-bold"
             />
           </button>
@@ -322,11 +404,9 @@ export function ContentView({
         ) : null}
       </div>
 
-      {/* Only this part scrolls (per direct feedback): the panel is exactly
-          the viewport's height, so the title, tabs and info line stay put
-          while the months move under them. min-h-0 is what bounds it — a flex
-          item's automatic minimum is its content, which would otherwise push
-          the column past the panel and take the whole page with it. */}
+      {/* Mobile's panel scroller includes the controls above, so they travel
+          with the months under the same edge fade. Desktop keeps this nested
+          month reader, where the wider header remains persistent. */}
       {months.length === 0 ? (
         // A search or filter that matched nothing reads differently from a tab
         // that has nothing in it: one is something to correct, the other is
@@ -370,7 +450,7 @@ export function ContentView({
           ref={setMonthsNode}
           onScroll={handleMonthsScroll}
           className={cn(
-            "flex min-h-0 flex-1 flex-col gap-dist-xl overflow-y-auto",
+            "flex flex-none flex-col gap-dist-xl md:min-h-0 md:flex-1 md:overflow-y-auto",
             HIDE_NATIVE_SCROLLBAR_CLASSNAME
           )}
         >
@@ -389,7 +469,7 @@ export function ContentView({
           ref={setMonthsNode}
           onScroll={handleMonthsScroll}
           className={cn(
-            "flex min-h-0 flex-1 flex-col gap-dist-xl overflow-y-auto",
+            "flex flex-none flex-col gap-dist-xl md:min-h-0 md:flex-1 md:overflow-y-auto",
             HIDE_NATIVE_SCROLLBAR_CLASSNAME
           )}
         >
@@ -414,6 +494,8 @@ export function ContentView({
           ))}
         </div>
       )}
+
+      </div>
 
       {openDay && openEntry ? (
         <DayDeck

@@ -71,8 +71,8 @@ export function TotalPostsCard({ totals }: { totals: PostTotals }) {
   ]
 
   return (
-    <DashboardCard className="flex-row items-end gap-dist-xl">
-      <div className="flex w-78 shrink-0 flex-col justify-end gap-dist-md">
+    <DashboardCard className="flex-col items-stretch gap-dist-xl @4xl/section:flex-row @4xl/section:items-end">
+      <div className="flex w-full flex-col justify-end gap-dist-md @4xl/section:w-78 @4xl/section:shrink-0">
         <div className="flex flex-col">
           <span className="text-body-lg-bold text-text-subtle">Total posts</span>
           <span className="flex items-center gap-dist-md">
@@ -144,7 +144,7 @@ export function TotalPostsCard({ totals }: { totals: PostTotals }) {
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-1 items-center gap-dist-md">
+      <div className="flex min-w-0 flex-1 flex-col gap-dist-md lg:flex-row lg:items-center">
         <MiniStatCard
           label="Drafts"
           icon={Scribble}

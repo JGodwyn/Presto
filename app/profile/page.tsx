@@ -29,7 +29,7 @@ export default async function ProfilePage() {
     // Same shell as the in-project layout — h-screen so the page scrolls
     // inside <main> rather than stretching the chrome, and the same padding
     // scale so the navbar sits exactly where it does everywhere else.
-    <div className="flex h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl lg:px-pad-8xl xl:px-pad-9xl">
+    <div className="flex h-screen w-full flex-col gap-dist-2xl bg-surface-3 px-pad-xl py-pad-4xl md:px-[clamp(var(--pad-4xl),calc(37.037vw-var(--pad-9xl)-var(--pad-7xl)),var(--pad-9xl))]">
       <ProjectsNavbar
         userName={firstName}
         userId={user.id}

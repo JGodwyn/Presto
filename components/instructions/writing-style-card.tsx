@@ -94,7 +94,7 @@ function WritingStyleCard({
       </div>
 
       <InstructionsCard
-        title="My writing style"
+        title="Writing style"
         description="Show Presto real examples of writing you want your posts to sound like."
         headerAction={
           hasStyles ? (

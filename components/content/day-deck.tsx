@@ -65,10 +65,9 @@ const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)"
 // is deliberate: the cards have further to travel back into a single chip than
 // they did fanning out of it.
 //
-//   MAX_STAGGER_MS  written for short lists; a 20-post day would run past a
-//               second at 80ms each, so the total is capped. Past the cap the
-//               remaining cards share the last step, which still reads as a
-//               fan rather than a block.
+//   MAX_STAGGER_MS  keeps an occasional deck opening crisp even for a long
+//               day. Only on-screen cards fly; an unseen card never earns a
+//               delayed animation budget.
 //   bounce      how far past its resting scale a card carries before settling
 //               — a scale ratio, not a spring's bounce parameter, so
 //               STANDARDS' "keep bounce 0.1-0.3" doesn't map onto it directly.
@@ -77,13 +76,13 @@ const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)"
 //               after another" feel instead. Anything above 0 puts the
 //               overshoot keyframe back (see enterKeyframes/exitKeyframes).
 //   tilt        degrees per card off centre while still stacked on the chip.
-const ENTER_MS = 400
-const ENTER_STAGGER_MS = 80
+const ENTER_MS = 260
+const ENTER_STAGGER_MS = 50
 const ENTER_BOUNCE = 0
-const EXIT_MS = 480
-const EXIT_STAGGER_MS = 80
+const EXIT_MS = 300
+const EXIT_STAGGER_MS = 50
 const EXIT_BOUNCE = 0
-const MAX_STAGGER_MS = 270
+const MAX_STAGGER_MS = 150
 const TILT_STEP_DEG = 8
 
 // The fan never opens wider than three steps' worth of tilt, whatever
@@ -122,6 +121,21 @@ export interface DeckOrigin {
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches
+}
+
+function isMobileViewport(): boolean {
+  return window.matchMedia("(max-width: 767px)").matches
+}
+
+function isVisibleDeckCard(element: HTMLElement): boolean {
+  const rect = element.getBoundingClientRect()
+  return rect.right > 0 && rect.left < window.innerWidth
+}
+
+function isNearDeckCard(element: HTMLElement): boolean {
+  const rect = element.getBoundingClientRect()
+  const overscan = window.innerWidth
+  return rect.right > -overscan && rect.left < window.innerWidth + overscan
 }
 
 // Where a card sits while it's still part of the deck: centred on the chip
@@ -272,6 +286,9 @@ export function DayDeck({
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const animations = React.useRef(new Map<string, Animation>())
   const openedRef = React.useRef(false)
+  const [renderedCardIds, setRenderedCardIds] = React.useState<Set<string>>(
+    () => new Set(),
+  )
   const [closing, setClosing] = React.useState(false)
   const [toastOpen, setToastOpen] = React.useState(false)
   const [toastMessage, setToastMessage] = React.useState("")
@@ -379,6 +396,40 @@ export function DayDeck({
     [postIdsKey],
   )
 
+  // A long day can hold dozens of full editing cards. The fixed wrappers stay
+  // in the scroll row, but cards mount only once they are within a viewport of
+  // the reader. That keeps the opening responsive without replacing a card as
+  // someone is actively editing it.
+  const mountNearbyCards = React.useCallback(() => {
+    const nearbyIds = orderedCards()
+      .filter(({ element }) => isNearDeckCard(element))
+      .map(({ id }) => id)
+
+    setRenderedCardIds((current) => {
+      const next = new Set(current)
+      for (const id of nearbyIds) next.add(id)
+      return next.size === current.size ? current : next
+    })
+  }, [orderedCards])
+
+  React.useEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller) return
+
+    let frame = 0
+    const onScroll = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(mountNearbyCards)
+    }
+
+    onScroll()
+    scroller.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      scroller.removeEventListener("scroll", onScroll)
+    }
+  }, [mountNearbyCards])
+
   // The deal-out. useLayoutEffect so the collapsed transform is applied in the
   // same frame the cards first paint — a plain effect would show them at full
   // size for a frame before snapping back onto the chip. Runs once per open,
@@ -386,23 +437,35 @@ export function DayDeck({
   // whole deck.
   React.useLayoutEffect(() => {
     if (openedRef.current) return
-    openedRef.current = true
-
-    // A deck too wide for the screen opens on its middle, bleeding off both
-    // edges (the export's own framing), rather than pinned to its first card:
-    // auto margins collapse to 0 once the row overflows, so centring is a
-    // scroll position, not a layout property. Done before the cards are
-    // measured below, so they fan out to where they'll actually rest.
-    const scroller = scrollRef.current
-    if (scroller) {
-      scroller.scrollLeft = (scroller.scrollWidth - scroller.clientWidth) / 2
-    }
 
     const cards = orderedCards()
     const count = cards.length
-    const reduced = prefersReducedMotion()
+    const mobile = isMobileViewport()
 
+    // Desktop opens a wide deck at its middle, which is useful when a pointer
+    // can immediately pan in either direction. On a phone, the first post is
+    // the expected starting point: it is fully readable and the following
+    // card peeks in as the scroll cue. One card remains centred because there
+    // is no hidden continuation to introduce.
+    const scroller = scrollRef.current
+    if (scroller) {
+      scroller.scrollLeft = mobile && count > 1
+        ? 0
+        : (scroller.scrollWidth - scroller.clientWidth) / 2
+    }
+
+    mountNearbyCards()
+    if (renderedCardIds.size === 0) return
+
+    openedRef.current = true
+
+    const reduced = prefersReducedMotion()
     for (const { id, index, element } of cards) {
+      // Off-screen cards are already at their resting position. Every card
+      // the user can see flies out from the chip, including the mobile peek.
+      if (!renderedCardIds.has(id) || !isVisibleDeckCard(element)) {
+        continue
+      }
       // A replay has to clear the previous animation first, or the old one's
       // filled end state fights the new one's keyframes.
       animations.current.get(id)?.cancel()
@@ -447,7 +510,7 @@ export function DayDeck({
         },
       )
     }
-  }, [orderedCards, origin])
+  }, [mountNearbyCards, orderedCards, origin, renderedCardIds])
 
   const startClose = React.useCallback(() => {
     setClosing(true)
@@ -552,7 +615,10 @@ export function DayDeck({
     const count = cards.length
     const reduced = prefersReducedMotion()
 
-    const finished = cards.map(({ id, index, element }) => {
+    const finished = cards.flatMap(({ id, index, element }) => {
+      if (!isVisibleDeckCard(element)) {
+        return []
+      }
       // A close that lands mid-open would otherwise measure a rect that's
       // still moving. Cancelling first snaps that card back to its resting
       // slot for a frame — only reachable by closing inside the first ~half
@@ -577,7 +643,7 @@ export function DayDeck({
         fill: "both",
       })
       animations.current.set(id, animation)
-      return animation.finished
+      return [animation.finished]
     })
 
     let done = false
@@ -1017,10 +1083,19 @@ export function DayDeck({
                   ref={registerFlip(post.id)}
                   data-post-id={post.id}
                   className="w-68 shrink-0"
+                  style={{
+                    // Each wrapper has an explicit width and a fixed-height
+                    // card, so the browser can reserve its exact scroll space
+                    // while deferring the expensive inner card layout/paint
+                    // until it approaches the viewport.
+                    contentVisibility: "auto",
+                    containIntrinsicSize: `${CARD_HEIGHT_PX}px`,
+                  }}
                 >
-                  <Tooltip>
-                    <TooltipTrigger render={<div />}>
-                      <GeneratedPostCard
+                  {renderedCardIds.has(post.id) ? (
+                    <Tooltip>
+                      <TooltipTrigger render={<div />}>
+                        <GeneratedPostCard
                         className="h-98 min-w-0"
                         content={post.content}
                         onContentChange={(content) =>
@@ -1067,10 +1142,15 @@ export function DayDeck({
                         onSocialChange={(target) =>
                           handleSocialChange(post, target)
                         }
-                      />
-                    </TooltipTrigger>
-                    <TooltipContent>Double-tap to edit post</TooltipContent>
-                  </Tooltip>
+                        />
+                      </TooltipTrigger>
+                      {!isPostLocked(post) ? (
+                        <TooltipContent>Double-tap to edit post</TooltipContent>
+                      ) : null}
+                    </Tooltip>
+                  ) : (
+                    <div aria-hidden className="h-98" />
+                  )}
                 </div>
               ))}
             </div>

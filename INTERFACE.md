@@ -135,6 +135,70 @@ forms, which go full width.
 
 ## 4. Layout rules
 
+- **Auth:** the branded auth shell is a fixed dynamic-viewport canvas
+  (`h-dvh`, `overflow-clip`), never a page-height minimum. Its centered form,
+  bottom gradient, and `Presto` wordmark therefore remain a single composition
+  as mobile browser chrome expands or collapses; auth pages do not scroll.
+
+- **Generate on mobile:** the panel expands with its content and is revealed by
+  the shared section scroll. Its form uses the full inner rail: calendar mode
+  reads cadence/date selection → calendar → model/account → scheduled count
+  and action; its desktop two-column grouping remains unchanged.
+
+- **Generate selectors:** model and social-account triggers are 40px on mobile
+  (32px from `md` upward). Their portaled menus choose the roomier vertical
+  side of the trigger, cap themselves to its available height, and stay within
+  the viewport's horizontal gutter.
+
+- **Tooltips on mobile:** functional controls reveal their tooltip on a
+  long-press (and suppress the control action for that gesture); informational
+  markers opt into a regular tap. Desktop retains hover/focus behavior and its
+  app-wide delay.
+
+- **Generating posts on mobile:** the title is centered above a separate
+  32px action row. Its primary action fills the remaining width beside the
+  status indicator or left-caret exit control; desktop retains its inline
+  heading/actions layout.
+
+- **Mobile project chrome (below `md`):** the in-project canvas uses the
+  fluid viewport rail inside the existing `pad-xl` gutter, a compact 40px
+  back/logo/profile top bar, and the five-section icon navigation as a 64px
+  white squircle dock at the bottom. The dock has `pad-xs`, no border, and the
+  manually tuned 0/2/32 10%-black shadow. Its purple current-section plate
+  updates optimistically on activation and translates between tabs over 200ms
+  with the standard strong ease-in-out curve; reduced motion removes that
+  translation. A pending selection belongs to its destination, not its origin:
+  if several routes overlap, an older route committing cannot erase the newest
+  tab choice. Account routes deliberately clear the active dock item. During
+  numbered onboarding steps, the dock, retained mobile brand bar, desktop
+  sidebar/top bar, and blurred section content are all inert: the callout's
+  Next (or final Complete) action is the tour's only controller. Desktop keeps
+  the full sidebar. Section content is the only
+  scrolling region, with detached squircle cards, an 8px scroll tail, and a
+  32px bottom edge fade above the dock. The fade begins with an opaque 8px cap
+  at the overflow boundary so contrasting controls are fully dissolved before
+  the browser's hard clip. The mobile onboarding keeps this regular top bar
+  and bottom dock visible, with its callout anchored to the lower edge of the
+  content rail immediately above the dock.
+
+- **Desktop gutters protect both composition and usable content:** below `md`,
+  use `pad-xl`; from `md`, a token-bounded fluid gutter scales from `pad-4xl`
+  (48px) to the original `pad-9xl` (256px) cap at 1728px. It deliberately
+  frees more content width around 1440px–1512px, where the sidebar otherwise
+  makes a full desktop layout feel cramped. In-project top bars align to the
+  full sidebar-plus-section content rail. The section scroll-area is the named
+  `section` container: layouts that need multiple panels use its width (not
+  the viewport width) to decide when to spread out. Instructions'
+  three cards return to a row at the section's 48rem (`@3xl`) threshold;
+  Dashboard and Generate need their more conservative 56rem threshold. The
+  project sidebar uses a token-composed 192px width (`dist-8xl` + `dist-xl` +
+  `dist-lg`) from `md` until `lg`, then switches to 248px (`pad-9xl` +
+  `dist-lg` - `dist-xl`) on
+  desktop. The two named width constants in `project-sidebar.tsx` are the
+  single tuning point for those breakpoints.
+- **Instructions card headers:** titles truncate within their own flexible
+  space; compact header actions align to the title's top edge. The concise card
+  labels are **Voice**, **Writing style**, and **References**.
 - **Two-column pages keep the header in the outer wrapper**, not in one column,
   so it doesn't jump when the columns change (Generate's number vs calendar
   modes share one `w-230` `mx-auto` header).
@@ -304,6 +368,21 @@ account. Onboarding completion is global, not per project
 - Dates render with an ordinal suffix via `lib/format-date.ts`
   (`formatFullDate` "July 5th, 2026", `formatShortDate` "Sept 15th, 2026",
   chips "5th"). `Intl` has no ordinal, hence the hand-built string.
+- **Content on mobile:** the header is one compact stack — title with the
+  Show-as control, tabs, then a permanently expanded search/filter row. Calendar
+  day chips become a drag-scrollable rail; Kanban preserves a 256px board even
+  for sparse months so the next day column remains visible as the horizontal
+  scroll cue. Desktop retains the existing wrapped/hugging layouts.
+- **Post details on mobile:** its action row and metadata sit on the same
+  320px inner rail as the reading area. The desktop's fixed 400px reading
+  column becomes full-width below `md`, preventing clipping inside the mobile
+  glow panel.
+- **Content day deck:** multi-post decks begin at their first card on mobile,
+  leaving the next card as a horizontal-scroll cue; desktop keeps its centred
+  starting composition. Every visible card animates from the day chip;
+  offscreen wrappers reserve their scroll space while full interactive cards
+  mount only within a one-viewport overscan window. Once mounted, a card stays
+  mounted so a reader never loses an edit while scrolling away and back.
 - **Motion values get tuned on a DialKit panel and then frozen in code.** The
   panel is a means, not a fixture: once the feel is right the numbers become
   named constants in the file that animates them, and the panel is deleted (git
@@ -830,7 +909,8 @@ frame lands.
   expiring LinkedIn token or a BYOK key that fell back onto the app's
   credentials is still true tomorrow, and a Toast is for something that just
   happened and then leaves.
-- **Setup is a 3x2 tile grid** (`dashboardsetup` export): tone badge, label,
+- **Setup is a 3x2 tile grid on wide sections and 2 columns on mobile**
+  (`dashboardsetup` export): tone badge, label,
   then a pill carrying the figure and a caret, all three tinted together per
   state. Pills take `mt-auto` so they share a baseline across a row regardless
   of label wrapping. It is the **one block on this page that is not a
@@ -847,13 +927,14 @@ frame lands.
   `EDGE_FADE_MASK` pattern (GeneratedPostCard, the skip-dates carousel) stays
   the right tool only where the fade width is fixed and the padding/negative-
   margin pair can hold it off resting content.
-- **The in-project page scroll fades at the top only**
+- **The in-project page scroll always fades at the top; mobile also fades at
+  the bottom**
   (`components/shared/section-scroll-area.tsx`, wrapping `<main>` for every
   section). Content disappearing under `<main>`'s top edge dissolves instead of
-  being cut; **there is no bottom fade by design**, because `<main>`'s
-  `-mb`/`pb` pair bleeds the scroll area past the page padding to the real
-  screen edge, so content there runs off the display rather than clipping at a
-  line.
+  being cut. Desktop has no bottom fade because `<main>`'s `-mb`/`pb` pair
+  bleeds the scroll area past the page padding to the real screen edge. Mobile
+  ends above its persistent dock, so a 32px bottom overlay—with an opaque 8px
+  terminal cap—dissolves content before that internal overflow boundary.
 - **It is an overlay strip, not a CSS mask — the one place that rule is
   inverted.** A mask paints its whole subtree through the mask's geometry, and
   five sections render their Toast into a `position: fixed` slot *inside*
@@ -877,6 +958,14 @@ hand-composed mockup §12 describes. What changed and what holds:
   "Queued" numbers on one card — 85 in the bar, 10 in the card — with only a
   caption to explain it; changed per direct request. Month figures live on the
   row below, which is about the month by definition.
+  - On compact sections the bar fills the card width and the three mini cards
+    stack as whole frames; their horizontal row returns at the `lg`/1024px
+    laptop breakpoint.
+  - The three monthly stat cards below it follow the same `lg`/1024px switch:
+    whole frames vertically below laptop width, one horizontal row above it.
+  - Calendar and posts use that same `lg`/1024px switch: below it they stack;
+    at and above it, the calendar takes two fifths of the row and the post
+    scroller fills the larger remaining three fifths.
   - That row reads **To go out this month → Empty days ahead → Written this
     week** (order and first label per direct request): the two calendar
     figures sit together, and the activity figure — the only one measuring what
@@ -1126,6 +1215,58 @@ group* — Base UI shows the next tooltip in a group instantly, so sliding acros
 the bar's bands or from one pill to the other doesn't re-wait. That grouping
 now also spans the app as a whole, so moving between any two triggers while one
 tooltip is open is instant.
+
+Tooltip pointers overlap their bubble by `stroke-lg`: fractional mobile pixel
+rounding can otherwise reveal a page-coloured hairline at a merely touching
+edge. The shared overlap applies at every pointer side.
+
+## Mobile control targets
+
+Text-bearing `Button` primitives and `PillInput` fields have a mobile-only
+minimum `pad-4xl` (48px) target. Icon-only buttons retain their authored
+dimensions. Enlarged text buttons use `rad-lg` with a matching dynamic
+squircle clip path, so the larger mobile footprint keeps the intended curve.
+The token scale has no 44px value, so this meets the requested 44pt
+accessibility minimum without creating an off-scale size; desktop keeps each
+component's authored size. The Profile log-out button is deliberately 48px on
+every viewport.
+
+## Content page mobile scrolling
+
+Mobile Content keeps its top Content/show-as row fixed, with tabs, search,
+filter, and months together in a faded scroll surface. Post details similarly
+keeps back/actions fixed and scrolls date, metadata, and copy together below.
+Desktop retains the bounded inner content readers and persistent controls.
+
+## Profile mobile scale
+
+Profile list rows are 48px on mobile. The profile avatar grows from 56px to
+72px, while the actual red log-out control grows from 40px to 56px. The avatar
+picker popover is wide enough for five 56px upload/gradient choices per row on
+mobile; the wrapped choice grid is center-aligned so a partial last row does
+not leave visual weight on the right. Its increased padding and swatch
+footprint supply the additional height.
+
+Mobile page-edge fades remeasure after descendant layout transitions finish,
+and after relevant visibility/class mutations. Expanding a Profile disclosure
+therefore reveals the bottom fade as soon as the new overflow settles, without
+waiting for a scroll gesture; reduced-motion mode follows the mutation path.
+
+## Avatar uploads
+
+Avatar compression falls back from `createImageBitmap` to an object-URL
+`<img>` decode when mobile WebKit cannot decode a selected file through the
+bitmap API, and falls back from WebP to JPEG if that browser cannot encode
+WebP canvas output. Profile-avatar error toasts omit the warning icon by
+request. Upload paths prefer `crypto.randomUUID()` but fall back to a
+timestamp/random identifier on insecure mobile dev-server origins, where that
+secure-context API is unavailable.
+
+## Navbar profile chip
+
+The navbar profile chip uses `rad-xmd` (12px) with a matching squircle path on
+both viewports. On mobile its 32px height is fixed while the avatar grows to
+20px, preserving the topbar's rhythm without making the chip taller.
 
 ## AI models list (Profile) — from the "ProfileScreenRedesign" export
 

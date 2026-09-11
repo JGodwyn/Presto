@@ -23,7 +23,7 @@ const TOGGLE_PILL_CORNER_RADIUS = 16
 // single 320px calendar vs. the wider month grid vs. several skip-dates
 // calendars in a row) — per direct feedback, it was previously just
 // whatever width the flex row happened to hand it.
-const COLUMN_WIDTH_CLASSNAME = "w-100"
+const COLUMN_WIDTH_CLASSNAME = "w-full @4xl:w-100"
 function isSameDay(a: Date, b: Date) {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -339,7 +339,16 @@ function GenerateCalendarColumn({
   // see hooks/use-shake.ts.
   const errorRef = useShake<HTMLParagraphElement>(showError)
 
-  const dragScroll = useCarouselScroll<HTMLDivElement>()
+  const {
+    ref: carouselRef,
+    maxWidthPx,
+    isDragging,
+    elasticOffset,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+  } = useCarouselScroll<HTMLDivElement>()
   // Empty (not `selectedMonths`) once the toggle itself is off, so turning
   // it off — or deselecting the very last month — reads as "everything
   // exits" to the presence hook instead of "the row disappears out from
@@ -364,7 +373,7 @@ function GenerateCalendarColumn({
     >
       {cadence === "daily" ? (
         <>
-          <p className="flex items-center gap-dist-md text-body-lg text-text-subtle">
+          <p className="flex self-center items-center justify-center gap-dist-md text-center text-body-lg text-text-subtle md:self-start md:justify-start md:text-left">
             <Info className="size-5 text-icon-subtle" />
             {dateSelectMethod === "range"
               ? // Not in the export (only "Pick dates" has a captured info
@@ -379,6 +388,7 @@ function GenerateCalendarColumn({
                 selected={dailyRange}
                 onSelect={onDailyRangeChange}
                 footer={timeField}
+                className="self-center md:self-start"
               />
               {/* Restored per direct feedback — this used to render in the
                   provisional demo and got dropped when the real layout was
@@ -399,6 +409,7 @@ function GenerateCalendarColumn({
               selected={dailyDates}
               onSelect={onDailyDatesChange}
               footer={timeField}
+              className="self-center md:self-start"
             />
           )}
         </>
@@ -432,13 +443,13 @@ function GenerateCalendarColumn({
           </p>
           {carouselPresence.items.length > 0 ? (
             <div
-              ref={dragScroll.ref}
-              onPointerDown={dragScroll.onPointerDown}
-              onPointerMove={dragScroll.onPointerMove}
-              onPointerUp={dragScroll.onPointerUp}
-              onPointerCancel={dragScroll.onPointerCancel}
+              ref={carouselRef}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerCancel}
               style={{
-                maxWidth: dragScroll.maxWidthPx,
+                maxWidth: maxWidthPx,
                 // Fades the viewport's own left/right edges to transparent
                 // instead of ending in a hard line — a calendar scrolling
                 // through no longer looks like it's being sliced by an
@@ -489,13 +500,13 @@ function GenerateCalendarColumn({
                 // tallest one in the row.
                 className="flex items-start gap-dist-lg"
                 style={{
-                  transform: `translateX(${dragScroll.elasticOffset}px)`,
+                  transform: `translateX(${elasticOffset}px)`,
                   // No transition while actively dragging — the offset
                   // needs to track the pointer 1:1. Only once released does
                   // it spring back, on the same strong ease-in-out curve
                   // used elsewhere for on-screen movement (e.g.
                   // SegmentedControl's indicator).
-                  transition: dragScroll.isDragging
+                  transition: isDragging
                     ? "none"
                     : "transform 200ms cubic-bezier(0.77,0,0.175,1)",
                 }}

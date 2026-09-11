@@ -85,7 +85,7 @@ function PillInput({
           // snapping instantly between rest/focus/danger/disabled.
           // rounded-rad-lg is the fallback shape until the squircle
           // clip-path is measured on mount (see use-squircle-clip-path.ts).
-          "flex w-full items-center gap-dist-md rounded-rad-lg border-[length:var(--stroke-xl)] border-transparent bg-text-input-surface-rest py-pad-sm transition-colors duration-150 ease has-[input:disabled]:bg-surface-2",
+          "flex w-full items-center gap-dist-md rounded-rad-lg border-[length:var(--stroke-xl)] border-transparent bg-text-input-surface-rest py-pad-sm transition-colors duration-150 ease has-[input:disabled]:bg-surface-2 max-md:min-h-[var(--pad-4xl)]",
           isInvalid
             ? "border-border-danger"
             : "focus-within:border-border-focused",

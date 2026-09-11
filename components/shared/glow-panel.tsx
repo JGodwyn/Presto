@@ -5,6 +5,7 @@ import Image from "next/image"
 import { Info } from "@phosphor-icons/react"
 
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import { cn } from "@/lib/utils"
 
 // Figma --rad-lg as px for the squircle path math (the panel) and --rad-md
 // (the info corner tag).
@@ -26,6 +27,7 @@ export function GlowPanel({
   children,
   cornerAction,
   showInfoMarker = true,
+  className,
 }: {
   children: React.ReactNode
   // Rendered to the left of the info marker, in the same corner cluster —
@@ -35,6 +37,7 @@ export function GlowPanel({
   // Off for a page that puts its own controls in that corner — the post
   // details screen, whose export shows its three actions there and no marker.
   showInfoMarker?: boolean
+  className?: string
 }) {
   const { ref: panelRef, style: panelStyle } =
     useSquircleClipPath<HTMLElement>({ cornerRadius: PANEL_CORNER_RADIUS })
@@ -80,7 +83,10 @@ export function GlowPanel({
       // height, overflowed the box meant to cap it, and the whole page went
       // back to scrolling. Say it explicitly instead of relying on either
       // overflow value to imply it.
-      className="relative flex min-h-0 flex-1 flex-col overflow-clip rounded-rad-lg bg-surface-4"
+      className={cn(
+        "relative flex min-h-0 flex-1 flex-col overflow-clip rounded-rad-lg bg-surface-4",
+        className
+      )}
     >
       {/* The export places the art at 1157px on a 920px panel — wider than
           its container, cropped at the sides. The calc keeps that ratio at

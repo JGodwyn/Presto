@@ -120,7 +120,7 @@ export function PostActionsMenu({
               {onPublish ? (
                 <MenuItem
                   role="menuitem"
-                  className="justify-between"
+                  className="justify-between max-md:h-[var(--pad-4xl)] max-md:px-pad-lg"
                   onClick={() => {
                     onPublish()
                     setOpen(false)
@@ -138,7 +138,7 @@ export function PostActionsMenu({
                 <MenuItem
                   role="menuitem"
                   disabled
-                  className="justify-between"
+                  className="justify-between max-md:h-[var(--pad-4xl)] max-md:px-pad-lg"
                 >
                   Publishing coming soon
                   <PaperPlaneTilt weight="bold" />
@@ -148,7 +148,7 @@ export function PostActionsMenu({
                 <MenuItem
                   role="menuitem"
                   withDivider={Boolean(onPublish || publishComingSoon)}
-                  className="justify-between"
+                  className="justify-between max-md:h-[var(--pad-4xl)] max-md:px-pad-lg"
                   onClick={() => {
                     onOpen()
                     setOpen(false)
@@ -162,7 +162,7 @@ export function PostActionsMenu({
                 <MenuItem
                   role="menuitem"
                   withDivider={Boolean(onPublish || publishComingSoon || onOpen)}
-                  className="justify-between"
+                  className="justify-between max-md:h-[var(--pad-4xl)] max-md:px-pad-lg"
                   onClick={() => {
                     onTurnToDraft()
                     setOpen(false)
@@ -178,7 +178,7 @@ export function PostActionsMenu({
                 withDivider={Boolean(
                   onPublish || publishComingSoon || onOpen || onTurnToDraft
                 )}
-                className="justify-between"
+                className="justify-between max-md:h-[var(--pad-4xl)] max-md:px-pad-lg"
                 onClick={() => {
                   onDelete()
                   setOpen(false)

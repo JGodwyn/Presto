@@ -9,7 +9,7 @@ function LogoutButton() {
   const { pending } = useFormStatus()
 
   return (
-    <Button type="submit" variant="outline" disabled={pending}>
+    <Button type="submit" variant="outline" size="xl" className="h-pad-4xl" disabled={pending}>
       {pending ? (
         <>
           <SpinnerGap weight="bold" className="animate-spin" />

@@ -120,7 +120,7 @@ function MonthGridInfo({ children }: { children: React.ReactNode }) {
   })
 
   return (
-    <Tooltip>
+    <Tooltip touchBehavior="tap">
       <TooltipTrigger
         render={
           <button
