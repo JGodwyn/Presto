@@ -9,6 +9,11 @@ import { hasProjects } from "@/lib/supabase/queries"
 import { logout } from "@/app/(auth)/logout/actions"
 import { cn } from "@/lib/utils"
 import { LogoutButton } from "./logout-button"
+import {
+  getAvatarGradientId,
+  getAvatarUrl,
+  getDisplayName,
+} from "@/lib/user-profile-metadata"
 
 // Blur+opacity mount-in via @starting-style (Tailwind's `starting:` variant)
 // needs no client-side JS, so this stays a Server Component. Strong ease-out
@@ -32,7 +37,7 @@ export default async function CreateProjectPage() {
   if (await hasProjects(supabase)) redirect("/projects")
 
   const firstName =
-    (user.user_metadata?.name as string | undefined)?.trim().split(/\s+/)[0] ??
+    getDisplayName(user.user_metadata)?.trim().split(/\s+/)[0] ??
     "there"
 
   return (
@@ -60,13 +65,8 @@ export default async function CreateProjectPage() {
           <div className="flex flex-col items-center gap-dist-md">
             <UserAvatar
               userId={user.id}
-              avatarUrl={
-                (user.user_metadata?.avatar_url as string | undefined) ?? null
-              }
-              gradientId={
-                (user.user_metadata?.avatar_gradient as string | undefined) ??
-                null
-              }
+              avatarUrl={getAvatarUrl(user.user_metadata)}
+              gradientId={getAvatarGradientId(user.user_metadata)}
               size={32}
             />
             <p className="text-title-lg font-display text-text-bold">

@@ -4,6 +4,11 @@ import { ProfileContent } from "@/components/profile/profile-content"
 import { ProjectsNavbar } from "@/components/projects/projects-navbar"
 import { SectionScrollArea } from "@/components/shared/section-scroll-area"
 import { createClient } from "@/lib/supabase/server"
+import {
+  getAvatarGradientId,
+  getAvatarUrl,
+  getDisplayName,
+} from "@/lib/user-profile-metadata"
 
 // The account screen on its own, for the name chip on the projects picker.
 // It used to forward into the user's first project, which was wrong on its
@@ -22,7 +27,7 @@ export default async function ProfilePage() {
   if (!user) redirect("/login")
 
   const firstName =
-    (user.user_metadata?.name as string | undefined)?.trim().split(/\s+/)[0] ??
+    getDisplayName(user.user_metadata)?.trim().split(/\s+/)[0] ??
     "there"
 
   return (
@@ -34,10 +39,10 @@ export default async function ProfilePage() {
         userName={firstName}
         userId={user.id}
         avatarUrl={
-          (user.user_metadata?.avatar_url as string | undefined) ?? null
+          getAvatarUrl(user.user_metadata)
         }
         gradientId={
-          (user.user_metadata?.avatar_gradient as string | undefined) ?? null
+          getAvatarGradientId(user.user_metadata)
         }
         // The chip opens this page, so it has nowhere left to go — but with
         // no sidebar and no project, Back is the only way out.

@@ -650,7 +650,10 @@ export function GeneratedPostCard({
           <Button
             variant={date ? "brand" : "success"}
             size="sm"
-            className="flex-1"
+            cornerRadius={12}
+            mobileCornerRadius={12}
+            mobileCornerSmoothing={0.5}
+            className="flex-1 max-md:min-h-[var(--pad-2xl)] max-md:min-w-0 max-md:rounded-rad-xmd"
             onClick={() => setPickerOpen(true)}
           >
             {date ? "Change date" : "Add to calendar"}

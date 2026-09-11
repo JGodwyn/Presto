@@ -4,7 +4,6 @@ import * as React from "react"
 import { ArrowArcLeft, Password, Power, Robot } from "@phosphor-icons/react"
 
 import { ConfirmationModal } from "@/components/ui/confirmation-modal"
-import { Toast } from "@/components/ui/toast"
 import { AvatarPicker } from "@/components/profile/avatar-picker"
 import { useOnboarding } from "@/components/onboarding/onboarding-context"
 import { ChangePasswordPanel } from "@/components/profile/change-password-panel"
@@ -13,6 +12,7 @@ import { ProfileDisclosure } from "@/components/profile/profile-disclosure"
 import { ProfileRow } from "@/components/profile/profile-row"
 import { AiModelsPanel } from "@/components/settings/ai-models-panel"
 import { withNetworkStatus } from "@/lib/network-status"
+import { LOGIN_URL } from "@/lib/auth-routes"
 import { cn } from "@/lib/utils"
 import type { UserAiModel } from "@/types/ai-model"
 
@@ -99,49 +99,27 @@ export function ProfileScreen({
   const hasPasswordIdentity = hasPassword || passwordAdded
   const [modelsOpen, setModelsOpen] = React.useState(false)
   const [logoutOpen, setLogoutOpen] = React.useState(false)
-  // `logout` redirects, so this pending flag is never cleared on the success
-  // path — the page is gone before it could be. It exists to keep the button
-  // from being pressed twice while the sign-out is in flight, and comes back
-  // off only when the sign-out actually fails (see handleLogout).
+  // A successful sign-out immediately replaces the document with the login
+  // screen, so this only needs to be cleared when the request never lands.
+  // It prevents a second confirmation while the current one is in flight.
   const [loggingOut, setLoggingOut] = React.useState(false)
-  // Split from the toast's own open/close lifecycle so the message doesn't
-  // blank out mid-exit-animation (same as ai-models-panel.tsx).
-  const [toastOpen, setToastOpen] = React.useState(false)
-  const [toastMessage, setToastMessage] = React.useState("")
-
   const handleLogout = async () => {
     setLoggingOut(true)
 
-    // A redirecting action *resolves* here rather than rejecting — the router
-    // takes the navigation off the response (see login-screen.tsx, which does
-    // the same) — so anything landing in the catch is a real failure, and it
-    // has to hand the button back. Leaving the flag set is what left this
-    // spinning forever with nothing on its way.
-    const result = await withNetworkStatus(logout()).catch(() => {
-      setToastMessage("Couldn't log you out")
-      setToastOpen(true)
-      return undefined
-    })
+    const result = await withNetworkStatus(logout())
 
-    // null: the request never landed and the disconnected toast already says
-    // why. Either way the modal is still on screen, so give it back.
-    if (result === null || result === undefined) setLoggingOut(false)
+    // null means the request never landed and the global disconnected toast
+    // already says why. A completed sign-out deliberately reloads the auth
+    // surface, clearing the old app tree and its modal in one step.
+    if (result === null) {
+      setLoggingOut(false)
+      return
+    }
+    window.location.assign(LOGIN_URL)
   }
 
   return (
     <>
-      {/* Same fixed top-center slot as the create-project/Connections toasts. */}
-      <div className="pointer-events-none fixed inset-x-0 top-pad-2xl z-50 flex justify-center">
-        <Toast
-          open={toastOpen}
-          onOpenChange={setToastOpen}
-          variant="danger"
-          direction="top"
-        >
-          {toastMessage}
-        </Toast>
-      </div>
-
       {/* Same unified blur+opacity mount-in as every other section (see
           /create-project for the @starting-style rationale). */}
       <div className="flex flex-1 flex-col items-center justify-center gap-dist-lg py-pad-2xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px] md:p-pad-2xl">

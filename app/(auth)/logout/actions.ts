@@ -20,6 +20,23 @@ async function clearSessionCookies() {
 }
 
 export async function logout(): Promise<void> {
+  await endSession()
+
+  // The final login URL, not the /login stub: an action that redirects at a
+  // redirect gets a response the browser follows out from under React. See
+  // lib/auth-routes.ts.
+  redirect(LOGIN_URL)
+}
+
+// Profile's confirmation dialog needs a normal action result, then performs
+// the top-level navigation itself. A redirect thrown from a Server Action is
+// otherwise observable as a rejected promise in its event handler and was
+// incorrectly shown as a failed logout behind the dialog overlay.
+export async function logoutForClient(): Promise<void> {
+  await endSession()
+}
+
+async function endSession() {
   const supabase = await createClient()
 
   // signOut reports rather than throws, and it can report *without* having
@@ -31,9 +48,4 @@ export async function logout(): Promise<void> {
   // cleared by hand in that case.
   const { error } = await supabase.auth.signOut()
   if (error) await clearSessionCookies()
-
-  // The final login URL, not the /login stub: an action that redirects at a
-  // redirect gets a response the browser follows out from under React. See
-  // lib/auth-routes.ts.
-  redirect(LOGIN_URL)
 }

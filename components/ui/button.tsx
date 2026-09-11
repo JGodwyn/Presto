@@ -140,6 +140,12 @@ interface ButtonProps
   // see AGENTS.md's corner-radius rule). Pass explicitly only when a size's
   // default mapping is wrong for this instance.
   cornerRadius?: number
+  // Lets an intentionally compact mobile control keep the same geometry as
+  // its desktop counterpart without making a 32px button look pill-shaped.
+  mobileCornerRadius?: number
+  // Paired with mobileCornerRadius when the compact mobile form needs a
+  // gentler curve than the desktop squircle.
+  mobileCornerSmoothing?: number
   cornerSmoothing?: number
 }
 
@@ -148,6 +154,8 @@ function Button({
   variant = "default",
   size = "default",
   cornerRadius,
+  mobileCornerRadius,
+  mobileCornerSmoothing,
   cornerSmoothing = 1,
   style,
   children,
@@ -156,14 +164,20 @@ function Button({
   const isMobile = useMobileTextButton()
   const isIconButton = size?.startsWith("icon")
   const resolvedCornerRadius =
-    cornerRadius ??
-    (isMobile && !isIconButton
-      ? 16
-      : SIZE_CORNER_RADIUS[size ?? "default"])
+    isMobile && mobileCornerRadius !== undefined
+      ? mobileCornerRadius
+      : cornerRadius ??
+        (isMobile && !isIconButton
+          ? 16
+          : SIZE_CORNER_RADIUS[size ?? "default"])
+  const resolvedCornerSmoothing =
+    isMobile && mobileCornerSmoothing !== undefined
+      ? mobileCornerSmoothing
+      : cornerSmoothing
   const { ref: squircleRef, style: squircleStyle } =
     useSquircleClipPath<HTMLButtonElement>({
       cornerRadius: resolvedCornerRadius ?? 0,
-      cornerSmoothing,
+      cornerSmoothing: resolvedCornerSmoothing,
     })
 
   return (

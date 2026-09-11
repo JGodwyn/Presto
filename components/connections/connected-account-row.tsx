@@ -147,7 +147,15 @@ function ConnectedAccountRow({
                 )}
               </Button>
             ) : (
-              <Button variant="danger" size="sm" onClick={onDisconnect}>
+              <Button
+                variant="danger"
+                size="sm"
+                cornerRadius={12}
+                mobileCornerRadius={12}
+                mobileCornerSmoothing={0.5}
+                className="max-md:min-h-[var(--pad-2xl)] max-md:min-w-0 max-md:rounded-rad-xmd"
+                onClick={onDisconnect}
+              >
                 Disconnect
               </Button>
             )

@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { isNetworkError } from "@/lib/network-error";
 import { reportNetworkIssue } from "@/lib/network-status";
+import { profileMetadataKeys } from "@/lib/user-profile-metadata";
 
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
@@ -67,7 +68,11 @@ export function AvatarPicker({
 
     const supabase = createClient();
     const { error } = await supabase.auth.updateUser({
-      data: { avatar_gradient: id, avatar_url: null },
+      data: {
+        [profileMetadataKeys.avatarGradient]: id,
+        [profileMetadataKeys.avatarUrl]: null,
+        [profileMetadataKeys.avatarPhotoCleared]: true,
+      },
     });
 
     if (error) {
@@ -143,7 +148,10 @@ export function AvatarPicker({
       // session every page already reads.
       const previous = url;
       const { error: saveError } = await supabase.auth.updateUser({
-        data: { avatar_url: publicUrl },
+        data: {
+          [profileMetadataKeys.avatarUrl]: publicUrl,
+          [profileMetadataKeys.avatarPhotoCleared]: false,
+        },
       });
       if (saveError) throw saveError;
 

@@ -5,6 +5,11 @@ import { NewProjectFolder } from "@/components/projects/new-project-folder"
 import { ProjectFolder } from "@/components/projects/project-folder"
 import { ProjectsNavbar } from "@/components/projects/projects-navbar"
 import { createClient } from "@/lib/supabase/server"
+import {
+  getAvatarGradientId,
+  getAvatarUrl,
+  getDisplayName,
+} from "@/lib/user-profile-metadata"
 import { fetchProjects } from "@/lib/supabase/queries"
 import { cn } from "@/lib/utils"
 
@@ -29,7 +34,7 @@ export default async function ProjectsPage() {
   if (projects.length === 0) redirect("/create-project")
 
   const firstName =
-    (user.user_metadata?.name as string | undefined)?.trim().split(/\s+/)[0] ??
+    getDisplayName(user.user_metadata)?.trim().split(/\s+/)[0] ??
     "there"
 
   return (
@@ -38,10 +43,10 @@ export default async function ProjectsPage() {
         userName={firstName}
         userId={user.id}
         avatarUrl={
-          (user.user_metadata?.avatar_url as string | undefined) ?? null
+          getAvatarUrl(user.user_metadata)
         }
         gradientId={
-          (user.user_metadata?.avatar_gradient as string | undefined) ?? null
+          getAvatarGradientId(user.user_metadata)
         }
       />
 

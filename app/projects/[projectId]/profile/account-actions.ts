@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
+import { profileMetadataKeys } from "@/lib/user-profile-metadata"
 import {
   isNetworkError,
   networkActionError,
@@ -64,7 +65,7 @@ export async function updateDisplayName(
 
   const supabase = await createClient()
   const { error } = await supabase.auth.updateUser({
-    data: { name: parsed.data.name },
+    data: { [profileMetadataKeys.displayName]: parsed.data.name },
   })
 
   if (error) {

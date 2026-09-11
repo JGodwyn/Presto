@@ -12,6 +12,11 @@ import { OnboardingCover } from "@/components/onboarding/onboarding-cover"
 import { OnboardingCallout } from "@/components/onboarding/onboarding-callout"
 import { ExpiredConnectionProvider } from "@/components/connections/expired-connection-provider"
 import { createClient } from "@/lib/supabase/server"
+import {
+  getAvatarGradientId,
+  getAvatarUrl,
+  getDisplayName,
+} from "@/lib/user-profile-metadata"
 import { isNetworkError } from "@/lib/network-error"
 import { hasDeadLinkedInConnection } from "@/lib/connection-health"
 import { fetchProject, fetchSocialAccounts } from "@/lib/supabase/queries"
@@ -58,7 +63,7 @@ export default async function ProjectLayout({
   const hasExpiredLinkedIn = hasDeadLinkedInConnection(socialAccounts, now)
 
   const firstName =
-    (user?.user_metadata?.name as string | undefined)?.trim().split(/\s+/)[0] ??
+    getDisplayName(user?.user_metadata)?.trim().split(/\s+/)[0] ??
     "there"
 
   return (
@@ -89,11 +94,10 @@ export default async function ProjectLayout({
               userName={firstName}
               userId={user?.id}
               avatarUrl={
-                (user?.user_metadata?.avatar_url as string | undefined) ?? null
+                getAvatarUrl(user?.user_metadata)
               }
               gradientId={
-                (user?.user_metadata?.avatar_gradient as string | undefined) ??
-                null
+                getAvatarGradientId(user?.user_metadata)
               }
               profileHref={`/projects/${projectId}/profile`}
             />

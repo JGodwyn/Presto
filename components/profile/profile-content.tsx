@@ -1,7 +1,12 @@
-import { logout } from "@/app/(auth)/logout/actions"
+import { logoutForClient } from "@/app/(auth)/logout/actions"
 import { ProfileScreen } from "@/components/profile/profile-screen"
 import { fetchUserAiModels, fetchUserHasPassword } from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
+import {
+  getAvatarGradientId,
+  getAvatarUrl,
+  getDisplayName,
+} from "@/lib/user-profile-metadata"
 
 // The account screen's data, in one place because it renders in two: inside a
 // project (app/projects/[projectId]/profile) and on its own at /profile, for
@@ -22,12 +27,10 @@ export async function ProfileContent({ projectId }: { projectId?: string }) {
   ])
   const user = userData.user
 
-  const name = (user?.user_metadata?.name as string | undefined)?.trim() || "—"
+  const name = getDisplayName(user?.user_metadata)?.trim() || "—"
   const email = user?.email ?? "—"
-  const avatarUrl =
-    (user?.user_metadata?.avatar_url as string | undefined) ?? null
-  const avatarGradientId =
-    (user?.user_metadata?.avatar_gradient as string | undefined) ?? null
+  const avatarUrl = getAvatarUrl(user?.user_metadata)
+  const avatarGradientId = getAvatarGradientId(user?.user_metadata)
   // Long form rather than lib/format-date.ts's ordinal helpers: those exist
   // for scheduled dates, where the day is the thing being picked. A join date
   // is a fact about the account, and the export shows month and year only.
@@ -49,7 +52,7 @@ export async function ProfileContent({ projectId }: { projectId?: string }) {
       avatarGradientId={avatarGradientId}
       hasPassword={hasPassword}
       aiModels={aiModels}
-      logout={logout}
+      logout={logoutForClient}
     />
   )
 }

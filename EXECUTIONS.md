@@ -7901,6 +7901,33 @@ to main, then remove the branch.
   at or above the requested 44pt; desktop dimensions otherwise remain
   unchanged.
 
+## 2026-09-11 — Main housekeeping: profile and mobile controls
+
+- Traced Profile's post-logout danger toast to the Server Action redirect being
+  handled as a rejected client promise. Profile now calls a non-redirecting
+  sign-out action and navigates only after it completes, so no error toast can
+  appear behind the confirmation overlay.
+- Moved editable profile name and avatar fields to Presto-owned auth metadata
+  keys, with legacy provider-key fallbacks for unchanged accounts. Google can
+  refresh its own profile claims on OAuth sign-in without replacing a name or
+  photo edited in Presto.
+- Reduced only the requested mobile Generate/Connections text controls to the
+  tokenized 32px compact size, and enlarged the generated-card actions-menu
+  trigger to the tokenized 48px target; desktop dimensions are unchanged.
+- Verified with `npx tsc --noEmit`, targeted ESLint, and `git diff --check`.
+  The production build began twice but did not leave a completed build artifact
+  before the local runner released its build lock, so it remains unconfirmed.
+- Follow-up: restored the requested pre-enlargement 32px mobile size for the
+  four text controls, now with Button's matching 12px squircle clip-path
+  radius so the visible border is not cut off. The actions-menu trigger is
+  back to its original size.
+- Tightened those compact mobile controls from the 12px curve to the `rad-md`
+  8px curve after review; Button now accepts an explicit mobile squircle radius
+  so their desktop geometry remains unchanged.
+- Settled the compact controls between those looks: `rad-xmd` (12px) with 50%
+  squircle smoothing on mobile only, making them softer than 8px without the
+  full pill-like 12px squircle.
+
 ## 2026-09-11 — Content mobile scrolling
 
 - Mobile Content keeps only its Content/show-as row fixed, with the tab/search/
