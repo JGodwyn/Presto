@@ -44,10 +44,12 @@ export function KanbanPostCard({
   // The project's current Instructions topics — anything on this post that
   // isn't in here has since been deleted, and renders retired.
   activeTopics: Set<string>
-  // This post's own page.
-  href: string
+  // This post's own page. Omit for a pressable, non-navigational preview.
+  href?: string
 }) {
-  const { ref, style } = useSquircleClipPath<HTMLAnchorElement>({
+  const { ref, style } = useSquircleClipPath<
+    HTMLAnchorElement | HTMLButtonElement
+  >({
     cornerRadius: CARD_CORNER_RADIUS,
   })
   const { ref: topicsRef, onScroll: onTopicsScroll } = useScrollFade({
@@ -59,18 +61,10 @@ export function KanbanPostCard({
   const account = resolvePostAccount(post, accounts)
   const scheduled = post.scheduledFor ? new Date(post.scheduledFor) : null
 
-  return (
-    <Link
-      ref={ref}
-      style={style}
-      href={href}
-      // A link, not a button: it goes to the post's own page, so it should
-      // behave like one (cmd-click, middle-click, the status bar). The 150ms
-      // press scale is the animation standards' button rule; a drag across the
-      // board still can't trigger it, since the drag hook takes pointer
-      // capture past its 4px threshold and the click never lands.
-      className="flex w-full shrink-0 cursor-pointer flex-col gap-dist-md rounded-rad-lg bg-surface-4 p-pad-lg text-left transition-[scale] duration-150 ease-out outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
-    >
+  const className =
+    "flex w-full shrink-0 cursor-pointer flex-col gap-dist-md rounded-rad-lg bg-surface-4 p-pad-lg text-left transition-[scale] duration-150 ease-out outline-none focus-visible:ring-3 focus-visible:ring-ring/50 active:scale-[0.97]"
+  const content = (
+    <>
       {/* When it was meant to go out, and whether it did — above the post
           rather than below it (per direct request). The column above already
           names the day, so the time is the only thing telling one card in a
@@ -107,7 +101,7 @@ export function KanbanPostCard({
           Scrolls rather than clipping, so a long topic list is reachable
           instead of cut off mid-chip, with the fade dissolving whatever runs
           past either end. Its own pointer handling stops here: this row sits
-          inside a card that is itself a link inside a drag-scrolled board,
+          inside a card that is itself a control inside a drag-scrolled board,
           and a horizontal drag over it should scroll the row, not the row and
           the board together. */}
       <span
@@ -121,8 +115,8 @@ export function KanbanPostCard({
       >
         <PostAccountPill
           account={account}
-          // Display-only here: the whole card is a single link to the post's
-          // own page, so a button inside it would be a nested control.
+          // Display-only here: the whole card is a single control, so a button
+          // inside it would be a nested control.
           nextAccount={null}
           className="shrink-0"
         />
@@ -142,6 +136,27 @@ export function KanbanPostCard({
           </Chip>
         ))}
       </span>
+    </>
+  )
+
+  if (!href) {
+    return (
+      <button ref={ref} style={style} type="button" className={className}>
+        {content}
+      </button>
+    )
+  }
+
+  return (
+    <Link
+      ref={ref}
+      style={style}
+      href={href}
+      // Real cards keep native link behavior (cmd-click, middle-click, status
+      // bar); landing previews omit href and render as local buttons instead.
+      className={className}
+    >
+      {content}
     </Link>
   )
 }

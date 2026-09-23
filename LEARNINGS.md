@@ -208,6 +208,13 @@ overshoot.
 
 ## Browser runtime
 
+**A Figma mask's gradient stops may be measured in a taller mask node than the
+visible clipped preview.** Reusing its percentages directly on the clipped
+CSS box makes the fade finish far too early and erases content the screenshot
+still shows. → Match the visible fade inside the final crop; for the landing
+feature previews the opaque 57% stop remains, but transparency belongs at the
+crop's 100% edge.
+
 **A backgrounded tab suspends rAF and transitions**, and their completion events
 never fire. An item removed just as the tab loses focus stays mid-fade forever.
 → Every unmount waiting on `transitionend` / `animation.finished` needs a
@@ -1845,3 +1852,128 @@ still in flight.
 **Rule.** Track an optimistic navigation by its destination. Keep the newest
 selection authoritative through intermediate commits, and yield to the URL
 only when that destination arrives or navigation leaves the tab system.
+## Landing snap-triggered entrances
+
+- **Symptom:** Problem 1's entrance had already completed before the section filled the viewport, and later problems could begin mid-scroll.
+- **Cause:** The active problem defaulted to index 0 and was derived continuously from scroll progress, so mounting and crossing an approximate progress threshold started the animations early.
+- **Rule:** For snap-scrolling marketing sequences, keep the first state inactive before entry and switch panels only within a tight tolerance of the settled snap point. Test the state immediately before and immediately after every snap.
+
+- **Symptom:** A nested blur-replace technically animated but was barely visible.
+- **Cause:** The whole problem panel was simultaneously fading from opacity 0, suppressing the child filter transition during the frames where its blur was strongest.
+- **Rule:** Do not stack a parent opacity entrance over child-owned reveal motion. Let the child transitions carry the entrance and reserve parent opacity for static visibility switching.
+
+- **Symptom:** New DialKit defaults appeared unchanged in the running page.
+- **Cause:** `persist: true` restored the earlier local configuration under the same id, including values from the superseded control schema.
+- **Rule:** When a persisted DialKit schema or its intended baseline changes materially, version the id so the live preview starts from the new controls and defaults.
+
+- **Symptom:** Native mandatory scroll snap still needed a long trackpad drag and could coast past the intended panel after the user's fingers had lifted.
+- **Cause:** CSS snap only chooses a resting point after the browser's full wheel-momentum stream, so it cannot provide a deterministic one-panel-per-gesture interaction.
+- **Rule:** For a presentation-style viewport sequence, turn vertical wheel input into a discrete gesture: commit one adjacent viewport after a short intent window, absorb the remaining momentum, and unlock only after the stream goes quiet. Keep CSS snap as the keyboard/touch fallback.
+
+- **Symptom:** A pill entrance near generated copy did not read as the pill generating the words.
+- **Cause:** Its motion was independent of the actual rendered line geometry and character timing.
+- **Rule:** Measure the rendered line bounds and animate the cursor along those bounds, keeping each line sweep synchronized with character stagger and reserving a short eased segment for the return to the next line.
+
+- **Symptom:** One-panel wheel locking made the destination predictable but the section still felt delayed and unsmooth.
+- **Cause:** The input path waited on a timer, suppressed native scroll feedback, then initiated a separate smooth scroll. The content did not move during the user's gesture, so input and response were visibly disconnected.
+- **Rule:** For a pinned narrative that should feel immediately responsive, derive adjacent-panel opacity and transform directly from fractional native scroll progress in `requestAnimationFrame`. Let scroll snap choose only the resting point; never put a debounce or a second animation between the gesture and its visual response.
+
+- **Symptom:** Scroll-linked panel interpolation showed Problem 1 in its completed state before its first entrance, then snapped its characters back to zero when the snap point became active. It also introduced a panel crossfade the design never requested.
+- **Cause:** The outer panel visibility was driven independently from the inner one-time animation state, so an unseen panel was made visible before the same settled event that initialized its entrance.
+- **Rule:** When the authored transition belongs to the contents rather than the panel change, keep unseen panels fully hidden while scrolling. On `scrollend`, update the active panel and its first-play key atomically; do not add an outer fade or transform.
+
+- **Symptom:** A light trackpad gesture inside the pinned problem sequence appeared to do nothing before eventually settling or returning to the same problem.
+- **Cause:** Native CSS snap still applies its own distance/velocity threshold, and the sticky viewport makes sub-threshold movement invisible because only the offscreen snap spacers move.
+- **Rule:** For a one-panel-per-gesture pinned sequence, use the first non-zero vertical wheel delta as intent. Land on the adjacent snap point immediately, update the panel in the same frame, and use a quiet-period lock only to absorb the gesture's remaining momentum—not to delay the response.
+
+- **Symptom:** The immediate viewport jump felt abrupt, while the quiet-period momentum lock left scrolling unresponsive for roughly a second after a problem settled.
+- **Cause:** The destination was applied in one frame and re-arming was tied to the end of the browser's inertial wheel stream, which can continue long after the user's fingers leave the trackpad.
+- **Rule:** Use a short interruptible viewport tween, and recognize a new gesture from a brief event gap, a direction reversal, or renewed delta acceleration. Never make the next navigation wait for the entire inertia tail to end.
+
+- **Symptom:** Revisiting a problem showed its completed text instead of replaying the authored entrance.
+- **Cause:** Animation keys encoded first-seen state rather than each activation of a panel.
+- **Rule:** When scroll direction can revisit narrative panels, increment the destination panel's animation key on every distinct activation; keep same-panel settle events idempotent so one arrival cannot replay twice.
+
+- **Symptom:** A nominally smooth viewport tween became jittery under a real trackpad gesture and appeared to pause after landing.
+- **Cause:** Same-direction delta acceleration was allowed to retarget an in-flight tween, so one physical gesture could fight itself. A duration-style spring also kept a long mathematical tail after the viewport looked settled, leaving navigation logically busy.
+- **Rule:** Consume same-direction momentum for the lifetime of one viewport move and permit only a distinct re-armed gesture or direction reversal to retarget it. For deterministic full-page navigation, end at a fixed strong ease-in-out duration and commit the destination only at the exact snap point; do not use a visually-finished spring whose residual tail still owns input.
+
+- **Symptom:** Keyboard/native scrolling could reach a problem while the previously active panel remained selected, so the next wheel gesture used a stale destination and the revisit did not replay.
+- **Cause:** Panel activation depended only on `scrollend`, which was not reliable for every input path.
+- **Rule:** Keep `scrollend` as a fallback, but also watch ordinary scroll events and commit only when the container is within one pixel of a snap point. Derive a new wheel destination from the live settled scroll position whenever no programmatic transition is running.
+
+- **Symptom:** A single stronger trackpad scroll occasionally advanced two problem sections even though the first viewport transition was smooth.
+- **Cause:** The gesture recognizer treated renewed delta acceleration as fresh intent. Real momentum streams can accelerate unevenly, so magnitude is not a safe gesture boundary.
+- **Rule:** In a one-section-per-gesture sequence, one delta sample must never choose or re-arm a destination. Consume same-direction events as one burst until either a meaningful quiet gap or a confirmed multi-sample intent pattern establishes a new gesture; keep direction reversal immediately responsive.
+
+- **Symptom:** Preventing double-steps introduced an intermittent dead scroll: a real second flick was ignored until the previous trackpad inertia stream finally went quiet.
+- **Cause:** Every ignored momentum event refreshed the quiet-gap clock, so time alone could not distinguish the old decaying tail from new same-direction intent layered on top of it.
+- **Rule:** Preserve the quiet-gap fast path, but also recognize the shape of a new flick: require a confirmed deceleration tail followed by at least two rising samples and a meaningful rise from the local floor. A single acceleration sample is noisy; a decay-to-sustained-rise sequence is intent.
+
+- **Symptom:** DialKit controls rendered and stored values, but changing a problem-motion dial did not reliably produce a visible active-panel preview.
+- **Cause:** The animation remount depended on a follow-up effect that compared serialized settings and then incremented separate state, leaving the control update and the preview remount in different React commits.
+- **Rule:** For mount-defined entrance values, include DialKit's live resolved-value signature directly in the active animation key. Keep the action button as an orthogonal counter, and version the persisted id whenever the control schema changes.
+
+- **Symptom:** A valid up/down gesture sometimes moved toward the adjacent problem and then returned to the problem it started on.
+- **Cause:** One opposite-sign wheel event was treated as an intentional reversal. Trackpad inertia can emit an isolated sign flip, so the current viewport tween was being cancelled by noise.
+- **Rule:** Reverse immediately on the first sample only when it begins after the gesture gap. Inside a continuous wheel stream, require two consecutive opposite-direction samples before retargeting; never let one sign-flipped momentum event reverse a viewport transition.
+
+- **Symptom:** Requiring two opposite samples reduced bounce-back but did not eliminate it; some trackpads emit several opposite-sign inertia events.
+- **Cause:** Any attempt to reinterpret wheel input while the viewport tween was running left the already-chosen destination vulnerable to the remainder of the same physical gesture.
+- **Rule:** A one-section navigation must become immutable the moment it begins. Consume every wheel event until the destination is exactly settled. Only then classify a reverse gesture, using either a true quiet gap or a multi-sample rising pattern after a short settle guard; never retarget an in-flight viewport tween.
+
+- **Symptom:** A normal-flow section placed after the pinned problem sequence rendered correctly but could not be reached with ordinary scrolling or the End key.
+- **Cause:** The problem wheel handler prevented downward input at its final destination, while the page-level `mandatory` snap container had no later snap point and pulled keyboard scrolling back to Problem 3.
+- **Rule:** Bound presentation-style input interception to the sequence it owns, and use proximity rather than mandatory page-level snapping when ordinary document sections follow it. At the final authored panel, outward input must fall through to native scrolling.
+
+- **Symptom:** The lime information tile rendered, but the circular information mark inside it collapsed to a tiny dot.
+- **Cause:** A manually transcribed SVG path changed one curve command and omitted a control point, even though the rest of the exported asset looked identical.
+- **Rule:** Treat exported SVG path data as opaque. Verify copied path bytes against the Figma Bridge asset before visual QA; a one-character command change can produce a valid SVG with a materially broken mark.
+
+- **Symptom:** A full-viewport destination briefly exposed the next section, then snapped back into alignment.
+- **Cause:** Wheel ownership was released the instant the destination position was reached, while the gesture's remaining inertial events were still arriving and native scrolling applied them below the snap point.
+- **Rule:** At the handoff from authored viewport navigation to normal document flow, consume the arrival gesture through its inertia tail. Release only a distinct follow-up gesture, and give the destination an exact viewport height so its lower edge cannot drift.
+
+- **Symptom:** Footer gradient assets had the correct exported dimensions and crop mode but did not line up with the reference composition.
+- **Cause:** Both assets were approximated as half-offscreen, while the Figma export positioned them with different fixed offsets on the left and right.
+- **Rule:** Preserve each exported image node's independent bounds before introducing responsive fallbacks; matching asset size alone does not reproduce an asymmetric composition.
+
+- **Symptom:** A DialKit palette needs editable hex colors while the component's authored defaults are CSS design-token variables.
+- **Cause:** DialKit recognizes hex strings as color controls; a `var(...)` string is treated as ordinary text, while copying token hexes into the component would create a second source of truth.
+- **Rule:** Render the pre-hydration artwork with CSS variables, then resolve those same variables through `getComputedStyle` inside the smallest client boundary and use the resolved values as DialKit color defaults.
+
+- **Symptom:** Correctly positioned footer WebPs still hid the lime finish and much of the stepped silhouette visible in the Figma screenshot.
+- **Cause:** The source assets were substantially taller than their Figma image nodes, so browser `object-cover` introduced a crop that did not reproduce the export's effective image transform.
+- **Rule:** When an exported raster's unsaved crop transform is visually important, reconstruct simple geometric artwork in final-frame coordinates; scale the authored SVG viewport, not the ambiguous source bitmap.
+
+- **Symptom:** Replacing a multi-stop gradient with one editable color per bar made the palette tunable but removed the relationships that gave the reference its character.
+- **Cause:** The controls modeled the rendered bars as flat color endpoints instead of modeling the actual gradient recipe: multiple stops, positions, widths, optional layers, and texture.
+- **Rule:** For visual tuning tools, expose the artwork's construction primitives and preserve the approved composition as Reset defaults. A color picker is not a substitute for a gradient editor.
+
+- **Symptom:** A newly versioned DialKit id still restored the preceding gradient values during live verification.
+- **Cause:** Fast Refresh briefly registered the new persistence id while the component graph still held the previous defaults, writing that transitional snapshot to local storage before the completed update mounted.
+- **Rule:** After promoting a persisted tuning snapshot, verify it in the rendered SVG. If Fast Refresh has already populated the fresh id with transitional values, bump the id once more after the configuration is stable.
+
+- **Symptom:** Animating a rectangle inside an SVG `clipPath`, and then animating that clip rectangle's `y`/`height`, did not reveal the hero bars reliably in Chrome; one version ignored the transformed clipping geometry and the other remained at zero height.
+- **Cause:** Motion-driven SVG geometry inside a clip definition does not follow the same dependable transform/compositing path as a visible SVG element.
+- **Rule:** For this bar-growth effect, animate each visible field, halftone, and texture rectangle with the same full-string `scaleY(...)`, `transform-box: fill-box`, and Motion's numeric `originX: 0.5` / `originY: 1`. Motion rewrites ordinary SVG `transformOrigin` strings to its default `50% 50%`, so verify the rendered inline style, intermediate bounding box, and computed origin in-browser—not just the declared React style, transform matrix, or final screenshot.
+
+- **Symptom:** Bar 1 flashed yellow while growing even though no yellow was visible once the hero gradient settled.
+- **Cause:** Its object-bounded gradient contained a yellow upper stop that landed behind the transparent portion of the fixed reveal mask at full height. Scaling the painted rectangle from the bottom compressed that stop into the mask's opaque lower region during the entrance.
+- **Rule:** A stop hidden in the final masked composition is not hidden throughout a transform-based reveal. Inspect intermediate frames, and neutralize any stop that should never be seen rather than relying on its final mask position.
+
+- **Symptom:** Bar 2 appears to rise faster even when every bar has zero stagger and an identical spring transform.
+- **Cause:** Its Surface3 endpoint is much earlier (`0.31`) than the other active bars (`0.48–0.54`). Scaling the object-bounded gradients compresses each bar's different color distribution, so Bar 2 exposes a larger colored region sooner even though its geometric scale is identical.
+- **Rule:** Verify apparent animation-speed differences against computed transforms. When the transforms match, the discrepancy belongs to the artwork's internal contrast/stop placement, not its timing; changing the spring cannot equalize that visual cue.
+
+- **Symptom:** A button reports the correct computed box shadow, but no shadow is visible outside its edge.
+- **Cause:** The shared Button's Figma-squircle `clip-path` clips all of the element's own painting, including its box shadow.
+- **Rule:** Put decorative shadows for squircle-clipped controls on a shrink-wrapped, unclipped parent and use `drop-shadow` so the shadow follows the child's clipped alpha silhouette.
+
+- **Symptom:** Refreshing a long landing page always returns to its hero even though browser scroll restoration is enabled.
+- **Cause:** The document itself never scrolls; a nested `h-dvh overflow-y-auto` element owns the offset, and browsers only restore the window/document position automatically.
+- **Rule:** For a page-level custom scroll container, keep a lightly debounced session copy of its `scrollTop`, save once more on `beforeunload`, and restore it after ref attachment across the next two animation frames. `pagehide` can arrive after the browser has already zeroed a disappearing inner scroller and overwrite the correct saved position.
+
+- **Symptom:** Black glyph edges protruded past an orange problem-highlight overlay, especially at the end of “two weeks,” and flashed through during the write-on.
+- **Cause:** The orange overlay was one normally kerned text run while the black entrance copy used one inline-block element per character; the two DOM shapes produced different glyph positions, and the black layer remained painted beneath the orange antialiasing.
+- **Rule:** A color wipe over character-animated copy must render identical character trees in both layers and use complementary clips so the outgoing color is removed exactly where the incoming color appears.

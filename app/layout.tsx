@@ -37,7 +37,7 @@ const geistMono = Geist_Mono({
 const phudu = Phudu({
   variable: "--font-phudu",
   subsets: ["latin"],
-  weight: ["700"],
+  weight: ["400", "600", "700"],
 });
 
 export const metadata: Metadata = {

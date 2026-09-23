@@ -353,6 +353,10 @@
   --text-body-lg-bold--line-height: 24px;
   --text-body-lg-bold--letter-spacing: -0.01em;
   --text-body-lg-bold--font-weight: 700;
+  --text-body-xl: 20px;
+  --text-body-xl--line-height: 28px;
+  --text-body-xl--letter-spacing: -0.01em;
+  --text-body-xl--font-weight: 500;
   --text-body-md: 14px;
   --text-body-md--line-height: 20px;
   --text-body-md--letter-spacing: -0.01em;
@@ -409,6 +413,22 @@
   --text-display-sm--line-height: 56px;
   --text-display-sm--letter-spacing: -0.02em;
   --text-display-sm--font-weight: 700;
+  --text-hero-lg: 67px;
+  --text-hero-lg--line-height: 61px;
+  --text-hero-lg--letter-spacing: -0.02em;
+  --text-hero-lg--font-weight: 600;
+  --text-body-2xl: 53px;
+  --text-body-2xl--line-height: 64px;
+  --text-body-2xl--letter-spacing: -0.02em;
+  --text-body-2xl--font-weight: 700;
+  --text-heading-sm-light: 27px;
+  --text-heading-sm-light--line-height: 32px;
+  --text-heading-sm-light--letter-spacing: 0em;
+  --text-heading-sm-light--font-weight: 400;
+  --text-feature-eyebrow: 22px;
+  --text-feature-eyebrow--line-height: 24px;
+  --text-feature-eyebrow--letter-spacing: 0em;
+  --text-feature-eyebrow--font-weight: 400;
   --text-heading-lg: 43px;
   --text-heading-lg--line-height: 48px;
   --text-heading-lg--letter-spacing: -0.02em;
@@ -828,6 +848,22 @@
     opacity: 0;
     filter: blur(8px);
   }
+}
+
+/* Tailwind's generated text-utility parser treats the `2xl` suffix as its
+   built-in size scale, so expose these two Figma-exported tokens explicitly. */
+@utility text-body-2xl {
+  font-size: 53px;
+  line-height: 64px;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+@utility text-heading-sm-light {
+  font-size: 27px;
+  line-height: 32px;
+  letter-spacing: 0;
+  font-weight: 400;
 }
 
 @layer base {
