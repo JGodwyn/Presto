@@ -7998,3 +7998,567 @@ to main, then remove the branch.
   12px squircle radius so collision-positioned arrows do not crowd a bubble's
   rounded edge.
 - Verified with `npx tsc --noEmit`, targeted ESLint, and `git diff --check`.
+## 2026-09-11 — Landing page hero
+
+- Read the `hero-page` Figma Bridge export and its supplied stylized background.
+- Made `/` render the exported hero for signed-out visitors; signed-in visitors retain the existing project/create-project redirect flow. Both account CTAs route to `/signup`.
+- Added the missing export-defined Body XL and hero display typography tokens so the composition uses the exact 20/28px body and 67/61px display measures.
+- Reused Generate's compact elastic character entrance for the hero heading and subheading (the longer body uses a compressed stagger); the signup CTA follows via a short blur/opacity replacement, including reduced-motion fallbacks.
+- Added the persistent DialKit `Landing hero motion` panel: independent heading/subheading/CTA controls, switchable spring/easing transitions, all entrance values, and a replay action. Increased the CTA's default blur to make the replacement visible.
+- Fixed DialKit live preview wiring: value-derived animation keys now remount the entrance on every dial adjustment.
+- Applied the owner-approved `Landing hero motion` DialKit defaults for heading, subheading, and CTA timing, blur, offset, and transition character.
+
+## 2026-09-11 — Landing problem sequence
+
+- Read the `problem-1`, `problem-2`, and `problem-3` Figma Bridge exports and implemented their matching full-viewport copy panels.
+- Put the sequence inside the landing page's snap-scrolling viewport: the hero and every problem rest at a viewport boundary, while the problem viewport stays pinned and cross-transitions between messages using compositor-only opacity and transform. Reduced-motion removes the vertical movement while preserving the state change.
+- Added the two export-defined problem typography tokens (53/64 Open Runde Bold copy, 27/32 Phudu Regular eyebrow) and loaded Phudu Regular for the exact export weight.
+- Promoted those landing values into the shared scale as `Body/body-2xl` and `Heading/heading-sm-light`. Rebuilt each orange emphasis as an absolutely positioned squircle outline/background, so its 4px border and inset no longer expand the 64px text line box.
+- Replaced the Generating pill's approximated Phosphor icon with the two direction-specific cursor SVGs exported alongside the problem frames.
+- Removed the rendered `Landing hero motion` DialKit surface; the hero now keeps the owner-approved values as fixed entrance motion.
+- Added one persistent `Problem sequence motion` DialKit configuration shared by all three problem panels. Its pill moves on a low-bounce spring while the body begins during that movement; the eyebrow uses a configurable blur/opacity replacement. Dial changes remount the active panel so every adjustment previews immediately.
+- Replaced the body clip reveal with the hero's character-by-character opacity, blur, and vertical entrance. The shared panel now exposes body offset and stagger instead of clipping; the eyebrow blur-replace default is intentionally more visible (8px over 400ms).
+- Corrected the first problem to the export's three-line measure and moved each Generating pill to its exact body-copy-relative export position.
+- Deferred every problem entrance until its snap point is actually settled in the viewport (`activeIndex` stays null before Problem 1 and does not advance mid-scroll). Removed the panel-level opacity transition that had been masking the nested eyebrow blur and body entrance.
+- Reversed the pill's initial X offset so it travels in the cursor's pointing direction, starts before the body delay, and overlaps the character reveal. Bumped the DialKit persistence id after the control schema/default change so stale local values cannot override the corrected defaults.
+- Played the sequence in Chrome at all three snap points. Verified before Problem 1 no panel is active; at Problems 1 and 2 arrival, zero body characters are visible; the first panel's 848px content and all three text lines stay within bounds; Problems 2 and 3 match their exported line/pill placements.
+
+## 2026-09-12 — Landing problem trail and gesture snap
+
+- Changed each problem entrance to play only on its first settled visit per page load; the shared DialKit Replay action remains the explicit tuning override.
+- Replaced the pill's fixed Figma coordinate with a measured, compositor-only path across every rendered copy line. Its trail gap and line-return duration are exposed beside the body line-break delay in the single shared DialKit configuration.
+- Split emphasis into a second phase: generated characters first resolve in black, then the text turns orange while a borderless blurred squircle fill appears.
+- Replaced native wheel momentum inside the landing scroller with a locked one-adjacent-viewport gesture while retaining CSS snap for other input modes.
+- Live-tested a clean page load in Chrome on port 3001: Problem 1 began with 0/83 visible characters, black emphasis, no fill, and a pill at the first-line start; mid-run the pill advanced while characters trailed; completion reached 83/83 with orange emphasis and a 0px border. Revisited Problem 1 stayed complete, while first-visit Problem 2 began at 0/76 with black emphasis.
+- Set `nativeButton={false}` on the landing page's link-rendered Base UI buttons, clearing the five live console diagnostics exposed during browser verification.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-14 — Direct-scroll problem transitions
+
+- Removed the Generating pill, its rendered SVG, measured trail animation, and all pill controls from the shared DialKit configuration; versioned the persisted configuration id so the removed group cannot return from local state.
+- Removed the wheel debounce, gesture lock, momentum suppression, and programmatic smooth-scroll handoff.
+- Made adjacent problem panels track fractional native scroll progress frame-for-frame with compositor-only opacity and transform; CSS snap now handles only the final resting position. Reduced motion keeps the crossfade and removes positional travel.
+- Live-tested on port 3001: during one viewport transition, panel weights tracked scroll from 96/4 through 35/65 to 0/100, with matching transforms and no input-path delay. Confirmed the DialKit panel no longer contains a Pill group.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-14 — Settled-only problem entrances
+
+- Removed the unrequested scroll-linked panel opacity/translation interpolation from the preceding pass.
+- Kept every problem hidden before the first snap settles. The current panel now holds unchanged during scrolling, then the destination switches at `scrollend` and runs only its existing DialKit-authored text entrance.
+- Combined active-panel selection and per-panel play keys into one state update so a first-time panel cannot render its completed state between separate React commits.
+- Live-tested on port 3001. During the initial hero-to-problem scroll, all three panels remained at zero outer opacity; the first rendered settled frame had 0/83 visible characters. During Problem 1 → 2, outer opacities stayed 1/0 while moving, then switched directly to 0/1; Problem 2's first frame had 0/76 visible characters.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Zero-threshold problem navigation
+
+- Replaced CSS snap's gesture threshold for wheel/trackpad input with immediate first-delta navigation: any non-zero vertical delta lands on the adjacent hero/problem viewport and activates that problem in the same response frame.
+- Kept a short quiet-period lock only to absorb inertial events from the same gesture, preventing accidental multi-panel skips without delaying the initial response.
+- Preserved the settled-only, zero-opacity text entrance and the no-crossfade panel replacement established in the preceding pass.
+- Live-tested with an actual browser scroll gesture of magnitude `1`: Problem 2 landed immediately on Problem 3. From a clean hero load, the same minimal gesture landed exactly one viewport down and the first response frame showed Problem 1 at 0/83 visible characters with outer panel opacities 1/0/0.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Smooth replaying problem navigation
+
+- Replaced the one-frame viewport jump with a 280ms strong ease-in-out scroll tween and temporarily disables CSS snap only while that tween owns the scroll position.
+- Removed the inertia-tail quiet lock. New input can advance or reverse from an 80ms gap, direction change, or renewed trackpad acceleration; an in-flight tween is stopped and retargeted rather than blocking input.
+- Changed problem activation keys so every distinct arrival replays the eyebrow, character reveal, and highlight sequence from their initial states in either scroll direction.
+- Live-tested on port 3001: an actual minimal wheel gesture moved through an intermediate scroll position before landing exactly one viewport away, and the arriving problem's first characters were at opacity 0 before resolving to 1.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Jitter-free landing scroll redo
+
+- Replaced the acceleration-retargeting tween with a one-gesture/one-destination state machine. Same-direction momentum is consumed; a distinct gesture or reversal can still redirect from the current position.
+- Replaced the spring tail with a deterministic 400ms strong ease-in-out viewport move, so the page is no longer logically transitioning after it visibly arrives.
+- Added exact snap-point activation on ordinary scroll events as well as `scrollend`, keeping keyboard/native navigation, wheel targeting, and replay keys synchronized.
+- Live-tested real directional trackpad gestures on port 3001 through Hero → Problems 1–3 → Problem 2 → Problem 1. Every scroll began moving on the first sampled frame, each destination stayed at zero-opacity copy until rest, revisits replayed, and navigation remained responsive while the prior copy animation was still running.
+
+## 2026-09-16 — Strict one-problem-per-scroll
+
+- Removed delta-acceleration re-arming from the wheel recognizer; scroll magnitude now has no effect on how many viewports advance.
+- Made an in-flight same-direction transition consume the full burst, with a 180ms event gap required before another same-direction step. Reverse intent remains immediately interruptible.
+- Live-tested on port 3001 with physical scroll magnitudes 1 and 10: Hero → Problem 1, Problem 1 → 2, Problem 2 → 3, and a magnitude-10 reverse from Problem 3 → 2 each moved exactly one viewport.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Momentum re-arm and direct DialKit wiring
+
+- Added a conservative decay-then-rise recognizer for a new same-direction flick that begins while the prior gesture's inertia events are still arriving: three decaying samples plus two rising samples and a 1.6× rise from the local floor.
+- Kept the strict one-destination rule for a single burst and the existing immediate direction-reversal path.
+- Replaced the effect-delayed DialKit preview with a key derived directly from the active panel's visit counter and live resolved DialKit values; bumped persistence to `problem-sequence-motion-v5` and added the missing eyebrow offset control.
+- Live-tested on port 3001: a magnitude-10 gesture still moved exactly one problem, two intentional gestures 430ms apart both registered, Replay reset the active body to opacity 0, and changing Body → Blur From to 2.5 immediately replayed at `blur(2.5px)`.
+- Restored the persisted Body blur test value to its 2px default after verification.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Problem-scroll reversal filtering
+
+- Replaced single-sample direction reversal with a verified reversal: one opposite sample after the 180ms gesture gap, or two consecutive opposite samples inside an active stream.
+- Kept unconfirmed sign flips out of the decay/rise classifier and out of the committed direction, so inertia noise cannot poison the next gesture decision.
+- Live-tested on port 3001: a strong downward move plus one stray upward pulse still completed at Problem 1; a later deliberate upward gesture returned to the hero; five alternating magnitude-10 moves landed Problem 1 → 2 → 1 → 2 → 1 without cancelling back to their origin.
+- Restored the persisted DialKit eyebrow easing x1 test value to its 0.23 default after verification.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Immutable problem destinations and approved motion defaults
+
+- Made each in-flight viewport destination immutable: all wheel input is consumed until the exact snap point, removing the remaining path that could cancel a move back to its origin.
+- Tightened post-settle reverse recognition to either a separate 180ms-gap burst or three opposite samples with a rising sample, a 1.4× local-floor rise, and a 100ms settle guard.
+- Applied the owner-provided `Problem sequence motion` defaults exactly and bumped persistence to `problem-sequence-motion-v6`; DialKit automatically resolved eyebrow to easing mode and Body/Highlight to advanced physics mode from their config shapes.
+- Verified the live panel values in Chrome, including eyebrow 16 / 0.59 / 8 / 1.00, Body 0.008 / 0.10 / 950 / 46 / 9.0, and Highlight 0 / 4.75 / 300 / 66 / 8.7.
+- Live-tested on port 3001: a full reverse gesture 90ms into a downward move could not change its Problem 1 destination; a separate reverse after settle returned to Hero; six alternating magnitude-10 moves landed Hero → Problem 1 → 2 → 1 → 2 → 1 → Hero without bounce-back.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Landing feature sections
+
+- Read the fresh Figma Bridge `features-1`, `features-2`, and `features-3` exports plus the project and bridge workflows. Confirmed the shared 520px desktop composition: 415px copy, 40px gap, and a 400px bottom-faded app preview.
+- Chose live app components for the preview content: Instructions card/form primitives, Generate's stepper/selectors/button, and Content's Kanban post card/chips rather than flattened screenshots or restyled duplicates.
+- Implemented the three responsive rows after Who's it for, added the export-defined 22/24 Phudu feature-eyebrow token, and wired the hero's Features link to the first row.
+- Browser-compared the first two rows on port 3001. Corrected the preview fade to account for Figma's gradient being defined on a mask taller than the visible 400px crop; the CSS fade now preserves the lower controls shown by the exports.
+- Browser-verified the final calendar row and measured the stacked mobile layout at 390×844: the 22px rail held, the preview stayed 346px wide, and the document had no horizontal overflow. The only console warning was Agentation's existing local-session fallback.
+- Passed full ESLint, all 443 runnable Vitest tests (one test skipped), TypeScript, `git diff --check`, and the Next.js production build. The first sandboxed build could not reach the existing Google Fonts imports; rerunning the same gate with network access compiled and prerendered successfully.
+
+## 2026-09-16 — Who it is for landing section
+
+- Read the Figma Bridge `who-s-it-for` export and implemented its centered 848px purple card, inline name-posting highlight, exported lime info mark, qualification copy, and Get started CTA immediately after the problem sequence.
+- Kept the section static and in ordinary document flow: no mount animation, scroll-linked motion, or new DialKit configuration.
+- Rebuilt the export's 8px purple frame as nested token-sized squircles and made the highlight background absolute so its 2px inset does not increase the 40px copy rhythm.
+- Released downward input at Problem 3 from the custom wheel state machine and changed the landing container to proximity snapping, allowing native scrolling into all following sections.
+- Live-verified on port 3001 at a 1280×720 viewport: the section lands at the top of the viewport; the card measures 848×256, body copy measures three 40px lines, and the page reaches its full 2939px scroll extent. The console reported no warnings or errors.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Full-viewport handoff after Problem 3
+
+- Extended the discrete landing navigation by one destination: a scroll from Problem 3 now animates to the Who's it for section's actual DOM offset, leaving it exactly viewport-aligned.
+- Marked the section as a snap destination for keyboard/touch fallback and released all downward wheel handling once it is settled, so following content keeps native scrolling.
+- Corrected the exported lime info SVG's mistranscribed path and byte-compared its icon path with the Figma Bridge source.
+- Live-verified on port 3001: the 720px section settles at viewport `top: 0`, matches the 720px scroller height, and the complete circular info mark is visible.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Stable Who-to-features scroll handoff
+
+- Made Who's it for an exact `100dvh` section and held its arriving wheel gesture through the inertia tail, removing the brief feature-row overshoot before snap correction.
+- Released a distinct follow-up scroll gesture to native scrolling, so the next input moves directly into the feature rows.
+- Converted the Generate preview CTA and landing Kanban cards from links to local buttons; production Kanban cards keep their existing link behavior whenever `href` is supplied.
+- Live-verified on port 3001 at 1280×720: Who settled at `top: 0` with a 720px height and Features at `top: 720`; a separate scroll placed Features at `top: 0`. Clicking Generate post and a preview post card left the landing URL unchanged.
+- Passed TypeScript, full ESLint, all 443 runnable Vitest tests (one skipped), `git diff --check`, and the production build.
+
+## 2026-09-16 — Enlarged features, FAQ, and walkthrough
+
+- Read the fresh Figma Bridge `faqs` and `see-it-in-action` exports and used their 848px rail, token bindings, component variants, and supplied 2× walkthrough WebP.
+- Increased only the desktop feature-section height from 520px to a token-built 896px, centering the existing copy and live 400px preview without scaling either one.
+- Added the exported seven-question, one-open-at-a-time FAQ accordion at `#faq` and the bordered/shadowed action walkthrough at `#how-it-works`; the existing hero links now land on real sections.
+- Browser-compared both sections at the 1440×876 Figma viewport, exercised the accordion, confirmed all three feature rows measure 896px, and verified the mobile stack at 390×844 has no horizontal overflow. The console reported no warnings or errors.
+- Passed TypeScript, full ESLint, all 443 runnable Vitest tests (one skipped), `git diff --check`, and the production build.
+
+## 2026-09-16 — Walkthrough media, feature-height retune, and footer
+
+- Reordered the post-feature sections to walkthrough then FAQ and reduced the desktop feature-row height from the over-large 896px pass to a token-built 720px, keeping the original content scale.
+- Made the walkthrough frame embed-ready through optional server-side `LANDING_DEMO_VIDEO_URL`: YouTube URLs use the privacy-enhanced embed player, direct URLs use native video controls, and the exported app frame remains the no-configuration fallback.
+- Read the fresh Figma Bridge `footer` export, reused both supplied gradient WebPs, extracted the layered Presto logo for hero/footer reuse, and implemented the 848px CTA/footer rail with the existing brand button and Phosphor equivalents of the exported marks.
+- Browser-verified at 1440×660 that all feature rows measure 720px, the walkthrough precedes the 716px default FAQ, and the footer measures the exported 660px. At 390×844 the footer remains 390px wide with no document overflow; the console reported no warnings or errors.
+- Passed TypeScript, full ESLint, all 443 runnable Vitest tests (one skipped), `git diff --check`, and the production build.
+
+## 2026-09-16 — Footer gradient alignment
+
+- Replaced the symmetric half-offscreen desktop placement with the Footer export's exact asymmetric bounds: left `-350`, right `-374`, top `-72`, at the existing 678×1017 `FILL` boxes.
+- Preserved the balanced half-offset treatment below the desktop breakpoint rather than forcing the 1440px composition onto narrow viewports.
+- Live-measured both rendered boxes on port 3001: the left resolves to `-350…328` and the right remains exactly 374px past the viewport edge, with 1017px height and no horizontal document overflow.
+
+## 2026-09-16 — Code-native footer gradient
+
+- Replaced both raster gradient strips with mirrored inline SVG compositions built from the screenshot's stepped panels, token colors, edge bloom, and deterministic `feTurbulence` grain.
+- Kept the export's established desktop art boxes and responsive edge placement while making the visible color ramp scale directly with the SVG viewport instead of an opaque WebP crop.
+- Browser-verified on port 3001 that the stepped silhouette and lime finish remain visible within the footer, both SVGs retain their 678×1017 boxes, and the document has no horizontal overflow. The console reported no warnings or errors.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Gradientool grain recovery
+
+- Inspected the supplied standalone Gradientool export as data and decoded its embedded state without executing the file: grain intensity 0.75, medium noise blended soft-light at `×0.95`, and fine noise blended overlay at `×0.3`.
+- Updated the inline footer SVG to reproduce that two-scale grain pipeline and adopted the saved token-matching gradient stops (Purple700, Purple400, Lime200), with the nearest existing warm-white token for the final off-white stop.
+- Corrected SVG-specific compositing by clipping both noise layers to each panel's source alpha and using correlated neutral channels; this preserves the stepped transparent gaps and avoids colored speckling.
+- Browser-verified the final fine-grain scale on port 3001 with no horizontal overflow or console errors, then passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Footer gradient top blend
+
+- Held the SVG ramp at the footer's Purple700 token through its top region and added a shared alpha mask that keeps grain and bloom absent at the clipped top edge, then eases the artwork in below it.
+- Browser-verified on port 3001 that the footer begins as one continuous Purple700 surface while the stepped panels, fine grain, and lower lime finish remain visible; no horizontal overflow or console errors appeared.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Per-bar gradient blending
+
+- Corrected the blend target from the footer's global top edge to every stepped bar: each bar now starts at Purple700 and independently fades its grain and bloom in over the first portion of its own height.
+- Browser-verified on port 3001 that all four steps on both sides emerge without a hard horizontal top edge while the lower grain and lime remain intact; no horizontal overflow or console errors appeared.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Code-native hero gradient
+
+- Replaced the hero background WebP with a 1440×1024 inline SVG that recreates the export's five vertical fields, surface-colored upper fade, halftone reveal, paper-dot texture, and neutral grain using existing color tokens.
+- Preserved the raster background's centered cover behavior through an SVG `slice` crop, so the artwork remains full-bleed without distorting its panel proportions.
+- Browser-verified on port 3001 that the SVG fills the 2056×1146 viewport, keeps the five fields and halftone transition behind the unchanged hero content, and introduces no horizontal overflow or console errors.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Hero palette controls
+
+- Shifted the five hero bars to a deliberate left-to-right wine, wine-plum, plum, violet, and purple progression so purple spans the full right side instead of living in one isolated column.
+- Added a persistent `Hero gradient palette` DialKit panel with one live color picker per bar; defaults are resolved from the existing CSS design tokens after hydration, while the server-rendered artwork continues to use the token variables directly.
+- Removed the `Problem sequence motion` DialKit registration and retained its owner-approved values as fixed Motion transitions in the component.
+- Browser-verified on port 3001 that the five color controls are present, the Problem sequence panel is absent, the full hero gradient is visible, and no application runtime errors appear.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Full hero gradient studio
+
+- Restored the original five bar widths, multi-stop amber/flame/red/purple gradients, halftone transition, paper dots, and grain values as the new DialKit reset state.
+- Replaced the palette-only panel with `Hero gradient studio`: Add/Remove bar actions, two spare bars, relative bar-width controls, per-bar stop positions and colors, one optional additional stop per bar, and global grain/halftone/paper controls.
+- Kept enabled bar widths normalized to the SVG width so editing or adding a bar never opens a gap or creates horizontal overflow.
+- Live-tested Add bar and Remove last bar on port 3001 (five → six → five), confirmed the original visual after reset, and verified a clean new browser session with no application runtime errors; Agentation continued to report only its existing local-session fallback warning.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Promoted hero gradient snapshot
+
+- Applied the supplied texture, per-bar width, stop-position, enabled-state, and color values as the `Hero gradient studio` defaults.
+- Versioned persistence to `hero-gradient-studio-v4` after Fast Refresh transiently populated v3 with the prior configuration.
+- Live-verified the rendered SVG on port 3001: grain frequency 1.4, two octaves, seed 71, intensity 0.7; Bar 1 stops at 0.51/0.54/0.79/0.9/1; enabled widths normalize from 120/120/120/124/120.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-16 — Hero gradient load motion
+
+- Replaced the hero gradient's color, bar, and texture DialKit controls with motion-only controls for enablement, delay, stagger, starting height, reveal order, and transition, plus a Replay action.
+- Added a bottom-anchored height entrance to every visible layer of each bar so the color field, halftone, paper dots, and grain rise together without changing the approved gradient snapshot.
+- Added a reduced-motion fallback that renders the complete gradient immediately.
+- Browser-verified on port 3001 that reload starts every bar at zero scale, the left-to-right stagger produces distinct intermediate heights, Replay restarts the effect, and every layer settles at scale 1. A fresh Chrome tab reported no application runtime errors.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Synchronized hero gradient motion
+
+- Changed the hero gradient entrance defaults to `Together` with zero stagger, so every bar rises from the bottom on the same timeline.
+- Versioned the DialKit persistence id to prevent the earlier left-to-right preference from overriding the new default.
+- Browser-verified on port 3001 that all five bars share the same intermediate `scaleY` value and settle at full height together, with no runtime errors.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Corrected hero gradient direction
+
+- Measured the animated SVG during Replay and found Chrome resolving `center bottom` to the vertical center of each rectangle.
+- Replaced the semantic SVG transform origin with Motion's numeric `originX: 0.5` / `originY: 1`; Motion had rewritten both the keyword and percentage-string forms to its `50% 50%` default.
+- Browser-verified on port 3001 that the computed origin is now `143.046px 1024px`: the bottom edge remained fixed at 1304.02px while the top edge moved upward from 41.56px to -158.02px. No runtime errors appeared.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Promoted gradient spring and removed yellow flash
+
+- Applied the supplied `Hero gradient studio` defaults: enabled, 0.1s delay, zero stagger, zero starting height, together order, and a 200/41/9 advanced spring, retaining the Replay action.
+- Versioned the DialKit persistence id so the new spring becomes the active reset state.
+- Replaced Bar 1's hidden yellow upper stop with Surface3; the stop had only become visible while the object-bounded gradient was compressed during the rise.
+- Browser-verified on port 3001 that DialKit opens in Physics mode with stiffness 200, damping 41, and mass 9; all five bars share the same intermediate scale and settle at scale 1. Bar 1 contains no yellow stop and its mid-animation frame shows only the intended neutral/orange/purple ramp.
+- Confirmed no runtime errors, then passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Updated gradient spring damping
+
+- Changed the `Hero gradient studio` advanced spring damping from 41 to 32 and versioned its persistence id so the supplied value becomes the active default.
+- Traced Bar 2's apparent faster entrance to its 0.31 Surface3 endpoint; the other active bars end their neutral surface region at 0.48–0.54, so Bar 2 exposes more color earlier even on an identical scale timeline.
+- Browser-verified on port 3001 that DialKit shows damping 32 and that all five bars share identical intermediate bounds and `scaleY(0.67226)` at the sampled frame; no runtime errors appeared.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Equalized Bar 2 and restored hero CTA shadow
+
+- Changed Bar 2's Surface3 endpoint from 0.31 to 0.54, matching Bars 1 and 3 so its internal contrast no longer makes the synchronized entrance appear faster.
+- Added the Figma-exported primary CTA shadow using the existing Flame400/button-rest color at 40% opacity, `dist-md` for the 8px Y offset, and `dist-lg` for the 16px blur.
+- Browser-verified on port 3001 that Bar 2's rendered stops now include Surface3 at 0.54 and the CTA computes to an FF4901/40% shadow at 0px 8px 16px. Visual comparison matches the Figma export and no runtime errors appeared.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Made the hero shadow and navigation pills visible
+
+- Moved the CTA's exported Flame400 shadow to an unclipped wrapper so the Button's squircle clip-path no longer cuts it off.
+- Matched the Figma artwork's white upper canvas with Surface4 while retaining three separate Surface3 navigation pills and the approved colored gradient below.
+- Browser-verified on port 3001 that the wrapper computes the requested FF4901/40% `drop-shadow` at 0 / 8 / 16, every navigation item computes to Surface3 with its squircle clip path, and the hero canvas starts at Surface4. No runtime errors appeared.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Sequenced the hero beta note
+
+- Delayed the “Free while in beta” note until the CTA's entrance finishes, then revealed it with the established 300ms strong-ease-out opacity and blur treatment.
+- Added a reduced-motion path with no sequencing delay and no blur.
+- Browser-verified on port 3001 that the note computes to a 1.95s delay, 300ms duration, `opacity, filter` transition, and the established strong ease-out curve; no runtime errors appeared.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Added the footer gradient entrance
+
+- Made both footer gradient artworks grow upward together from their bottom edge with the hero gradient's approved 0.1s-delayed 200/32/9 spring.
+- Triggered the reveal once when 15% of the footer enters view and kept a complete static rendering for reduced-motion visitors.
+- Browser-verified on port 3001 that both sides start together at `scaleY(0)`, share a bottom-edge transform origin, and settle together at `scaleY(1)` without runtime errors.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Moved gradient tuning from hero to footer
+
+- Removed the `Hero gradient studio` DialKit registration while preserving its approved page-load motion as fixed code.
+- Added `Footer gradient studio` with enabled, delay, stagger, starting height, side order, full transition, and Replay controls wired to both bottom-anchored footer artworks.
+- Browser-verified on port 3001 that only `Footer gradient studio` is registered with the unchanged 0.1 / 0 / 0 / Together / 200-32-9 defaults. Replay while the footer is visible resets both sides together, runs them through the same intermediate scale, and settles them at full height; no runtime errors appeared.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Promoted footer motion and polished Who's-it-for
+
+- Applied the supplied Footer gradient studio defaults: left-to-right, 0.85s visual-duration spring, zero bounce, retaining enabled / 0.1 delay / zero stagger / zero start.
+- Added a once-per-visit staggered blur entrance to the Who's-it-for card, explanation, and CTA, plus the hero CTA's unclipped Flame400 shadow on its button.
+- Added landing-scroll restoration for refresh and return navigation because the page scrolls an inner container rather than the document.
+- The first unload-only restoration attempt still returned to zero: the inner scroller could be reset before `pagehide` overwrote the saved value, and the initial restore could run before hydration/hash/snap settled. Replaced it with a 100ms-debounced scroll save plus `beforeunload`, then re-applied restoration over the first two animation frames.
+- Browser-verified on port 3001 that Footer gradient studio resets to Left to right / Bounce 0 / Duration 0.85; the Who's-it-for items settle from blur/zero opacity to clear/full opacity and its CTA wrapper computes to the requested Flame400 0 / 8 / 16 shadow; refreshing from `scrollTop 8766.5` restores the same inner-container position after hydration. No runtime errors appeared.
+
+## 2026-09-17 — Added the Who's-it-for motion studio
+
+- Replaced the section's fixed blur entrance values with a persistent `Who's it for motion` DialKit panel.
+- Exposed viewport trigger amount and independent enablement, delay, offset, starting scale, opacity, blur, full transition, and immediate Replay controls for the card, explanation, and CTA.
+- Removed the Footer gradient studio registration while retaining its newly approved left-to-right 0.85s zero-bounce motion as fixed behavior.
+- Browser-verified on port 3001 that the complete Who's-it-for panel is registered, `Footer gradient studio` is absent, Replay visibly passes through the configured blur/opacity state and settles clear at full opacity, and no runtime errors appear.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Updated Who's-it-for motion defaults
+
+- Applied the supplied 20px / 0.95-scale / zero-blur entrances, 1.25s card duration, 0.95s explanation and CTA durations, and 0 / 0.1 / 0.25s delays with the existing strong ease-out curve.
+- Versioned the DialKit persistence id so the supplied values become the active reset state instead of being shadowed by the previous saved studio values.
+- Browser-verified on port 3001 that all supplied values appear in the live studio, each transition opens in Easing mode, and no runtime errors appear.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Animated the Who's-it-for highlight
+
+- Changed “post under their own name” from a permanently highlighted phrase to the problem-section treatment: ordinary text first, then animated text color plus a blurred squircle resolving into place.
+- Sequenced the reveal after the card entrance, retained a blur-free reduced-motion path, and kept Replay/live DialKit changes capable of remounting the complete effect.
+- Browser-verified the initial inverse-text/hidden-background frame and the settled Purple200/Purple800 highlight on port 3001; the finished composition matches the existing card design and no runtime errors appear.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Turned the Who's-it-for highlight into a pen stroke
+
+- Replaced the delayed whole-phrase fade with synchronized background and colored-text overlays that reveal from left to right over the unchanged inverse copy.
+- Moved the default start forward to 0.35s and added a Highlight folder to `Who's it for motion` for enabled state, delay, starting opacity, starting blur, full easing/spring transition, and Replay integration; versioned persistence to v3.
+- Browser-verified on port 3001 that the live studio shows the new controls, both overlays share the same partial clip during Replay, and both settle at a complete clip with no runtime errors.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Shaped the Who's-it-for highlight like a marker stroke
+
+- Replaced the symmetric squircle fill with a responsive inline SVG contour modeled on the supplied marker reference: uneven upper and lower edges plus deliberately different start and finish caps.
+- Kept the shape inside the existing left-to-right reveal wrapper so the asymmetric silhouette does not change DialKit timing or text synchronization.
+- Browser-verified the close-up contour and an in-progress Replay frame on port 3001; the stroke remains responsive to the phrase bounds and no runtime errors appear.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Added live marker-contour roughness
+
+- Added a `Contour Roughness` slider to the Highlight DialKit group, ranging from restrained at 0 through the current reference at 1 to exaggerated at 1.5.
+- Rebuilt the marker path from bounded Bézier variations so the slider changes the actual upper/lower contour and cap geometry while leaving the write-on wrapper untouched; versioned DialKit persistence to v4.
+- Browser-verified the v4 control and generated default SVG path on port 3001 with no runtime errors.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Applied approved Who defaults and marker highlights to problems
+
+- Updated `Who's it for motion` to the supplied v5 reset state, changing highlight roughness to 0 and delay to 0.5 while retaining every other supplied value and easing mode.
+- Extracted the responsive marker SVG into a shared landing component and replaced every problem emphasis squircle/color fade with synchronized Flame background and orange-text overlays that write on from left to right after the character sequence.
+- Kept problem roughness fixed at 0 so the previously removed Problem DialKit controls stay removed; all problem phrases use the same bounded contour generator as Who's-it-for.
+- Browser-verified the v5 Who values, problem marker path, hidden initial clip, complete final clip, and final Problem 1 composition on port 3001 with no runtime errors.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-17 — Removed the black fringe from problem highlights
+
+- Replaced the plain-string orange overlay with the same per-character element tree used by the black entrance copy, eliminating their kerning and width mismatch.
+- Added synchronized complementary clips so the black glyphs retract as the orange glyphs write on instead of remaining underneath them.
+- Browser-verified “two weeks” on port 3001: both layers have identical container and per-character geometry, the settled black layer is fully clipped, and no runtime errors appear.
+- Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-23 — Stabilized landing narrative scrolling
+
+- Traced the hero, problem, and Who's-it-for wheel flow. The reverse recognizer could treat opposite-sign trackpad inertia as a new gesture after a short gap; destination arithmetic also assumed viewport multiples rather than using the sections' positions.
+- Changed navigation to target measured offsets, lengthened the quiet gap, and made trackpad reversal require a separately started and sustained rising gesture after settling. A clear discrete wheel step still reverses immediately.
+- The first stricter version ignored a deliberate single mouse-wheel reversal in Chrome. Added the discrete-wheel path, then removed continuous-tail reversal entirely so noisy opposite samples cannot undo a completed move.
+- Reproduced a weak Who's-it-for → Features scroll returning to Who's-it-for at its snap point. Made that exit a measured viewport transition too, consumed its arrival tail at Features, and released later input to native scrolling.
+- Browser-verified on worktree port 3001: Hero → Problems 1–3 → Who's-it-for hit offsets 1146/2292/3438/4584 at 1146px viewport height; repeated forward/reverse moves remained one section at a time; four tiny opposite scrolls stayed on Problem 1, followed by a deliberate reverse to Hero. A 0.1-page downward gesture from Who's-it-for now reached Features at 5730, and a later gesture continued in native flow. Checked measured geometry and forward/reverse moves at a temporary 390×844 viewport, then reset it.
+- TypeScript, full ESLint, and Vitest passed (443 tests). Production build stopped because the sandbox could not fetch Geist Mono and Phudu from Google Fonts. Per the owner's request, left the work uncommitted and did not mark the branch ready or merge it.
+
+## 2026-09-23 — Removed competing desktop scroll snap
+
+- The owner reported backward jumps after the earlier wheel-intent fix. Re-examined the complete landing scroll path and found that `LandingScrollArea` still restored CSS proximity snap after each wheel-owned tween, so the browser could select an earlier stop independently of the handler.
+- Removed desktop CSS snap from the landing container and kept proximity snap only under `(pointer: coarse)` for touch. Added instant Page/Arrow/Space keyboard navigation over the narrative stops to preserve keyboard access without desktop snap.
+- The assigned worktree port is 3001, but a Next dev server for this same checkout was already running on port 3000 and held the dev lock. Verified the public landing there in Safari because the Chrome browser extension did not connect and the Chrome profile redirected the public route after sign-in. Safari wheel input moved through the problem sequence to Who's-it-for and a light scroll moved onward to Features; Page Up returned instantly to Who's-it-for.
+- Kept all changes uncommitted; no handoff or merge.
+- Native Chrome automation on the same port-3000 checkout subsequently loaded the public route. Verified discrete scrolls settled in order at Hero, Problems 1–3, Who's-it-for, and Features, then reversed through Who's-it-for to Problem 3 without a backward jump. This exercises browser wheel input but cannot reproduce a physical trackpad's full inertia stream.
+- After the CSS ownership change, TypeScript, full ESLint, Vitest (443 passed, 1 skipped), and `git diff --check` passed.
+
+## 2026-09-24 — Built responsive landing layout
+
+- Read the landing interface decisions, relevant learnings, Next.js component/CSS guidance, Figma bridge instructions, and mobile motion guidance. No mobile landing export is available yet; used the desktop design and existing tokens for the responsive adaptation.
+- Updated the hero and problem character layouts to wrap by word without breaking their entrances. Made the hero note flow below the CTA on mobile, compacted the logo, adjusted mobile type and spacing in the problem and Who's-it-for sections, stacked Generate preview selectors, and reduced the walkthrough/FAQ mobile vertical gaps.
+- Browser-checked the same checkout on port 3000 at 390×844 and 320×568; port 3001 was unavailable because the running dev server held Next's lock. Verified hero, all three problems, Who's-it-for, features, walkthrough, expanded FAQ, and footer; the 320px layout had no horizontal overflow. The browser connection briefly interrupted a desktop check, then a fresh tab showed the settled hero and first problem at 1280×720 with no horizontal overflow. Reset the temporary viewport override.
+- TypeScript, full ESLint, Vitest (443 passed, 1 skipped), and `git diff --check` passed. Left the branch uncommitted without handoff or merge, as requested.
+
+## 2026-09-24 — Corrected mobile problem line grouping
+
+- Replaced the mobile problems' inherited desktop line breaks with mobile phrase groups while retaining the desktop copy composition and character/highlight motion.
+- Browser-checked all three settled problem panels at 390×844 and 320×568 on the running port-3000 checkout. “takes 40 minutes,” “voice memo,” “of them,” and “go quiet” now share lines; balanced wrapping removed an isolated “words” in Problem 1, and Problem 3 avoids isolated “busy” or “and.” No horizontal overflow at 320px.
+
+## 2026-09-24 — Increased mobile problem copy size
+
+- Applied the existing 43px `heading-lg` token to problem copy at phone widths of 24rem and above; kept the existing 34px `heading-md` token on narrower phones and the 53px desktop token unchanged.
+- Browser-checked all three larger problem panels at 390×844. A trial of 43px at 320×568 split “takes 40 minutes” and isolated “you,” so the final breakpoint keeps that phone's established grouping. Verified the final 320px and 390px computed type sizes and reset the temporary browser viewport.
+
+## 2026-09-24 — Removed DialKit and checked Android LAN preview
+
+- Froze Who's-it-for's approved motion values in `who-its-for.tsx` and removed the global DialKit root and stylesheet from the app layout. The landing page no longer mounts DialKit controls; the unused older hero tuning component and dependency were left in source.
+- Confirmed the Mac's active Wi-Fi address is `192.168.0.160`, already present in Next's `allowedDevOrigins`. The dev server for this checkout is listening on port 3000. Opened `http://192.168.0.160:3000/` in the browser and expanded a FAQ answer there, confirming the client JavaScript works at the LAN URL. Checked a 390px viewport, Who's-it-for's settled highlight/CTA, and no browser script errors.
+- TypeScript, targeted ESLint, and `git diff --check` passed. No handoff or merge.
+
+## 2026-09-24 — Matched the mobile Who's-it-for and footer exports
+
+- Read both Figma Bridge frame trees and screenshots. Removed an initial nav addition after the owner clarified that the nav only illustrated the desired logo size.
+- Matched Who's-it-for's mobile type, card spacing, and full-width CTA. Split its animated phrase into two mobile marker spans so “post” remains on the “founders who” line while desktop keeps its original single span.
+- Matched the footer's mobile spacing, full-size logo, white Purple0 heading, and gradient coordinates. Tried the exported WebPs at the recorded frame bounds; their missing crop transform hid the artwork, so the final mobile gradient uses the existing SVG with purple token stops while desktop keeps its lime stops.
+- At 320×568, Who's-it-for grows to 956px. Updated wheel and keyboard navigation so the section's lower content remains reachable before Features; verified Page Down shows the CTA, then advances to Features. Browser-checked Who's-it-for at 390×844, footer at 390×844 and 320×568, and no horizontal overflow. Desktop 1280px retains its original footer palette. The browser viewport override was reset.
+
+## 2026-09-25 — Softened mobile footer edge coverage and tightened FAQ
+
+- Moved each mobile footer gradient 16px farther past its side edge, retaining desktop offsets and colors. At 390px the rendered artwork now reaches 136px from the left and begins at 251px on the right.
+- Reduced the mobile FAQ gap between the heading/chip group and questions from the 56px `dist-5xl` token to the 48px `dist-4xl` token; desktop remains 56px.
+- Verified the 390px browser geometry, computed 48px group gap, and absence of horizontal overflow. Reset the temporary viewport override.
+
+## 2026-09-25 — Reworked mobile landing scroll ownership
+
+- Traced the Android path separately from desktop wheel handling: coarse-pointer CSS proximity snap controlled the touch stops, while the pinned problem content only activated within one pixel of exact offsets. The landing's `dvh` heights could also shift those offsets as browser chrome changed.
+- Removed the mobile scroll-snap rule and snap targets. Added a pointer-based, one-step touch path for the hero, three problems, and full-height Who's-it-for using `touch-action: pinch-zoom` and an 8px vertical intent threshold. Tall hero/Who sections keep native scrolling; native flings entering the pinned problems settle to the nearest problem after scroll end.
+- Changed the nested landing scrollport and narrative heights to stable `svh`. Kept measured desktop wheel/keyboard paths and reduced-motion handling intact.
+- Browser-checked the 390×844 and 320×568 geometry (no horizontal overflow); at 320px, keyboard stops still reach all three problems, Who's-it-for's lower CTA, and Features in order. The in-app browser can set phone viewport dimensions but cannot generate real Android touch gestures, so physical-device feel remains for the owner to verify. Reset the viewport override.
+- TypeScript, targeted ESLint, Vitest (443 passed, 1 skipped), and `git diff --check` passed. No handoff or merge.
+- Checked the available browser controls for touch emulation; the in-app browser exposes viewport sizing but no touch injector. Chrome's existing window belonged to unrelated browsing, so it was left untouched. Real Android gesture verification remains external to this workspace.
+
+## 2026-09-25 — Corrected reverse mobile entry into Who's-it-for
+
+- Traced upward gestures from Features through Who's-it-for. Limited custom Who's-it-for touch handling to its aligned top and tracked native gestures originating after it, so a gesture that enters Who's-it-for settles there even if momentum reaches Problem 3. Kept tall Who's-it-for natively scrollable.
+- Applied the existing 22px/28px `title-lg` token to the mobile explanation beside the info icon; desktop type is unchanged.
+- TypeScript, targeted ESLint, and `git diff --check` passed. In the browser at 390×844 and 320×568, the explanation computes to 22px/28px with no horizontal overflow; the section fits exactly one viewport at 390px and remains 828px tall on the shorter 320px screen. Reset the temporary viewport override. The browser tools cannot generate physical Android touch gestures, so the reverse swipe itself still needs a phone check. Kept the worktree uncommitted without handoff or merge.
+
+## 2026-09-25 — Centered mobile Who's-it-for content
+
+- Changed the mobile section from top-aligned to vertically centered while retaining its minimum viewport height and content-driven growth on shorter phones. Desktop was already centered and retains the same layout.
+- Verified browser geometry at 390×844: 108px of layout space above and below the content. At 320×568, the section grows to 828px and keeps 32px top/bottom padding with no horizontal overflow. Reset the viewport override. Targeted ESLint and `git diff --check` passed; no handoff or merge.
+
+## 2026-09-25 — Made reverse mobile Features transition immediate
+
+- Added a one-touch reverse gesture at the Features top edge. A downward finger move claims a cancelable touch and animates directly to Who's-it-for with the same measured viewport transition used in the forward direction. Native scrolling continues deeper in Features and remains the fallback if the browser has already claimed the touch.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Physical Android touch remains the final feel check; the available browser tools have viewport sizing but no touch injector. Kept changes uncommitted without handoff or merge.
+
+## 2026-09-25 — Added a ceiling at the first mobile feature
+
+- Tracked whether a touch began below the first Features offset. While its native scroll or momentum is active, clamped the landing scrollport to that offset, preventing the same gesture from exposing Who's-it-for. The next touch starting at the offset still uses the measured reverse transition.
+- TypeScript, targeted ESLint, and `git diff --check` passed. The available browser controls cannot perform a physical Android touch fling, so the on-device feel remains to verify. No handoff or merge.
+
+## 2026-09-25 — Replaced mobile Features scroll clamp with a real boundary
+
+- The owner confirmed the scroll-listener clamp still let Android momentum pass through Features. Wrapped Features through footer in a mobile full-viewport inner scroll area with contained overscroll; desktop renders that wrapper as `display: contents`. Updated measured navigation to target the wrapper top, touch handling to use the inner top for a separate reverse gesture, keyboard handling inside the inner content, and session restoration for both scroll positions.
+- Reduced the mobile FAQ group gap from 48px to 40px, moved each mobile footer gradient another 16px outward, and raised hero copy/CTA by 24px on narrow phones and 56px on typical phones. Desktop values remain unchanged.
+- In the browser at 390×844, the inner area measured 844px tall with 3807px of native scroll range and `overscroll-behavior-y: contain`. Wheel scrolling from the footer stopped at inner offset 0 while the outer offset stayed at the Features top (4220px); another wheel scroll remained at that ceiling. Page Up then returned to Who's-it-for (3376px). Checked the 40px FAQ gap, gradient positions, hero screenshot, and desktop `display: contents` layout. At 320×568 the smaller hero lift kept the heading clear of navigation. Restored the feedback toolbar setting and viewport override. Physical Android touch feel still needs a phone check.
+- Reset the mobile inner scroll area to its first feature whenever the authored Who's-it-for → Features transition runs, so revisiting Features after reaching FAQ/footer does not resume there.
+
+## 2026-09-25 — Tightened mobile hero type and problem transitions
+
+- Applied the existing 16px/24px `body-lg` token to the mobile hero subheading, retaining desktop 20px/28px type.
+- Traced the perceived problem delay to a 400ms scroll tween followed by a 250ms body entrance delay and long stagger. On coarse-pointer devices, reduced the scroll tween to 220ms, made incoming problem content active immediately, and shortened its text, eyebrow, and highlight timing. Desktop motion remains at its prior values. This follows the motion standards' under-300ms response guidance for repeated interaction.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Browser computed type was 16px/24px at 390px and 20px/28px at 1280px, with no mobile horizontal overflow. The browser controls cannot emit Android touch gestures, so phone feel remains to verify. No handoff or merge.
+
+## 2026-09-25 — Restored original mobile problem text motion
+
+- Reverted the mobile-only eyebrow, body, and highlight timing overrides and the early panel activation that removed the character wobble. Kept only the mobile 220ms scroll tween; desktop remains 400ms. The hero `body-lg` change remains.
+- TypeScript, targeted ESLint, and `git diff --check` passed. No handoff or merge.
+
+## 2026-09-25 — Removed perceived wait between mobile problems
+
+- The owner reported that reducing the scroll tween alone still felt unchanged. The sticky panels do not visibly move during that tween, so problem-to-problem swipes on coarse-pointer devices now activate the destination panel when the swipe is accepted. The original body delay, spring wobble, stagger, eyebrow, and highlight settings stay intact; only stage travel remains 220ms on mobile. Hero subheading reverted to the original 20px/28px `body-xl` token.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Browser computed the restored hero type at 390px. No physical Android gesture injector is available in the browser; no handoff or merge.
+
+## 2026-09-25 — Removed desktop scroll dead time and added Features ceiling
+
+- Traced the desktop pause to the wheel handler resetting its gesture clock at the end of each viewport transition and ignoring the shape of input received during that transition. Kept the destination immutable but recorded the input tail, reduced the desktop viewport travel from 400ms to 300ms, allowed a clear next same-direction gesture to exit Who's-it-for, and shortened only the post-settle reverse guard.
+- Extended the existing inner Features scroll area to desktop and made the outer wheel handler consume a gesture at its top boundary until a distinct upward gesture returns to Who's-it-for. Preserved the arrival-tail guard before native Features scrolling. Top-aligned FAQ question text and icons at all breakpoints.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Chrome browser control failed to initialize; the in-app browser loaded the same local server at a 1280px desktop width. Computed FAQ alignment was `flex-start`; the Features wrapper was a 720px scrollport with 3693px of inner range, and the outer scrollport ended at its top (3659px). Separate wheel actions moved hero → three problems → Who's-it-for → Features. After moving 720px deeper in Features, one upward wheel action returned inner offset to 0 with outer offset still 3659px; another returned outer offset to Who's-it-for at 2939px. A further upward action reached Problem 3. Physical trackpad inertia remains to verify. No handoff or merge.
+
+## 2026-09-25 — Tightened mobile hero and desktop feature spacing
+
+- Raised the mobile hero navigation from 40px to 32px and reduced typical-phone hero top padding from 128px to 64px. A 320px width initially crowded the nav, so that width retains 128px padding without the upward copy translation; its hero grows to 624px to keep the CTA and note clear. Desktop hero placement remains unchanged.
+- Reduced desktop feature minimum heights from 720px to 656px and medium-width vertical feature padding from 64px to 56px; mobile feature spacing remains unchanged.
+- Removed empty inline-block tokens at segment edges and made non-highlighted leading spaces collapsible. Browser screenshots at 390px and 320px confirmed “you don't have” starts flush left, while “takes 40 minutes” stays together at 320px. Browser geometry confirmed the 390px hero heading starts at 150px below the nav's 88px bottom; at 320px, it starts at 128px below that same bottom. Reset the viewport override. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Lowered mobile hero copy beneath navigation
+
+- Moved the mobile hero heading, subheading, and primary CTA 24px lower at widths of at least 24rem and 16px lower on narrower phones using existing distance tokens. Left the navbar/logo, gradient, bottom note, and desktop placement unchanged.
+- Browser checks at 390×844 measured an 86px gap from nav bottom to heading top, with CTA bottom at 542px and note top at 756px. At 320×568 the hero grows to 624px, with a 56px nav-to-heading gap and 24px CTA-to-note gap. Reviewed screenshots at both widths and reset the viewport override. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Colored the second feature and checked walkthrough media
+
+- Added an explicit background variant to FeatureSection and set only “Generate a batch” to `surface-2`. Browser computed colors for the three feature sections were surface-3 / surface-2 / surface-3 at 1280px and 390px; reset the viewport override.
+- Read the walkthrough component and local configuration: it already accepts a YouTube or direct video URL through `LANDING_DEMO_VIDEO_URL` and otherwise shows the exported WebP poster. The local variable is unset and the only matching public media is the poster, so the video itself remains to be supplied or configured. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Added the supplied landing walkthrough video
+
+- Retrieved the user-provided Google Drive file and verified it is an openly downloadable 20,754,482-byte MP4, 70.35 seconds, H.264 video at 3344×2160/60fps with AAC audio. The MP4 index is at the front for progressive playback; the copy in `public/videos/landing-walkthrough.mp4` has the same SHA-256 as the download.
+- Set the landing page's walkthrough source to the bundled file and retained native controls and the existing poster. Added inline mobile playback and an accessible player label. Removed the obsolete optional environment variable note from `.env.local.example`.
+- In the local browser, the player loaded the bundled URL with duration 70.35 seconds and no media error; playback advanced past 14 seconds and resumed from pause. At 390px width, the player fit inside the viewport at 344×229px without horizontal overflow. Reset the viewport override and paused playback. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Compressed walkthrough and linked footer profiles
+
+- Read the installed Next video guide and checked WebKit's current WebM support. Transcoded the supplied 3344×2160/60fps source to 1680×1086/30fps VP9/Opus WebM at 6,705,090 bytes and H.264/AAC MP4 fallback at 6,276,439 bytes. Both together are 12,981,529 bytes versus the original 20,754,482-byte MP4; a visitor downloads only the browser-selected source. Compared 10 seconds against the original at the 848px display width: WebM SSIM 0.997606 and compact MP4 SSIM 0.998534; inspected a later WebM frame for text legibility.
+- Replaced the original public MP4, added the WebM, and ordered typed sources WebM then MP4. Linked the two remaining footer marks to the supplied LinkedIn and X URLs with accessible labels; removed the book mark.
+- Local browser selected `/videos/landing-walkthrough.webm`, reported its 70.366-second duration, played and paused without a media error. Footer links resolved to the exact supplied URLs. At 390px the video fit at 344px wide, both marks measured 40px, and there was no horizontal overflow. Paused playback and reset the viewport override. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Bounded desktop problem wheel gestures
+
+- Traced the desktop wheel handler's decay-then-rise restart path: a forceful trackpad stream could be classified as two gestures and advance past one problem. Its reverse filtering could also ignore fresh input until the stream quieted.
+- Added a desktop-only narrative wheel path from the hero through Who's-it-for. It consumes one continuous wheel burst, advances only one adjacent viewport, and measures a 220ms quiet break from the actual last input event even while the 300ms viewport transition runs. The mobile touch path and the problem text animations are untouched.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Browser keyboard navigation landed at 0, 1069, 2138, 3207, 4276, and 5345px in both directions. Browser controls cannot synthesize a real desktop trackpad momentum stream, so physical trackpad feel still needs checking. No handoff or merge.
+
+## 2026-09-25 — Corrected desktop scroll gate after owner feedback
+
+- The owner reported substantially worse scroll locking. Removed the strict desktop-only quiet-break gate immediately; continuous trackpad momentum had kept refreshing its timer and suppressed the next intentional scroll.
+- Retained the original wheel handler and changed only its classifier: quiet gap 320→200ms; same-direction restart after settle now needs three rising samples, 3× the tail floor, and delta at least 6; reverse detection needs one rising sample instead of two. The mobile touch path and problem entrances remain unchanged.
+- A reverse following a genuine quiet gap now accepts its first nonzero delta; only a reversal inside an active wheel stream needs the minimum-delta check.
+- TypeScript, targeted ESLint, and `git diff --check` passed. A physical desktop trackpad stream cannot be generated by the available browser controls, so the owner still needs to judge the momentum feel on their device. No handoff or merge.
+
+## 2026-09-26 — Fixed mobile video fullscreen and partial narrative stops
+
+- Inspected the owner's Android screenshots: Problems 2 and 3 show a strip of the following section, and Who's-it-for shows the video from a deep inner Features scroll offset below it. Traced the two independent scrollports and the video fullscreen resize path.
+- Switched walkthrough media from `object-cover` to `object-contain`, with explicit contain sizing in fullscreen. Native fullscreen entry/exit now preserves the inner Features position and restores the outer scrollport to the measured Features boundary after layout settles.
+- Disabled browser scroll anchoring on the landing scrollports. Added coarse-pointer resize realignment for settled problem, Who's-it-for, and Features stops, including in-flight viewport navigation.
+- TypeScript, targeted ESLint, `git diff --check`, and Vitest (443 passed, 1 skipped) passed. At a 360×780 browser viewport, keyboard navigation stopped at 780, 1560, 2340, 3120, and 3900px; the walkthrough rendered 314×209px with `object-fit: contain`. The available browser can resize to phone dimensions but reports a fine pointer, so native Android fullscreen and touch-resize behavior remain for on-device verification. Reset the viewport override and closed the test tab. No handoff or merge.
+
+## 2026-09-26 — Removed inline walkthrough bands
+
+- Matched the native video element's inline aspect ratio to its encoded 1680×1086 source (280:181) and used `object-fit: cover` only inline; the fullscreen contain override remains.
+- Chrome measured the source at 1680×1086, the desktop box at 846×547, and the 360px mobile box at 314×203. Both boxes now match the source ratio within pixel rounding. Reset the temporary viewport and closed the test tab. No handoff or merge.
+
+## 2026-09-26 — Walkthrough first-frame cover
+
+- Extracted frame zero from the local 1680×1086 WebM and compressed it to a 79 KB WebP. Added a token-black translucent overlay and accessible centered play button; native controls appear on the `play` event.
+- Kept the encoded aspect ratio and fullscreen contain rule intact. TypeScript, targeted ESLint, and `git diff --check` passed. In the local browser, the cover visibly rendered with no native controls; clicking Play replaced it with the native video controls. No handoff or merge.
+
+## 2026-09-26 — Circular walkthrough play button
+
+- Enlarged the cover play button from 56px to 72px using existing padding tokens, changed it to a translucent token-black fill, and changed the icon to token white.
+- The first `rounded-rad-rd` attempt rendered square because that token is not mapped as a Tailwind radius; switched to the project's `rounded-full` convention. Browser inspection confirmed a 72×72px circular button with a 60% black fill and white icon. No handoff or merge.
+
+## 2026-09-26 — Removed walkthrough border stroke
+
+- Removed the explicit 1px border from the walkthrough frame while retaining the clip and shadow. Browser inspection confirmed the computed border width is 0px. No handoff or merge.
+
+## 2026-09-26 — Smoothed walkthrough stroke
+
+- Restored the requested 1px border-bold video stroke as a separate inset overlay using the frame's squircle clip. The media frame remains borderless in layout, so its 280:181 content box no longer loses a pixel on each side.
+- Browser confirmed the inset stroke and clip path are applied and the cover's Play button still starts playback. No handoff or merge.
+
+## 2026-09-26 — Replaced jagged video stroke with vector path
+
+- Revisited the walkthrough corner after the owner reported the inset CSS border still looked jagged. Replaced that border layer with a measured SVG squircle path drawn one stroke width inside the frame's clip boundary; kept the shadow, cover, and player behavior.
+- Confirmed in the browser that the path renders at the 848px frame width with the token border color and 1px stroke. TypeScript, targeted ESLint, and diff checks passed. No handoff or merge.
+
+## 2026-09-26 — Landing-page branch handoff
+
+- Confirmed worktree `feat/landing-page` (`SCHEMA=none`). Ran required gates in order: `npx tsc --noEmit`, `npm run lint`, `npm run test` (443 passed, 1 skipped), and `npm run build` (passed).
+- The first sandboxed build could not fetch Geist Mono and Phudu from Google Fonts; reran with network access and the production build completed. The configured worktree port is 3001, but an existing Next dev server for this exact checkout was already running on port 3000; attempts to start a second server on 3001 were blocked by that running instance. Browser verification in this branch used the existing port-3000 server.
+- Ready for commit, push, and review. No schema changes or merge.
+
+## 2026-09-26 — Restored Android-safe walkthrough fit after handoff
+
+- The owner reported fullscreen cropping had returned. Found `object-cover` in the committed video element; the existing fullscreen CSS only overrode it when a fullscreen pseudo-class matched. Set base fit to `contain` and the media background to token black.
+- Browser measured the 1680×1086 source in an 848×548.16 desktop box and a 316×204.27 box at a 360px viewport; computed fit was `contain` at both widths, with matching source/frame ratios. Native Android fullscreen still requires on-device confirmation. No schema or merge.
+
+- Post-fix gates passed: TypeScript, repository ESLint, Vitest (443 passed, 1 skipped), and the production Turbopack build. The correction is ready as a follow-up commit on the same handoff branch.

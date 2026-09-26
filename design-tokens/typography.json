@@ -26,6 +26,17 @@
                 "lineHeight": "24pixels",
                 "css": "var(--body-lg-bold)"
             },
+            "Body/body-xl": {
+                "value": "20px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "20px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Medium",
+                "letterSpacing": "-1%",
+                "lineHeight": "28pixels",
+                "css": "var(--body-xl)"
+            },
             "Body/body-md": {
                 "value": "14px Open Runde",
                 "type": "typography",
@@ -179,6 +190,50 @@
                 "letterSpacing": "-2%",
                 "lineHeight": "56pixels",
                 "css": "var(--display-sm)"
+            },
+            "Hero/hero-lg": {
+                "value": "67px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "67px",
+                "fontFamily": "Phudu",
+                "fontWeight": "SemiBold",
+                "letterSpacing": "-2%",
+                "lineHeight": "61pixels",
+                "css": "var(--hero-lg)"
+            },
+            "Body/body-2xl": {
+                "value": "53px Open Runde",
+                "type": "typography",
+                "description": "",
+                "fontSize": "53px",
+                "fontFamily": "Open Runde",
+                "fontWeight": "Bold",
+                "letterSpacing": "-2%",
+                "lineHeight": "64pixels",
+                "css": "var(--body-2xl)"
+            },
+            "Heading/heading-sm-light": {
+                "value": "27px Phudu",
+                "type": "typography",
+                "description": "",
+                "fontSize": "27px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Regular",
+                "letterSpacing": "0%",
+                "lineHeight": "32pixels",
+                "css": "var(--heading-sm-light)"
+            },
+            "Landing/feature-eyebrow": {
+                "value": "22px Phudu",
+                "type": "typography",
+                "description": "Feature-section eyebrow from the landing-page Figma exports.",
+                "fontSize": "22px",
+                "fontFamily": "Phudu",
+                "fontWeight": "Regular",
+                "letterSpacing": "0%",
+                "lineHeight": "24pixels",
+                "css": "var(--feature-eyebrow)"
             },
             "Heading/heading-lg": {
                 "value": "43px Phudu",

@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import { Geist_Mono, Phudu } from "next/font/google";
 import localFont from "next/font/local";
 import { Agentation } from "agentation";
-import { DialRoot } from "dialkit";
-import "dialkit/styles.css";
 import { NetworkStatus } from "@/components/shared/network-status";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -37,7 +35,7 @@ const geistMono = Geist_Mono({
 const phudu = Phudu({
   variable: "--font-phudu",
   subsets: ["latin"],
-  weight: ["700"],
+  weight: ["400", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -64,7 +62,6 @@ export default function RootLayout({
         {/* Global: watches connectivity and shows the disconnected toast on
             any screen, signed in or out. */}
         <NetworkStatus />
-        <DialRoot />
         {process.env.NODE_ENV === "development" && (
           // Without `endpoint`, the toolbar silently falls back to
           // browser-local storage and never syncs to agentation-mcp — the
