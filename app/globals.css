@@ -877,3 +877,26 @@
     @apply font-sans;
   }
 }
+
+/* The problem sequence owns one touch gesture at a time. Browser scroll snap
+   must not compete with its measured navigation or pull later sections back. */
+@media (any-pointer: coarse) {
+  [data-landing-touch-stage="problems"] {
+    touch-action: pinch-zoom;
+  }
+}
+
+[data-landing-scroll],
+[data-landing-features-scroll] {
+  overflow-anchor: none;
+}
+
+[data-landing-walkthrough-video]:fullscreen,
+[data-landing-walkthrough-video]:-webkit-full-screen {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: contain;
+}

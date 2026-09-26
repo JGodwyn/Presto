@@ -72,7 +72,7 @@ function FaqItem({
         aria-controls={answerId}
         onClick={onOpenChange}
         className={cn(
-          "flex min-h-pad-3xl w-full cursor-pointer items-center gap-dist-md rounded-rad-xmd px-pad-lg py-pad-sm text-left transition-[background-color,color] duration-150 ease-out outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+          "flex min-h-pad-3xl w-full cursor-pointer items-start gap-dist-md rounded-rad-xmd px-pad-lg py-pad-sm text-left transition-[background-color,color] duration-150 ease-out outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
           open
             ? "bg-purple-500 text-text-inverse"
             : "bg-purple-0 text-purple-900"
@@ -125,9 +125,9 @@ function FaqSection() {
     <section
       id="faq"
       aria-labelledby="faq-heading"
-      className="bg-surface-4 px-[var(--mgn-mobile)] py-[calc(var(--pad-7xl)-var(--pad-sm))] md:px-pad-6xl"
+      className="bg-surface-4 px-[var(--mgn-mobile)] py-pad-6xl md:px-pad-6xl md:py-[calc(var(--pad-7xl)-var(--pad-sm))]"
     >
-      <div className="mx-auto grid w-full max-w-[848px] gap-dist-5xl lg:grid-cols-[minmax(0,calc(var(--pad-9xl)+var(--pad-lg)))_minmax(0,calc(var(--pad-9xl)*2+var(--pad-sm)))]">
+      <div className="mx-auto grid w-full max-w-[848px] gap-dist-3xl md:gap-dist-5xl lg:grid-cols-[minmax(0,calc(var(--pad-9xl)+var(--pad-lg)))_minmax(0,calc(var(--pad-9xl)*2+var(--pad-sm)))]">
         <div className="flex flex-col gap-dist-xl">
           <h2
             id="faq-heading"

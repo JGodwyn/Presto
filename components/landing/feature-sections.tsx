@@ -217,12 +217,13 @@ function GeneratePreview() {
     >
       <NumberStepper value={count} onChange={setCount} />
 
-      <div className="flex items-center justify-center gap-dist-md">
+      <div className="flex w-full flex-col gap-dist-sm sm:flex-row sm:items-center sm:justify-center sm:gap-dist-md">
         <SelectPill
           options={accountOptions}
           value={account}
           onChange={setAccount}
           ariaLabel="Social account"
+          className="w-full justify-center whitespace-nowrap sm:w-auto"
         >
           <SocialIcon
             platform={account === "x" ? "x" : "linkedin"}
@@ -238,6 +239,7 @@ function GeneratePreview() {
           value={model}
           onChange={setModel}
           ariaLabel="AI model"
+          className="w-full justify-center whitespace-nowrap sm:w-auto"
         >
           <span className="text-text-subtle">Using</span>
           <span className="text-text-bold">
@@ -309,12 +311,14 @@ function FeatureSection({
   eyebrow,
   heading,
   note,
+  background = "surface-3",
   children,
 }: {
   id?: string
   eyebrow: string
   heading: string
   note: string
+  background?: "surface-2" | "surface-3"
   children: React.ReactNode
 }) {
   const headingId = React.useId()
@@ -323,7 +327,7 @@ function FeatureSection({
     <section
       id={id}
       aria-labelledby={headingId}
-      className="flex overflow-clip bg-surface-3 px-[var(--mgn-mobile)] py-pad-6xl md:px-pad-6xl lg:min-h-[calc(var(--pad-9xl)*2+var(--pad-8xl)+var(--pad-5xl))] lg:items-center lg:py-pad-6xl"
+      className={`flex overflow-clip px-[var(--mgn-mobile)] py-pad-6xl md:px-pad-6xl md:py-pad-5xl lg:min-h-[calc(var(--pad-9xl)*2+var(--pad-8xl)-var(--pad-sm))] lg:items-center ${background === "surface-2" ? "bg-surface-2" : "bg-surface-3"}`}
     >
       <div className="mx-auto grid w-full max-w-[848px] gap-dist-3xl lg:grid-cols-[minmax(0,calc(var(--pad-9xl)+var(--pad-8xl)+var(--pad-sm)-var(--dist-2xs)))_minmax(0,calc(var(--pad-9xl)+var(--pad-8xl)-var(--pad-sm)))]">
         <FeatureCopy
@@ -354,6 +358,7 @@ function FeatureSections() {
         eyebrow="Generate a batch"
         heading="Choose how many posts you want, and how far apart to spread them. Posts come in one by one."
         note="Also choose based on date"
+        background="surface-2"
       >
         <GeneratePreview />
       </FeatureSection>

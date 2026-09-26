@@ -44,56 +44,56 @@ function AnimatedCharacters({
 
   return (
     <>
-      <span aria-hidden className="flex flex-col items-center">
-      {lines.map((line, lineIndex) => (
-        <span key={lineIndex} className="flex justify-center whitespace-nowrap">
-          {line.split(/(\s+)/).map((token, tokenIndex) => {
-            if (/^\s+$/.test(token)) {
-              return <span key={tokenIndex}>&nbsp;</span>
-            }
+      <span aria-hidden className="flex w-full flex-col items-center md:w-auto">
+        {lines.map((line, lineIndex) => (
+          <span key={lineIndex} className="block max-w-full text-center md:max-w-none md:whitespace-nowrap">
+            {line.split(/(\s+)/).map((token, tokenIndex) => {
+              if (/^\s+$/.test(token)) {
+                return <span key={tokenIndex}>{token}</span>
+              }
 
-            return (
-              <span key={tokenIndex} className="inline-flex">
-                {Array.from(token).map((character) => {
-                  const characterDelay = delay + characterIndex * entrance.stagger
-                  characterIndex += 1
+              return (
+                <span key={tokenIndex} className="inline-flex">
+                  {Array.from(token).map((character) => {
+                    const characterDelay = delay + characterIndex * entrance.stagger
+                    characterIndex += 1
 
-                  return (
-                    <motion.span
-                      key={`${lineIndex}-${tokenIndex}-${characterIndex}`}
-                      className="inline-block"
-                      initial={{
-                        opacity: 0,
-                        filter: prefersReducedMotion ? "blur(0px)" : `blur(${entrance.blur}px)`,
-                        transform: prefersReducedMotion
-                          ? "translateY(0)"
-                          : `translateY(${entrance.offset}px)`,
-                      }}
-                      animate={{ opacity: 1, filter: "blur(0px)", transform: "translateY(0)" }}
-                      transition={
-                        prefersReducedMotion
-                          ? {
-                              duration: 0.2,
-                              ease: EASE_OUT,
-                              delay: characterDelay,
-                            }
-                          : {
-                              type: "spring",
-                              duration: entrance.duration,
-                              bounce: entrance.bounce,
-                              delay: characterDelay,
-                            }
-                      }
-                    >
-                      {character}
-                    </motion.span>
-                  )
-                })}
-              </span>
-            )
-          })}
-        </span>
-      ))}
+                    return (
+                      <motion.span
+                        key={`${lineIndex}-${tokenIndex}-${characterIndex}`}
+                        className="inline-block"
+                        initial={{
+                          opacity: 0,
+                          filter: prefersReducedMotion ? "blur(0px)" : `blur(${entrance.blur}px)`,
+                          transform: prefersReducedMotion
+                            ? "translateY(0)"
+                            : `translateY(${entrance.offset}px)`,
+                        }}
+                        animate={{ opacity: 1, filter: "blur(0px)", transform: "translateY(0)" }}
+                        transition={
+                          prefersReducedMotion
+                            ? {
+                                duration: 0.2,
+                                ease: EASE_OUT,
+                                delay: characterDelay,
+                              }
+                            : {
+                                type: "spring",
+                                duration: entrance.duration,
+                                bounce: entrance.bounce,
+                                delay: characterDelay,
+                              }
+                        }
+                      >
+                        {character}
+                      </motion.span>
+                    )
+                  })}
+                </span>
+              )
+            })}
+          </span>
+        ))}
       </span>
       <span className="sr-only">{label}</span>
     </>
@@ -106,7 +106,7 @@ function AnimatedHeroCopy() {
 
   return (
     <div className="flex w-full max-w-[560px] flex-col items-center">
-      <h1 className="text-hero-lg font-display font-semibold text-text-bold">
+      <h1 className="w-full text-heading-lg font-display font-semibold text-text-bold md:text-hero-lg">
         <AnimatedCharacters
           label="Your posts. Your voice. in one sitting."
           lines={["Your posts.", "Your voice.", "in one sitting."]}
@@ -118,9 +118,7 @@ function AnimatedHeroCopy() {
           <AnimatedCharacters
             label="Presto learns how you write, generates a batch on any topic, and drops them into a calendar you control."
             lines={[
-              "Presto learns how you write,",
-              "generates a batch on any topic,",
-              "and drops them into a calendar you control.",
+              "Presto learns how you write, generates a batch on any topic, and drops them into a calendar you control.",
             ]}
             delay={0.51}
             entrance={SUBHEADING_ENTRANCE}

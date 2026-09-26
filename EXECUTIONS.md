@@ -8354,3 +8354,204 @@ to main, then remove the branch.
 - Added synchronized complementary clips so the black glyphs retract as the orange glyphs write on instead of remaining underneath them.
 - Browser-verified “two weeks” on port 3001: both layers have identical container and per-character geometry, the settled black layer is fully clipped, and no runtime errors appear.
 - Passed TypeScript, targeted ESLint, and `git diff --check`.
+
+## 2026-09-23 — Stabilized landing narrative scrolling
+
+- Traced the hero, problem, and Who's-it-for wheel flow. The reverse recognizer could treat opposite-sign trackpad inertia as a new gesture after a short gap; destination arithmetic also assumed viewport multiples rather than using the sections' positions.
+- Changed navigation to target measured offsets, lengthened the quiet gap, and made trackpad reversal require a separately started and sustained rising gesture after settling. A clear discrete wheel step still reverses immediately.
+- The first stricter version ignored a deliberate single mouse-wheel reversal in Chrome. Added the discrete-wheel path, then removed continuous-tail reversal entirely so noisy opposite samples cannot undo a completed move.
+- Reproduced a weak Who's-it-for → Features scroll returning to Who's-it-for at its snap point. Made that exit a measured viewport transition too, consumed its arrival tail at Features, and released later input to native scrolling.
+- Browser-verified on worktree port 3001: Hero → Problems 1–3 → Who's-it-for hit offsets 1146/2292/3438/4584 at 1146px viewport height; repeated forward/reverse moves remained one section at a time; four tiny opposite scrolls stayed on Problem 1, followed by a deliberate reverse to Hero. A 0.1-page downward gesture from Who's-it-for now reached Features at 5730, and a later gesture continued in native flow. Checked measured geometry and forward/reverse moves at a temporary 390×844 viewport, then reset it.
+- TypeScript, full ESLint, and Vitest passed (443 tests). Production build stopped because the sandbox could not fetch Geist Mono and Phudu from Google Fonts. Per the owner's request, left the work uncommitted and did not mark the branch ready or merge it.
+
+## 2026-09-23 — Removed competing desktop scroll snap
+
+- The owner reported backward jumps after the earlier wheel-intent fix. Re-examined the complete landing scroll path and found that `LandingScrollArea` still restored CSS proximity snap after each wheel-owned tween, so the browser could select an earlier stop independently of the handler.
+- Removed desktop CSS snap from the landing container and kept proximity snap only under `(pointer: coarse)` for touch. Added instant Page/Arrow/Space keyboard navigation over the narrative stops to preserve keyboard access without desktop snap.
+- The assigned worktree port is 3001, but a Next dev server for this same checkout was already running on port 3000 and held the dev lock. Verified the public landing there in Safari because the Chrome browser extension did not connect and the Chrome profile redirected the public route after sign-in. Safari wheel input moved through the problem sequence to Who's-it-for and a light scroll moved onward to Features; Page Up returned instantly to Who's-it-for.
+- Kept all changes uncommitted; no handoff or merge.
+- Native Chrome automation on the same port-3000 checkout subsequently loaded the public route. Verified discrete scrolls settled in order at Hero, Problems 1–3, Who's-it-for, and Features, then reversed through Who's-it-for to Problem 3 without a backward jump. This exercises browser wheel input but cannot reproduce a physical trackpad's full inertia stream.
+- After the CSS ownership change, TypeScript, full ESLint, Vitest (443 passed, 1 skipped), and `git diff --check` passed.
+
+## 2026-09-24 — Built responsive landing layout
+
+- Read the landing interface decisions, relevant learnings, Next.js component/CSS guidance, Figma bridge instructions, and mobile motion guidance. No mobile landing export is available yet; used the desktop design and existing tokens for the responsive adaptation.
+- Updated the hero and problem character layouts to wrap by word without breaking their entrances. Made the hero note flow below the CTA on mobile, compacted the logo, adjusted mobile type and spacing in the problem and Who's-it-for sections, stacked Generate preview selectors, and reduced the walkthrough/FAQ mobile vertical gaps.
+- Browser-checked the same checkout on port 3000 at 390×844 and 320×568; port 3001 was unavailable because the running dev server held Next's lock. Verified hero, all three problems, Who's-it-for, features, walkthrough, expanded FAQ, and footer; the 320px layout had no horizontal overflow. The browser connection briefly interrupted a desktop check, then a fresh tab showed the settled hero and first problem at 1280×720 with no horizontal overflow. Reset the temporary viewport override.
+- TypeScript, full ESLint, Vitest (443 passed, 1 skipped), and `git diff --check` passed. Left the branch uncommitted without handoff or merge, as requested.
+
+## 2026-09-24 — Corrected mobile problem line grouping
+
+- Replaced the mobile problems' inherited desktop line breaks with mobile phrase groups while retaining the desktop copy composition and character/highlight motion.
+- Browser-checked all three settled problem panels at 390×844 and 320×568 on the running port-3000 checkout. “takes 40 minutes,” “voice memo,” “of them,” and “go quiet” now share lines; balanced wrapping removed an isolated “words” in Problem 1, and Problem 3 avoids isolated “busy” or “and.” No horizontal overflow at 320px.
+
+## 2026-09-24 — Increased mobile problem copy size
+
+- Applied the existing 43px `heading-lg` token to problem copy at phone widths of 24rem and above; kept the existing 34px `heading-md` token on narrower phones and the 53px desktop token unchanged.
+- Browser-checked all three larger problem panels at 390×844. A trial of 43px at 320×568 split “takes 40 minutes” and isolated “you,” so the final breakpoint keeps that phone's established grouping. Verified the final 320px and 390px computed type sizes and reset the temporary browser viewport.
+
+## 2026-09-24 — Removed DialKit and checked Android LAN preview
+
+- Froze Who's-it-for's approved motion values in `who-its-for.tsx` and removed the global DialKit root and stylesheet from the app layout. The landing page no longer mounts DialKit controls; the unused older hero tuning component and dependency were left in source.
+- Confirmed the Mac's active Wi-Fi address is `192.168.0.160`, already present in Next's `allowedDevOrigins`. The dev server for this checkout is listening on port 3000. Opened `http://192.168.0.160:3000/` in the browser and expanded a FAQ answer there, confirming the client JavaScript works at the LAN URL. Checked a 390px viewport, Who's-it-for's settled highlight/CTA, and no browser script errors.
+- TypeScript, targeted ESLint, and `git diff --check` passed. No handoff or merge.
+
+## 2026-09-24 — Matched the mobile Who's-it-for and footer exports
+
+- Read both Figma Bridge frame trees and screenshots. Removed an initial nav addition after the owner clarified that the nav only illustrated the desired logo size.
+- Matched Who's-it-for's mobile type, card spacing, and full-width CTA. Split its animated phrase into two mobile marker spans so “post” remains on the “founders who” line while desktop keeps its original single span.
+- Matched the footer's mobile spacing, full-size logo, white Purple0 heading, and gradient coordinates. Tried the exported WebPs at the recorded frame bounds; their missing crop transform hid the artwork, so the final mobile gradient uses the existing SVG with purple token stops while desktop keeps its lime stops.
+- At 320×568, Who's-it-for grows to 956px. Updated wheel and keyboard navigation so the section's lower content remains reachable before Features; verified Page Down shows the CTA, then advances to Features. Browser-checked Who's-it-for at 390×844, footer at 390×844 and 320×568, and no horizontal overflow. Desktop 1280px retains its original footer palette. The browser viewport override was reset.
+
+## 2026-09-25 — Softened mobile footer edge coverage and tightened FAQ
+
+- Moved each mobile footer gradient 16px farther past its side edge, retaining desktop offsets and colors. At 390px the rendered artwork now reaches 136px from the left and begins at 251px on the right.
+- Reduced the mobile FAQ gap between the heading/chip group and questions from the 56px `dist-5xl` token to the 48px `dist-4xl` token; desktop remains 56px.
+- Verified the 390px browser geometry, computed 48px group gap, and absence of horizontal overflow. Reset the temporary viewport override.
+
+## 2026-09-25 — Reworked mobile landing scroll ownership
+
+- Traced the Android path separately from desktop wheel handling: coarse-pointer CSS proximity snap controlled the touch stops, while the pinned problem content only activated within one pixel of exact offsets. The landing's `dvh` heights could also shift those offsets as browser chrome changed.
+- Removed the mobile scroll-snap rule and snap targets. Added a pointer-based, one-step touch path for the hero, three problems, and full-height Who's-it-for using `touch-action: pinch-zoom` and an 8px vertical intent threshold. Tall hero/Who sections keep native scrolling; native flings entering the pinned problems settle to the nearest problem after scroll end.
+- Changed the nested landing scrollport and narrative heights to stable `svh`. Kept measured desktop wheel/keyboard paths and reduced-motion handling intact.
+- Browser-checked the 390×844 and 320×568 geometry (no horizontal overflow); at 320px, keyboard stops still reach all three problems, Who's-it-for's lower CTA, and Features in order. The in-app browser can set phone viewport dimensions but cannot generate real Android touch gestures, so physical-device feel remains for the owner to verify. Reset the viewport override.
+- TypeScript, targeted ESLint, Vitest (443 passed, 1 skipped), and `git diff --check` passed. No handoff or merge.
+- Checked the available browser controls for touch emulation; the in-app browser exposes viewport sizing but no touch injector. Chrome's existing window belonged to unrelated browsing, so it was left untouched. Real Android gesture verification remains external to this workspace.
+
+## 2026-09-25 — Corrected reverse mobile entry into Who's-it-for
+
+- Traced upward gestures from Features through Who's-it-for. Limited custom Who's-it-for touch handling to its aligned top and tracked native gestures originating after it, so a gesture that enters Who's-it-for settles there even if momentum reaches Problem 3. Kept tall Who's-it-for natively scrollable.
+- Applied the existing 22px/28px `title-lg` token to the mobile explanation beside the info icon; desktop type is unchanged.
+- TypeScript, targeted ESLint, and `git diff --check` passed. In the browser at 390×844 and 320×568, the explanation computes to 22px/28px with no horizontal overflow; the section fits exactly one viewport at 390px and remains 828px tall on the shorter 320px screen. Reset the temporary viewport override. The browser tools cannot generate physical Android touch gestures, so the reverse swipe itself still needs a phone check. Kept the worktree uncommitted without handoff or merge.
+
+## 2026-09-25 — Centered mobile Who's-it-for content
+
+- Changed the mobile section from top-aligned to vertically centered while retaining its minimum viewport height and content-driven growth on shorter phones. Desktop was already centered and retains the same layout.
+- Verified browser geometry at 390×844: 108px of layout space above and below the content. At 320×568, the section grows to 828px and keeps 32px top/bottom padding with no horizontal overflow. Reset the viewport override. Targeted ESLint and `git diff --check` passed; no handoff or merge.
+
+## 2026-09-25 — Made reverse mobile Features transition immediate
+
+- Added a one-touch reverse gesture at the Features top edge. A downward finger move claims a cancelable touch and animates directly to Who's-it-for with the same measured viewport transition used in the forward direction. Native scrolling continues deeper in Features and remains the fallback if the browser has already claimed the touch.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Physical Android touch remains the final feel check; the available browser tools have viewport sizing but no touch injector. Kept changes uncommitted without handoff or merge.
+
+## 2026-09-25 — Added a ceiling at the first mobile feature
+
+- Tracked whether a touch began below the first Features offset. While its native scroll or momentum is active, clamped the landing scrollport to that offset, preventing the same gesture from exposing Who's-it-for. The next touch starting at the offset still uses the measured reverse transition.
+- TypeScript, targeted ESLint, and `git diff --check` passed. The available browser controls cannot perform a physical Android touch fling, so the on-device feel remains to verify. No handoff or merge.
+
+## 2026-09-25 — Replaced mobile Features scroll clamp with a real boundary
+
+- The owner confirmed the scroll-listener clamp still let Android momentum pass through Features. Wrapped Features through footer in a mobile full-viewport inner scroll area with contained overscroll; desktop renders that wrapper as `display: contents`. Updated measured navigation to target the wrapper top, touch handling to use the inner top for a separate reverse gesture, keyboard handling inside the inner content, and session restoration for both scroll positions.
+- Reduced the mobile FAQ group gap from 48px to 40px, moved each mobile footer gradient another 16px outward, and raised hero copy/CTA by 24px on narrow phones and 56px on typical phones. Desktop values remain unchanged.
+- In the browser at 390×844, the inner area measured 844px tall with 3807px of native scroll range and `overscroll-behavior-y: contain`. Wheel scrolling from the footer stopped at inner offset 0 while the outer offset stayed at the Features top (4220px); another wheel scroll remained at that ceiling. Page Up then returned to Who's-it-for (3376px). Checked the 40px FAQ gap, gradient positions, hero screenshot, and desktop `display: contents` layout. At 320×568 the smaller hero lift kept the heading clear of navigation. Restored the feedback toolbar setting and viewport override. Physical Android touch feel still needs a phone check.
+- Reset the mobile inner scroll area to its first feature whenever the authored Who's-it-for → Features transition runs, so revisiting Features after reaching FAQ/footer does not resume there.
+
+## 2026-09-25 — Tightened mobile hero type and problem transitions
+
+- Applied the existing 16px/24px `body-lg` token to the mobile hero subheading, retaining desktop 20px/28px type.
+- Traced the perceived problem delay to a 400ms scroll tween followed by a 250ms body entrance delay and long stagger. On coarse-pointer devices, reduced the scroll tween to 220ms, made incoming problem content active immediately, and shortened its text, eyebrow, and highlight timing. Desktop motion remains at its prior values. This follows the motion standards' under-300ms response guidance for repeated interaction.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Browser computed type was 16px/24px at 390px and 20px/28px at 1280px, with no mobile horizontal overflow. The browser controls cannot emit Android touch gestures, so phone feel remains to verify. No handoff or merge.
+
+## 2026-09-25 — Restored original mobile problem text motion
+
+- Reverted the mobile-only eyebrow, body, and highlight timing overrides and the early panel activation that removed the character wobble. Kept only the mobile 220ms scroll tween; desktop remains 400ms. The hero `body-lg` change remains.
+- TypeScript, targeted ESLint, and `git diff --check` passed. No handoff or merge.
+
+## 2026-09-25 — Removed perceived wait between mobile problems
+
+- The owner reported that reducing the scroll tween alone still felt unchanged. The sticky panels do not visibly move during that tween, so problem-to-problem swipes on coarse-pointer devices now activate the destination panel when the swipe is accepted. The original body delay, spring wobble, stagger, eyebrow, and highlight settings stay intact; only stage travel remains 220ms on mobile. Hero subheading reverted to the original 20px/28px `body-xl` token.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Browser computed the restored hero type at 390px. No physical Android gesture injector is available in the browser; no handoff or merge.
+
+## 2026-09-25 — Removed desktop scroll dead time and added Features ceiling
+
+- Traced the desktop pause to the wheel handler resetting its gesture clock at the end of each viewport transition and ignoring the shape of input received during that transition. Kept the destination immutable but recorded the input tail, reduced the desktop viewport travel from 400ms to 300ms, allowed a clear next same-direction gesture to exit Who's-it-for, and shortened only the post-settle reverse guard.
+- Extended the existing inner Features scroll area to desktop and made the outer wheel handler consume a gesture at its top boundary until a distinct upward gesture returns to Who's-it-for. Preserved the arrival-tail guard before native Features scrolling. Top-aligned FAQ question text and icons at all breakpoints.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Chrome browser control failed to initialize; the in-app browser loaded the same local server at a 1280px desktop width. Computed FAQ alignment was `flex-start`; the Features wrapper was a 720px scrollport with 3693px of inner range, and the outer scrollport ended at its top (3659px). Separate wheel actions moved hero → three problems → Who's-it-for → Features. After moving 720px deeper in Features, one upward wheel action returned inner offset to 0 with outer offset still 3659px; another returned outer offset to Who's-it-for at 2939px. A further upward action reached Problem 3. Physical trackpad inertia remains to verify. No handoff or merge.
+
+## 2026-09-25 — Tightened mobile hero and desktop feature spacing
+
+- Raised the mobile hero navigation from 40px to 32px and reduced typical-phone hero top padding from 128px to 64px. A 320px width initially crowded the nav, so that width retains 128px padding without the upward copy translation; its hero grows to 624px to keep the CTA and note clear. Desktop hero placement remains unchanged.
+- Reduced desktop feature minimum heights from 720px to 656px and medium-width vertical feature padding from 64px to 56px; mobile feature spacing remains unchanged.
+- Removed empty inline-block tokens at segment edges and made non-highlighted leading spaces collapsible. Browser screenshots at 390px and 320px confirmed “you don't have” starts flush left, while “takes 40 minutes” stays together at 320px. Browser geometry confirmed the 390px hero heading starts at 150px below the nav's 88px bottom; at 320px, it starts at 128px below that same bottom. Reset the viewport override. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Lowered mobile hero copy beneath navigation
+
+- Moved the mobile hero heading, subheading, and primary CTA 24px lower at widths of at least 24rem and 16px lower on narrower phones using existing distance tokens. Left the navbar/logo, gradient, bottom note, and desktop placement unchanged.
+- Browser checks at 390×844 measured an 86px gap from nav bottom to heading top, with CTA bottom at 542px and note top at 756px. At 320×568 the hero grows to 624px, with a 56px nav-to-heading gap and 24px CTA-to-note gap. Reviewed screenshots at both widths and reset the viewport override. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Colored the second feature and checked walkthrough media
+
+- Added an explicit background variant to FeatureSection and set only “Generate a batch” to `surface-2`. Browser computed colors for the three feature sections were surface-3 / surface-2 / surface-3 at 1280px and 390px; reset the viewport override.
+- Read the walkthrough component and local configuration: it already accepts a YouTube or direct video URL through `LANDING_DEMO_VIDEO_URL` and otherwise shows the exported WebP poster. The local variable is unset and the only matching public media is the poster, so the video itself remains to be supplied or configured. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Added the supplied landing walkthrough video
+
+- Retrieved the user-provided Google Drive file and verified it is an openly downloadable 20,754,482-byte MP4, 70.35 seconds, H.264 video at 3344×2160/60fps with AAC audio. The MP4 index is at the front for progressive playback; the copy in `public/videos/landing-walkthrough.mp4` has the same SHA-256 as the download.
+- Set the landing page's walkthrough source to the bundled file and retained native controls and the existing poster. Added inline mobile playback and an accessible player label. Removed the obsolete optional environment variable note from `.env.local.example`.
+- In the local browser, the player loaded the bundled URL with duration 70.35 seconds and no media error; playback advanced past 14 seconds and resumed from pause. At 390px width, the player fit inside the viewport at 344×229px without horizontal overflow. Reset the viewport override and paused playback. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Compressed walkthrough and linked footer profiles
+
+- Read the installed Next video guide and checked WebKit's current WebM support. Transcoded the supplied 3344×2160/60fps source to 1680×1086/30fps VP9/Opus WebM at 6,705,090 bytes and H.264/AAC MP4 fallback at 6,276,439 bytes. Both together are 12,981,529 bytes versus the original 20,754,482-byte MP4; a visitor downloads only the browser-selected source. Compared 10 seconds against the original at the 848px display width: WebM SSIM 0.997606 and compact MP4 SSIM 0.998534; inspected a later WebM frame for text legibility.
+- Replaced the original public MP4, added the WebM, and ordered typed sources WebM then MP4. Linked the two remaining footer marks to the supplied LinkedIn and X URLs with accessible labels; removed the book mark.
+- Local browser selected `/videos/landing-walkthrough.webm`, reported its 70.366-second duration, played and paused without a media error. Footer links resolved to the exact supplied URLs. At 390px the video fit at 344px wide, both marks measured 40px, and there was no horizontal overflow. Paused playback and reset the viewport override. No handoff or merge.
+- TypeScript, targeted ESLint, and `git diff --check` passed.
+
+## 2026-09-25 — Bounded desktop problem wheel gestures
+
+- Traced the desktop wheel handler's decay-then-rise restart path: a forceful trackpad stream could be classified as two gestures and advance past one problem. Its reverse filtering could also ignore fresh input until the stream quieted.
+- Added a desktop-only narrative wheel path from the hero through Who's-it-for. It consumes one continuous wheel burst, advances only one adjacent viewport, and measures a 220ms quiet break from the actual last input event even while the 300ms viewport transition runs. The mobile touch path and the problem text animations are untouched.
+- TypeScript, targeted ESLint, and `git diff --check` passed. Browser keyboard navigation landed at 0, 1069, 2138, 3207, 4276, and 5345px in both directions. Browser controls cannot synthesize a real desktop trackpad momentum stream, so physical trackpad feel still needs checking. No handoff or merge.
+
+## 2026-09-25 — Corrected desktop scroll gate after owner feedback
+
+- The owner reported substantially worse scroll locking. Removed the strict desktop-only quiet-break gate immediately; continuous trackpad momentum had kept refreshing its timer and suppressed the next intentional scroll.
+- Retained the original wheel handler and changed only its classifier: quiet gap 320→200ms; same-direction restart after settle now needs three rising samples, 3× the tail floor, and delta at least 6; reverse detection needs one rising sample instead of two. The mobile touch path and problem entrances remain unchanged.
+- A reverse following a genuine quiet gap now accepts its first nonzero delta; only a reversal inside an active wheel stream needs the minimum-delta check.
+- TypeScript, targeted ESLint, and `git diff --check` passed. A physical desktop trackpad stream cannot be generated by the available browser controls, so the owner still needs to judge the momentum feel on their device. No handoff or merge.
+
+## 2026-09-26 — Fixed mobile video fullscreen and partial narrative stops
+
+- Inspected the owner's Android screenshots: Problems 2 and 3 show a strip of the following section, and Who's-it-for shows the video from a deep inner Features scroll offset below it. Traced the two independent scrollports and the video fullscreen resize path.
+- Switched walkthrough media from `object-cover` to `object-contain`, with explicit contain sizing in fullscreen. Native fullscreen entry/exit now preserves the inner Features position and restores the outer scrollport to the measured Features boundary after layout settles.
+- Disabled browser scroll anchoring on the landing scrollports. Added coarse-pointer resize realignment for settled problem, Who's-it-for, and Features stops, including in-flight viewport navigation.
+- TypeScript, targeted ESLint, `git diff --check`, and Vitest (443 passed, 1 skipped) passed. At a 360×780 browser viewport, keyboard navigation stopped at 780, 1560, 2340, 3120, and 3900px; the walkthrough rendered 314×209px with `object-fit: contain`. The available browser can resize to phone dimensions but reports a fine pointer, so native Android fullscreen and touch-resize behavior remain for on-device verification. Reset the viewport override and closed the test tab. No handoff or merge.
+
+## 2026-09-26 — Removed inline walkthrough bands
+
+- Matched the native video element's inline aspect ratio to its encoded 1680×1086 source (280:181) and used `object-fit: cover` only inline; the fullscreen contain override remains.
+- Chrome measured the source at 1680×1086, the desktop box at 846×547, and the 360px mobile box at 314×203. Both boxes now match the source ratio within pixel rounding. Reset the temporary viewport and closed the test tab. No handoff or merge.
+
+## 2026-09-26 — Walkthrough first-frame cover
+
+- Extracted frame zero from the local 1680×1086 WebM and compressed it to a 79 KB WebP. Added a token-black translucent overlay and accessible centered play button; native controls appear on the `play` event.
+- Kept the encoded aspect ratio and fullscreen contain rule intact. TypeScript, targeted ESLint, and `git diff --check` passed. In the local browser, the cover visibly rendered with no native controls; clicking Play replaced it with the native video controls. No handoff or merge.
+
+## 2026-09-26 — Circular walkthrough play button
+
+- Enlarged the cover play button from 56px to 72px using existing padding tokens, changed it to a translucent token-black fill, and changed the icon to token white.
+- The first `rounded-rad-rd` attempt rendered square because that token is not mapped as a Tailwind radius; switched to the project's `rounded-full` convention. Browser inspection confirmed a 72×72px circular button with a 60% black fill and white icon. No handoff or merge.
+
+## 2026-09-26 — Removed walkthrough border stroke
+
+- Removed the explicit 1px border from the walkthrough frame while retaining the clip and shadow. Browser inspection confirmed the computed border width is 0px. No handoff or merge.
+
+## 2026-09-26 — Smoothed walkthrough stroke
+
+- Restored the requested 1px border-bold video stroke as a separate inset overlay using the frame's squircle clip. The media frame remains borderless in layout, so its 280:181 content box no longer loses a pixel on each side.
+- Browser confirmed the inset stroke and clip path are applied and the cover's Play button still starts playback. No handoff or merge.
+
+## 2026-09-26 — Replaced jagged video stroke with vector path
+
+- Revisited the walkthrough corner after the owner reported the inset CSS border still looked jagged. Replaced that border layer with a measured SVG squircle path drawn one stroke width inside the frame's clip boundary; kept the shadow, cover, and player behavior.
+- Confirmed in the browser that the path renders at the 848px frame width with the token border color and 1px stroke. TypeScript, targeted ESLint, and diff checks passed. No handoff or merge.
+
+## 2026-09-26 — Landing-page branch handoff
+
+- Confirmed worktree `feat/landing-page` (`SCHEMA=none`). Ran required gates in order: `npx tsc --noEmit`, `npm run lint`, `npm run test` (443 passed, 1 skipped), and `npm run build` (passed).
+- The first sandboxed build could not fetch Geist Mono and Phudu from Google Fonts; reran with network access and the production build completed. The configured worktree port is 3001, but an existing Next dev server for this exact checkout was already running on port 3000; attempts to start a second server on 3001 were blocked by that running instance. Browser verification in this branch used the existing port-3000 server.
+- Ready for commit, push, and review. No schema changes or merge.

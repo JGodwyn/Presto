@@ -36,8 +36,8 @@ function FooterGradient({ side }: FooterGradientProps) {
           <stop offset="0" stopColor="var(--purple-700)" />
           <stop offset="0.18" stopColor="var(--purple-700)" />
           <stop offset="0.544061" stopColor="var(--purple-400)" />
-          <stop offset="0.689655" stopColor="var(--lime-200)" />
-          <stop offset="1" stopColor="var(--flame-0)" />
+          <stop offset="0.689655" stopColor="var(--footer-gradient-late-color)" />
+          <stop offset="1" stopColor="var(--footer-gradient-end-color)" />
         </linearGradient>
         <linearGradient
           id={barFadeId}
