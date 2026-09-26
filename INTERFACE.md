@@ -1713,3 +1713,5 @@ modal pattern: the corner X dismisses and the named action navigates.
 - Walkthrough edge refinement: the 1px `border-bold` stroke is retained as an inset overlay with the same squircle clip as the media frame. It does not participate in layout or resize the video.
 
 - Walkthrough stroke refinement: the 1px `border-bold` line is now an SVG squircle path measured from the live frame, inset by the stroke token. The video's frame keeps its existing squircle clipping and shadow; the stroke is no longer a CSS border or inset box shadow.
+
+- Walkthrough video uses `object-fit: contain` as its base fit, including before Android enters native fullscreen. Its inline frame is the source's 280:181 aspect ratio, so containment does not create bands there. The video background is token black for fullscreen letterboxing.

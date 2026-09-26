@@ -2099,3 +2099,9 @@ only when that destination arrives or navigation leaves the tab system.
 - **Symptom:** The video outline still appeared jagged after moving its border into an inset box shadow.
 - **Cause:** The inset CSS stroke was still clipped by the same squircle path at the frame's outer edge, so the edge artifact remained.
 - **Rule:** Draw the outline as a vector path slightly inside the clip boundary, using the same measured frame geometry and token stroke width.
+
+## Android native fullscreen may bypass a fullscreen CSS selector
+
+- **Symptom:** The walkthrough could crop vertically on Android fullscreen again after inline video changed back to `object-cover`.
+- **Cause:** The fix depended on `:fullscreen`/`:-webkit-full-screen` overriding the base fit. Android's native video fullscreen does not reliably use that element styling path.
+- **Rule:** Make `object-fit: contain` the video's base style. Match the inline frame to the encoded aspect ratio to avoid letterboxing there, and use a dark media background when fullscreen has spare space.

@@ -218,7 +218,7 @@ function WalkthroughMedia({
           playsInline
           preload="metadata"
           poster={WALKTHROUGH_FIRST_FRAME}
-          className="block h-full w-full bg-surface-4 object-cover"
+          className="block h-full w-full bg-text-bold object-contain"
         >
           <source src={videoUrl} type={getVideoType(videoUrl)} />
           {fallbackVideoUrl ? (

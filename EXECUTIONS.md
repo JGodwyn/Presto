@@ -8555,3 +8555,10 @@ to main, then remove the branch.
 - Confirmed worktree `feat/landing-page` (`SCHEMA=none`). Ran required gates in order: `npx tsc --noEmit`, `npm run lint`, `npm run test` (443 passed, 1 skipped), and `npm run build` (passed).
 - The first sandboxed build could not fetch Geist Mono and Phudu from Google Fonts; reran with network access and the production build completed. The configured worktree port is 3001, but an existing Next dev server for this exact checkout was already running on port 3000; attempts to start a second server on 3001 were blocked by that running instance. Browser verification in this branch used the existing port-3000 server.
 - Ready for commit, push, and review. No schema changes or merge.
+
+## 2026-09-26 — Restored Android-safe walkthrough fit after handoff
+
+- The owner reported fullscreen cropping had returned. Found `object-cover` in the committed video element; the existing fullscreen CSS only overrode it when a fullscreen pseudo-class matched. Set base fit to `contain` and the media background to token black.
+- Browser measured the 1680×1086 source in an 848×548.16 desktop box and a 316×204.27 box at a 360px viewport; computed fit was `contain` at both widths, with matching source/frame ratios. Native Android fullscreen still requires on-device confirmation. No schema or merge.
+
+- Post-fix gates passed: TypeScript, repository ESLint, Vitest (443 passed, 1 skipped), and the production Turbopack build. The correction is ready as a follow-up commit on the same handoff branch.
