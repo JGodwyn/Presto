@@ -8562,3 +8562,11 @@ to main, then remove the branch.
 - Browser measured the 1680×1086 source in an 848×548.16 desktop box and a 316×204.27 box at a 360px viewport; computed fit was `contain` at both widths, with matching source/frame ratios. Native Android fullscreen still requires on-device confirmation. No schema or merge.
 
 - Post-fix gates passed: TypeScript, repository ESLint, Vitest (443 passed, 1 skipped), and the production Turbopack build. The correction is ready as a follow-up commit on the same handoff branch.
+
+## 2026-10-03 — Landing housekeeping on main (before landing-fixes / auth-polish / delete-project branches)
+
+- Copy: "Every post starts from zero"; FAQ now says your own key can be added from your profile (BYOK already exists), "Can I edit" no longer claims nothing publishes without approval (scheduled posts do go out on their own), restored a missing period and question mark. The training-data FAQ claim was left as written — owner's call.
+- Removed dead code: `dialed-hero-copy.tsx` (unused, last DialKit consumer), the YouTube + still-image branches of `see-it-in-action.tsx` and their `see-it-in-action.webp` asset, and the `dialkit` package itself (no remaining imports).
+- Walkthrough sources swapped to MP4 first (6.3 MB vs WebM 6.7 MB).
+- Moved `components/landing/hero-gradient.tsx` → `components/shared/textured-gradient.tsx` so both upcoming gradient branches start from one component instead of each extracting it; scoped every SVG id per instance.
+- Verified on :3001 (port 3000 was a different project): gradient renders, zero unresolved `url(#…)` references, new copy and source order present. tsc, eslint (changed files, clean vs baseline), vitest 443/1 skipped, build all pass.

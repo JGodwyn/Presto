@@ -92,7 +92,7 @@ const PROBLEM_MOTION_SETTINGS = {
 
 const problems: Problem[] = [
   {
-    eyebrow: "Every posts starts from zero",
+    eyebrow: "Every post starts from zero",
     lines: [
       [{ text: "You know what you want to say." }],
       [{ text: "Getting it into words takes" }],

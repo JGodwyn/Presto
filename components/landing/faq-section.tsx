@@ -11,7 +11,7 @@ const FAQS = [
   {
     question: "Do I need my own API key?",
     answer:
-      "No. The models are included. If you'd rather use your own key later, we'll add that option — but you can start with nothing but an email address.",
+      "No. The models are included, so you can start with nothing but an email address. If you'd rather use your own key, you can add one from your profile.",
   },
   {
     question: "Which platforms does it support?",
@@ -21,7 +21,7 @@ const FAQS = [
   {
     question: "Does it post for me automatically?",
     answer:
-      "Yes, it does. You can queue a post for later or immediately publish one. Nothing goes out without your attention",
+      "Yes, it does. You can queue a post for later or immediately publish one. Nothing goes out without your attention.",
   },
   {
     question: "Will it actually sound like me, or like AI?",
@@ -31,7 +31,7 @@ const FAQS = [
   {
     question: "Can I edit what it writes?",
     answer:
-      "All of it. Every post is fully editable, and nothing is ever published without you approving it first.",
+      "All of it. Every post is fully editable, and nothing goes out unless you schedule or publish it yourself.",
   },
   {
     question: "Is my writing used to train anything?",
@@ -39,7 +39,7 @@ const FAQS = [
       "No. Your posts, instructions, and reference material are yours. They're used to generate your content and nothing else.",
   },
   {
-    question: "What happens to my drafts if I don’t use them",
+    question: "What happens to my drafts if I don’t use them?",
     answer:
       "They stay in your calendar. Nothing expires, nothing gets deleted automatically.",
   },

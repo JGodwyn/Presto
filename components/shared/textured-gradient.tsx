@@ -1,6 +1,9 @@
 "use client"
 
+import * as React from "react"
 import { motion, useReducedMotion, type Transition } from "motion/react"
+
+import { cn } from "@/lib/utils"
 
 type HeroBarId = "bar1" | "bar2" | "bar3" | "bar4" | "bar5" | "bar6" | "bar7"
 
@@ -206,21 +209,28 @@ function revealOrderIndex(
 function HeroGradientArtwork({
   settings,
   animation,
+  className,
 }: {
   settings: HeroStudioSettings
   animation: HeroGradientMotionSettings
+  className?: string
 }) {
+  // Every gradient, mask and pattern is referenced by id, and ids are
+  // document-global — two instances on one page (sidebar + panel) would
+  // otherwise resolve each other's definitions. useId's own punctuation
+  // (":r0:" / "«r0»") is stripped since it isn't safe inside url(#…).
+  const uid = `textured-gradient-${React.useId().replace(/[^\w-]/g, "")}`
   const panels = resolvePanels(settings)
   const prefersReducedMotion = useReducedMotion()
   const shouldAnimate = animation.enabled && !prefersReducedMotion
 
   return (
     <svg
-      data-hero-gradient
+      data-textured-gradient
       aria-hidden="true"
       viewBox={`0 0 ${HERO_WIDTH} ${HERO_HEIGHT}`}
       preserveAspectRatio="xMidYMid slice"
-      className="pointer-events-none absolute inset-0 size-full"
+      className={cn("pointer-events-none absolute inset-0 size-full", className)}
     >
       <defs>
         {panels.map((panel) => {
@@ -237,7 +247,7 @@ function HeroGradientArtwork({
           return (
           <linearGradient
             key={panel.id}
-            id={`hero-field-${panel.id}`}
+            id={`${uid}-field-${panel.id}`}
             x1="0"
             y1="0"
             x2="0"
@@ -256,7 +266,7 @@ function HeroGradientArtwork({
         })}
 
         <linearGradient
-          id="hero-field-reveal"
+          id={`${uid}-field-reveal`}
           gradientUnits="userSpaceOnUse"
           x1="0"
           y1="500"
@@ -268,12 +278,12 @@ function HeroGradientArtwork({
           <stop offset="0.72" stopColor="var(--gray-0)" stopOpacity="0.74" />
           <stop offset="1" stopColor="var(--gray-0)" />
         </linearGradient>
-        <mask id="hero-field-mask" x="0" y="0" width={HERO_WIDTH} height={HERO_HEIGHT}>
-          <rect width={HERO_WIDTH} height={HERO_HEIGHT} fill="url(#hero-field-reveal)" />
+        <mask id={`${uid}-field-mask`} x="0" y="0" width={HERO_WIDTH} height={HERO_HEIGHT}>
+          <rect width={HERO_WIDTH} height={HERO_HEIGHT} fill={`url(#${uid}-field-reveal)`} />
         </mask>
 
         <linearGradient
-          id="hero-dot-reveal"
+          id={`${uid}-dot-reveal`}
           gradientUnits="userSpaceOnUse"
           x1="0"
           y1="560"
@@ -284,23 +294,23 @@ function HeroGradientArtwork({
           <stop offset="0.18" stopColor="var(--gray-0)" stopOpacity="0.18" />
           <stop offset="1" stopColor="var(--gray-0)" />
         </linearGradient>
-        <mask id="hero-dot-reveal-mask" x="0" y="0" width={HERO_WIDTH} height={HERO_HEIGHT}>
-          <rect width={HERO_WIDTH} height={HERO_HEIGHT} fill="url(#hero-dot-reveal)" />
+        <mask id={`${uid}-dot-reveal-mask`} x="0" y="0" width={HERO_WIDTH} height={HERO_HEIGHT}>
+          <rect width={HERO_WIDTH} height={HERO_HEIGHT} fill={`url(#${uid}-dot-reveal)`} />
         </mask>
         <pattern
-          id="hero-color-dots"
+          id={`${uid}-color-dots`}
           patternUnits="userSpaceOnUse"
           width="4"
           height="4"
         >
           <circle cx="2" cy="2" r={settings.texture.halftoneRadius} fill="var(--gray-0)" />
         </pattern>
-        <mask id="hero-dot-mask" x="0" y="0" width={HERO_WIDTH} height={HERO_HEIGHT}>
-          <rect width={HERO_WIDTH} height={HERO_HEIGHT} fill="url(#hero-color-dots)" />
+        <mask id={`${uid}-dot-mask`} x="0" y="0" width={HERO_WIDTH} height={HERO_HEIGHT}>
+          <rect width={HERO_WIDTH} height={HERO_HEIGHT} fill={`url(#${uid}-color-dots)`} />
         </mask>
 
         <pattern
-          id="hero-paper-dots"
+          id={`${uid}-paper-dots`}
           patternUnits="userSpaceOnUse"
           width="4"
           height="4"
@@ -308,7 +318,7 @@ function HeroGradientArtwork({
           <circle cx="2" cy="2" r={settings.texture.paperRadius} fill="var(--surface-3)" />
         </pattern>
         <filter
-          id="hero-grain"
+          id={`${uid}-grain`}
           x="0"
           y="0"
           width="1"
@@ -341,7 +351,7 @@ function HeroGradientArtwork({
 
       <rect width={HERO_WIDTH} height={HERO_HEIGHT} fill="var(--surface-4)" />
 
-      <g mask="url(#hero-field-mask)">
+      <g mask={`url(#${uid}-field-mask)`}>
         {panels.map((panel, index) => {
           const orderIndex = revealOrderIndex(index, panels.length, animation.order)
           const delay = animation.delay + orderIndex * animation.stagger
@@ -352,7 +362,7 @@ function HeroGradientArtwork({
               x={panel.x}
               width={panel.width}
               height={HERO_HEIGHT}
-              fill={`url(#hero-field-${panel.id})`}
+              fill={`url(#${uid}-field-${panel.id})`}
               style={{ transformBox: "fill-box", originX: 0.5, originY: 1 }}
               initial={
                 shouldAnimate
@@ -366,8 +376,8 @@ function HeroGradientArtwork({
         })}
       </g>
 
-      <g mask="url(#hero-dot-reveal-mask)">
-        <g mask="url(#hero-dot-mask)">
+      <g mask={`url(#${uid}-dot-reveal-mask)`}>
+        <g mask={`url(#${uid}-dot-mask)`}>
           {panels.map((panel, index) => {
             const orderIndex = revealOrderIndex(index, panels.length, animation.order)
             const delay = animation.delay + orderIndex * animation.stagger
@@ -378,7 +388,7 @@ function HeroGradientArtwork({
                 x={panel.x}
                 width={panel.width}
                 height={HERO_HEIGHT}
-                fill={`url(#hero-field-${panel.id})`}
+                fill={`url(#${uid}-field-${panel.id})`}
                 style={{ transformBox: "fill-box", originX: 0.5, originY: 1 }}
                 initial={
                   shouldAnimate
@@ -394,8 +404,8 @@ function HeroGradientArtwork({
       </g>
 
       <g
-        mask="url(#hero-field-mask)"
-        filter={settings.texture.grainEnabled ? "url(#hero-grain)" : undefined}
+        mask={`url(#${uid}-field-mask)`}
+        filter={settings.texture.grainEnabled ? `url(#${uid}-grain)` : undefined}
       >
         {panels.map((panel, index) => {
           const orderIndex = revealOrderIndex(index, panels.length, animation.order)
@@ -408,7 +418,7 @@ function HeroGradientArtwork({
               y="610"
               width={panel.width}
               height="414"
-              fill="url(#hero-paper-dots)"
+              fill={`url(#${uid}-paper-dots)`}
               opacity={settings.texture.paperOpacity}
               style={{ transformBox: "fill-box", originX: 0.5, originY: 1 }}
               initial={
@@ -426,13 +436,14 @@ function HeroGradientArtwork({
   )
 }
 
-function HeroGradient() {
+function TexturedGradient({ className }: { className?: string }) {
   return (
     <HeroGradientArtwork
       settings={HERO_SETTINGS}
       animation={HERO_ANIMATION}
+      className={className}
     />
   )
 }
 
-export { HeroGradient }
+export { TexturedGradient }

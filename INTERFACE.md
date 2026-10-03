@@ -1715,3 +1715,8 @@ modal pattern: the corner X dismisses and the named action navigates.
 - Walkthrough stroke refinement: the 1px `border-bold` line is now an SVG squircle path measured from the live frame, inset by the stroke token. The video's frame keeps its existing squircle clipping and shadow; the stroke is no longer a CSS border or inset box shadow.
 
 - Walkthrough video uses `object-fit: contain` as its base fit, including before Android enters native fullscreen. Its inline frame is the source's 280:181 aspect ratio, so containment does not create bands there. The video background is token black for fullscreen letterboxing.
+
+## Shared textured gradient (2026-10-03)
+
+- The landing hero's bar gradient is now `components/shared/textured-gradient.tsx` (`TexturedGradient`, optional `className`), so the auth pages and in-app chrome can adopt the same artwork. No visual change on `/`. Every SVG id is prefixed with a per-instance `useId`, because ids are document-global and two instances on one page (sidebar + glow panel) would otherwise resolve each other's masks and gradients.
+- The landing walkthrough always plays the self-hosted MP4 first (smaller encode), WebM second; the YouTube and still-image fallbacks were removed as unused.

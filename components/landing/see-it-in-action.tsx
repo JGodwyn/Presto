@@ -1,13 +1,11 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import { Play } from "@phosphor-icons/react"
 import { getSvgPath } from "figma-squircle"
 
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 
-const WALKTHROUGH_POSTER = "/images/landing/see-it-in-action.webp"
 const WALKTHROUGH_FIRST_FRAME = "/images/landing/landing-walkthrough-first-frame.webp"
 
 function WalkthroughStroke() {
@@ -77,39 +75,15 @@ function getVideoType(value: string) {
   return undefined
 }
 
-function getYouTubeEmbedUrl(value: string) {
-  try {
-    const url = new URL(value, "https://presto.local")
-    const host = url.hostname.replace(/^www\./, "")
-    let videoId: string | null = null
-
-    if (host === "youtu.be") {
-      videoId = url.pathname.split("/").filter(Boolean)[0] ?? null
-    } else if (host === "youtube.com" || host === "m.youtube.com") {
-      if (url.pathname === "/watch") videoId = url.searchParams.get("v")
-      if (url.pathname.startsWith("/embed/") || url.pathname.startsWith("/shorts/")) {
-        videoId = url.pathname.split("/").filter(Boolean)[1] ?? null
-      }
-    }
-
-    return videoId && /^[A-Za-z0-9_-]{11}$/.test(videoId)
-      ? `https://www.youtube-nocookie.com/embed/${videoId}`
-      : null
-  } catch {
-    return null
-  }
-}
-
 function WalkthroughMedia({
   videoUrl,
   fallbackVideoUrl,
 }: {
-  videoUrl?: string
+  videoUrl: string
   fallbackVideoUrl?: string
 }) {
   const videoRef = React.useRef<HTMLVideoElement>(null)
   const [hasStarted, setHasStarted] = React.useState(false)
-  const youtubeEmbedUrl = videoUrl ? getYouTubeEmbedUrl(videoUrl) : null
 
   React.useEffect(() => {
     const video = videoRef.current
@@ -194,65 +168,40 @@ function WalkthroughMedia({
     }
   }, [videoUrl])
 
-  if (youtubeEmbedUrl) {
-    return (
-      <iframe
-        title="Presto product walkthrough"
-        src={youtubeEmbedUrl}
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-        allowFullScreen
-        className="aspect-[212/141] w-full border-0"
-      />
-    )
-  }
-
-  if (videoUrl) {
-    return (
-      <div className="relative aspect-[280/181] w-full">
-        <video
-          ref={videoRef}
-          data-landing-walkthrough-video
-          aria-label="Presto product walkthrough"
-          controls={hasStarted}
-          onPlay={() => setHasStarted(true)}
-          playsInline
-          preload="metadata"
-          poster={WALKTHROUGH_FIRST_FRAME}
-          className="block h-full w-full bg-text-bold object-contain"
-        >
-          <source src={videoUrl} type={getVideoType(videoUrl)} />
-          {fallbackVideoUrl ? (
-            <source src={fallbackVideoUrl} type={getVideoType(fallbackVideoUrl)} />
-          ) : null}
-          Your browser does not support embedded video.
-        </video>
-        {!hasStarted ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-text-bold/40">
-            <button
-              type="button"
-              aria-label="Play Presto walkthrough"
-              className="flex size-[calc(var(--pad-5xl)+var(--pad-lg))] cursor-pointer items-center justify-center rounded-full bg-text-bold/60 text-text-inverse transition-colors duration-150 hover:bg-text-bold/80 focus-visible:outline-2 focus-visible:outline-text-inverse [&_svg]:size-pad-2xl"
-              onClick={() => {
-                void videoRef.current?.play().catch(() => {})
-              }}
-            >
-              <Play weight="fill" aria-hidden="true" />
-            </button>
-          </div>
-        ) : null}
-      </div>
-    )
-  }
-
   return (
-    <Image
-      src={WALKTHROUGH_POSTER}
-      alt="Presto Generate screen with calendar-based post scheduling controls"
-      width={1696}
-      height={1128}
-      sizes="(min-width: 768px) 848px, calc(100vw - 44px)"
-      className="block h-auto w-full"
-    />
+    <div className="relative aspect-[280/181] w-full">
+      <video
+        ref={videoRef}
+        data-landing-walkthrough-video
+        aria-label="Presto product walkthrough"
+        controls={hasStarted}
+        onPlay={() => setHasStarted(true)}
+        playsInline
+        preload="metadata"
+        poster={WALKTHROUGH_FIRST_FRAME}
+        className="block h-full w-full bg-text-bold object-contain"
+      >
+        <source src={videoUrl} type={getVideoType(videoUrl)} />
+        {fallbackVideoUrl ? (
+          <source src={fallbackVideoUrl} type={getVideoType(fallbackVideoUrl)} />
+        ) : null}
+        Your browser does not support embedded video.
+      </video>
+      {!hasStarted ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-text-bold/40">
+          <button
+            type="button"
+            aria-label="Play Presto walkthrough"
+            className="flex size-[calc(var(--pad-5xl)+var(--pad-lg))] cursor-pointer items-center justify-center rounded-full bg-text-bold/60 text-text-inverse transition-colors duration-150 hover:bg-text-bold/80 focus-visible:outline-2 focus-visible:outline-text-inverse [&_svg]:size-pad-2xl"
+            onClick={() => {
+              void videoRef.current?.play().catch(() => {})
+            }}
+          >
+            <Play weight="fill" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -260,7 +209,7 @@ function SeeItInAction({
   videoUrl,
   fallbackVideoUrl,
 }: {
-  videoUrl?: string
+  videoUrl: string
   fallbackVideoUrl?: string
 }) {
   const { ref, style } = useSquircleClipPath<HTMLDivElement>({ cornerRadius: 16 })

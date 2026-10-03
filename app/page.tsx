@@ -4,13 +4,13 @@ import Link from "next/link"
 import { AnimatedHeroCopy } from "@/components/landing/animated-hero-copy"
 import { FaqSection } from "@/components/landing/faq-section"
 import { FeatureSections } from "@/components/landing/feature-sections"
-import { HeroGradient } from "@/components/landing/hero-gradient"
 import { LandingFooter } from "@/components/landing/landing-footer"
 import { LandingScrollArea } from "@/components/landing/landing-scroll-area"
 import { PrestoLogo } from "@/components/landing/presto-logo"
 import { ProblemSequence } from "@/components/landing/problem-sequence"
 import { SeeItInAction } from "@/components/landing/see-it-in-action"
 import { WhoItsFor } from "@/components/landing/who-its-for"
+import { TexturedGradient } from "@/components/shared/textured-gradient"
 import { Button } from "@/components/ui/button"
 import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
 import { createClient } from "@/lib/supabase/server"
@@ -20,7 +20,7 @@ function LandingPage() {
   return (
     <LandingScrollArea>
       <section data-landing-touch-stage="hero" className="relative flex min-h-svh flex-col overflow-clip md:flex-row">
-        <HeroGradient />
+        <TexturedGradient />
 
         <nav
         aria-label="Landing page"
@@ -86,9 +86,10 @@ function LandingPage() {
         className={`relative h-svh overflow-x-clip overflow-y-auto overscroll-y-contain ${HIDE_NATIVE_SCROLLBAR_CLASSNAME}`}
       >
         <FeatureSections />
+        {/* MP4 first: it's the smaller encode, and a browser plays the first source it can. */}
         <SeeItInAction
-          videoUrl="/videos/landing-walkthrough.webm"
-          fallbackVideoUrl="/videos/landing-walkthrough.mp4"
+          videoUrl="/videos/landing-walkthrough.mp4"
+          fallbackVideoUrl="/videos/landing-walkthrough.webm"
         />
         <FaqSection />
         <LandingFooter />
