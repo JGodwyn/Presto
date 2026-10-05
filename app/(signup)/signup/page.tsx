@@ -5,8 +5,10 @@ import { AuthFlow } from "./signup-flow"
 
 export default function SignupPage() {
   return (
-    <Suspense fallback={<AuthShell><div className="w-full max-w-sm" /></AuthShell>}>
-      <AuthFlow />
-    </Suspense>
+    <AuthShell>
+      <Suspense fallback={<div className="w-full max-w-sm" />}>
+        <AuthFlow />
+      </Suspense>
+    </AuthShell>
   )
 }

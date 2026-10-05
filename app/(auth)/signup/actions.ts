@@ -4,6 +4,7 @@ import { redirect } from "next/navigation"
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
+import { resendErrorMessage } from "@/lib/supabase/otp-error"
 import {
   isNetworkError,
   networkActionError,
@@ -45,6 +46,33 @@ export async function signup(
   // new email/password identity.
   if (data.user?.identities?.length === 0) {
     return { error: "This email is already in use" }
+  }
+
+  return { success: true }
+}
+
+const resendSchema = z.object({
+  email: z.string().email(),
+})
+
+export async function resendSignupCode(
+  input: z.infer<typeof resendSchema>
+): Promise<ActionError | { success: true }> {
+  const parsed = resendSchema.safeParse(input)
+
+  if (!parsed.success) {
+    return { error: "Enter a valid email." }
+  }
+
+  const supabase = await createClient()
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email: parsed.data.email,
+  })
+
+  if (error) {
+    if (isNetworkError(error)) return networkActionError()
+    return { error: resendErrorMessage(error) }
   }
 
   return { success: true }

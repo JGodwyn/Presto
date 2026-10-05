@@ -15,3 +15,17 @@ export function otpErrorMessage(sentAt: number): string {
     ? "This OTP has expired"
     : "This code is incorrect"
 }
+
+// Resending hits two different limits, and only one is about waiting a
+// minute: Supabase refuses a second email to the same address inside its
+// minimum interval (60s by default, which is why the resend countdown is
+// 60s), and separately caps how many emails the whole project may send per
+// hour — tiny on the built-in mailer. Its raw messages ("For security
+// purposes, you can only request this after 37 seconds.", "email rate limit
+// exceeded") aren't written for this screen.
+export function resendErrorMessage(error: { code?: string; status?: number; message: string }): string {
+  if (error.code === "over_email_send_rate_limit" || error.status === 429) {
+    return "Too many codes sent. Try again in a little while"
+  }
+  return error.message
+}

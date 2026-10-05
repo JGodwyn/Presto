@@ -5,9 +5,13 @@ import { ArrowLeft, SpinnerGap, Warning } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
-import { verifyRecoveryOtp } from "@/app/(auth)/forgot-password/actions"
+import {
+  requestPasswordReset,
+  verifyRecoveryOtp,
+} from "@/app/(auth)/forgot-password/actions"
 import { otpErrorMessage } from "@/lib/supabase/otp-error"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { ResendCode } from "./resend-code"
 
 const CODE_LENGTH = 6
 
@@ -16,6 +20,7 @@ interface ForgotPasswordVerifyScreenProps {
   sentAt: number
   onBack: () => void
   onContinue: () => void
+  onResent: (sentAt: number) => void
 }
 
 function ForgotPasswordVerifyScreen({
@@ -23,6 +28,7 @@ function ForgotPasswordVerifyScreen({
   sentAt,
   onBack,
   onContinue,
+  onResent,
 }: ForgotPasswordVerifyScreenProps) {
   const [code, setCode] = React.useState("")
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
@@ -31,6 +37,14 @@ function ForgotPasswordVerifyScreen({
   const handleCodeChange = (value: string) => {
     setCode(value)
     if (errorMessage) setErrorMessage(null)
+  }
+
+  const handleResent = (resentAt: number) => {
+    // The old code is dead once a new one is issued, so whatever was typed
+    // (and any error it earned) goes with it.
+    setCode("")
+    setErrorMessage(null)
+    onResent(resentAt)
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -121,6 +135,13 @@ function ForgotPasswordVerifyScreen({
           "Continue"
         )}
       </Button>
+
+      <ResendCode
+        key={sentAt}
+        sentAt={sentAt}
+        resend={() => requestPasswordReset({ email })}
+        onResent={handleResent}
+      />
     </form>
   )
 }

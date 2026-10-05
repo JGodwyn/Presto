@@ -5,9 +5,10 @@ import { ArrowLeft, SpinnerGap, Warning } from "@phosphor-icons/react"
 
 import { Button } from "@/components/ui/button"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
-import { verifySignup } from "@/app/(auth)/signup/actions"
+import { resendSignupCode, verifySignup } from "@/app/(auth)/signup/actions"
 import { otpErrorMessage } from "@/lib/supabase/otp-error"
 import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { ResendCode } from "./resend-code"
 
 const CODE_LENGTH = 6
 
@@ -15,9 +16,15 @@ interface VerifyEmailScreenProps {
   email: string
   sentAt: number
   onBack: () => void
+  onResent: (sentAt: number) => void
 }
 
-function VerifyEmailScreen({ email, sentAt, onBack }: VerifyEmailScreenProps) {
+function VerifyEmailScreen({
+  email,
+  sentAt,
+  onBack,
+  onResent,
+}: VerifyEmailScreenProps) {
   const [code, setCode] = React.useState("")
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
@@ -25,6 +32,14 @@ function VerifyEmailScreen({ email, sentAt, onBack }: VerifyEmailScreenProps) {
   const handleCodeChange = (value: string) => {
     setCode(value)
     if (errorMessage) setErrorMessage(null)
+  }
+
+  const handleResent = (resentAt: number) => {
+    // The old code is dead once a new one is issued, so whatever was typed
+    // (and any error it earned) goes with it.
+    setCode("")
+    setErrorMessage(null)
+    onResent(resentAt)
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -112,6 +127,13 @@ function VerifyEmailScreen({ email, sentAt, onBack }: VerifyEmailScreenProps) {
           "Continue"
         )}
       </Button>
+
+      <ResendCode
+        key={sentAt}
+        sentAt={sentAt}
+        resend={() => resendSignupCode({ email })}
+        onResent={handleResent}
+      />
     </form>
   )
 }

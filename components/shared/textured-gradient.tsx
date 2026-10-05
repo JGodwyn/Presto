@@ -157,9 +157,112 @@ const HERO_TEXTURE_DEFAULTS: HeroTextureSettings = {
   paperOpacity: 0.82,
 }
 
-const HERO_SETTINGS: HeroStudioSettings = {
-  bars: HERO_BAR_DEFAULTS,
-  texture: HERO_TEXTURE_DEFAULTS,
+// The auth screens' palette, sampled from the raster it replaces
+// (public/images/auth/signup-background.png): seven even bars running warm to
+// cool, amber→magenta at the left through pink→blue at the right. Stops are
+// placed for AuthShell's bottom band, not the landing hero's full-bleed frame
+// — the band's aspect crops the viewBox to roughly y 106-918, which these
+// positions land inside. extraColor repeats bottomColor so each bar goes solid
+// from there down, as the raster does.
+const AUTH_BAR_SETTINGS: Record<HeroBarId, HeroBarSettings> = {
+  bar1: {
+    enabled: true,
+    width: 120,
+    surfaceEnd: 0.57,
+    upperPosition: 0.64,
+    upperColor: "#f8dcbb",
+    middlePosition: 0.715,
+    middleColor: "#e18600",
+    extraEnabled: true,
+    extraPosition: 0.81,
+    extraColor: "#ee009b",
+    bottomColor: "#ee009b",
+  },
+  bar2: {
+    enabled: true,
+    width: 120,
+    surfaceEnd: 0.57,
+    upperPosition: 0.64,
+    upperColor: "#fad9bd",
+    middlePosition: 0.715,
+    middleColor: "#eb7600",
+    extraEnabled: true,
+    extraPosition: 0.81,
+    extraColor: "#e000c0",
+    bottomColor: "#e000c0",
+  },
+  bar3: {
+    enabled: true,
+    width: 120,
+    surfaceEnd: 0.57,
+    upperPosition: 0.64,
+    upperColor: "#fdd7c0",
+    middlePosition: 0.715,
+    middleColor: "#f76a04",
+    extraEnabled: true,
+    extraPosition: 0.81,
+    extraColor: "#cd00e2",
+    bottomColor: "#cd00e2",
+  },
+  bar4: {
+    enabled: true,
+    width: 120,
+    surfaceEnd: 0.57,
+    upperPosition: 0.64,
+    upperColor: "#ffd4c3",
+    middlePosition: 0.715,
+    middleColor: "#ff6337",
+    extraEnabled: true,
+    extraPosition: 0.81,
+    extraColor: "#b700ff",
+    bottomColor: "#b700ff",
+  },
+  bar5: {
+    enabled: true,
+    width: 120,
+    surfaceEnd: 0.57,
+    upperPosition: 0.64,
+    upperColor: "#ffd0c7",
+    middlePosition: 0.715,
+    middleColor: "#ff5f5e",
+    extraEnabled: true,
+    extraPosition: 0.81,
+    extraColor: "#9d28ff",
+    bottomColor: "#9d28ff",
+  },
+  bar6: {
+    enabled: true,
+    width: 120,
+    surfaceEnd: 0.57,
+    upperPosition: 0.64,
+    upperColor: "#ffcbd1",
+    middlePosition: 0.715,
+    middleColor: "#ff5d7d",
+    extraEnabled: true,
+    extraPosition: 0.81,
+    extraColor: "#7e3eff",
+    bottomColor: "#7e3eff",
+  },
+  bar7: {
+    enabled: true,
+    width: 120,
+    surfaceEnd: 0.57,
+    upperPosition: 0.64,
+    upperColor: "#fdcbd9",
+    middlePosition: 0.715,
+    middleColor: "#f75e9d",
+    extraEnabled: true,
+    extraPosition: 0.81,
+    extraColor: "#5352ff",
+    bottomColor: "#5352ff",
+  },
+}
+
+type TexturedGradientVariant = "landing" | "auth"
+
+const VARIANT_SETTINGS: Record<TexturedGradientVariant, HeroStudioSettings> = {
+  landing: { bars: HERO_BAR_DEFAULTS, texture: HERO_TEXTURE_DEFAULTS },
+  auth: { bars: AUTH_BAR_SETTINGS, texture: HERO_TEXTURE_DEFAULTS },
 }
 
 const HERO_ANIMATION: HeroGradientMotionSettings = {
@@ -436,10 +539,16 @@ function HeroGradientArtwork({
   )
 }
 
-function TexturedGradient({ className }: { className?: string }) {
+function TexturedGradient({
+  variant = "landing",
+  className,
+}: {
+  variant?: TexturedGradientVariant
+  className?: string
+}) {
   return (
     <HeroGradientArtwork
-      settings={HERO_SETTINGS}
+      settings={VARIANT_SETTINGS[variant]}
       animation={HERO_ANIMATION}
       className={className}
     />

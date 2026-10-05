@@ -1720,3 +1720,7 @@ modal pattern: the corner X dismisses and the named action navigates.
 
 - The landing hero's bar gradient is now `components/shared/textured-gradient.tsx` (`TexturedGradient`, optional `className`), so the auth pages and in-app chrome can adopt the same artwork. No visual change on `/`. Every SVG id is prefixed with a per-instance `useId`, because ids are document-global and two instances on one page (sidebar + glow panel) would otherwise resolve each other's masks and gradients.
 - The landing walkthrough always plays the self-hosted MP4 first (smaller encode), WebM second; the YouTube and still-image fallbacks were removed as unused.
+
+## Resend code (auth)
+
+`app/(signup)/signup/resend-code.tsx`, placed under the Continue button on every code-entry screen: a body-lg line "Didn't get a code?" followed by a muted bold "Resend in m:ss" during the 60s cooldown, then a flame-500 bold link "Resend code" (the same style as login's "Reset it here"). While sending, the link shows a spinner and "Sending..." and is disabled. A failed resend shows a body-md danger line under it and never marks the OTP slots red, since it isn't the code's fault. Key it on `sentAt`.
