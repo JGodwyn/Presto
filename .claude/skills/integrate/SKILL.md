@@ -1,72 +1,112 @@
 ---
 name: integrate
-description: Review every branch marked ready, merge the ones that pass, delete what is spent, and flag conflicts and failures for the user to resolve. Runs the senior-engineer agent. Use when the user says /integrate, "merge the branches", "integrate what's ready", or is about to start a branch that overlaps something in flight.
+description: Merge every branch marked ready into main — conflict probe and hard-rule checks per branch, merge, then one set of gates on the merged result. Runs inline, no subagent. Use when the user says /integrate, "merge the branches", "integrate what's ready", or is about to start a branch that overlaps something in flight. `/integrate review` adds a /code-review pass per branch.
 ---
 
 # /integrate — land what's ready
 
-Hands every `ready` branch to the **senior-engineer** agent, which reviews,
-merges the clean ones, deletes what is spent, and escalates the rest.
+Runs in the **main checkout**, in this session. No subagent: the expensive part
+of integration is a build, and the only build that can catch an integration bug
+is one run on the *merged* `main` — so that is the one build this does.
 
-## When to run this
+Each branch's own session already ran tsc/lint/test/build under `/handoff`.
+Re-running them in the branch's worktree tests the branch against an old
+`main`, which can't find anything integration exists to find.
 
-- **A branch just finished** and you want it in `main`.
-- **Before opening a branch that overlaps something in flight**, so the new one
-  starts from a `main` that already contains the other work instead of racing it.
-- **End of a work session**, to leave `main` whole.
-
-Not on a timer, and not while a branch is still moving — reviewing work in
-progress wastes everyone's time.
-
-## Preflight — do this yourself, before spawning anything
+## 1. Preflight
 
 ```bash
 git branch --show-current    # must be main
 git status --porcelain       # must be empty
+git rev-parse --short HEAD   # remember this: it is the undo point
 ./scripts/worktree.sh list
 for b in $(git for-each-ref --format='%(refname:short)' refs/heads/ | grep -v '^main$'); do
   printf '%s\t%s\n' "$b" "$(git config --get "branch.$b.prestoStatus" || echo wip)"
 done
 ```
 
-- Not on `main`, or `main` is dirty → **stop and say so.** Do not merge into a
-  dirty tree.
-- No `ready` branches → say which branches are still `wip` and stop. There is
-  nothing to integrate; spawning the agent to discover that wastes a cold start.
+- Not on `main`, or dirty → stop and say so.
+- No `ready` branches → say which are `wip` and stop.
+- `wip` branches are left alone entirely.
 
-## Run it
+## 2. Order
 
-Spawn the **senior-engineer** agent (`subagent_type: "senior-engineer"`) with:
+Shared-file branches first (`components/ui/*`, `components/shared/*`, `lib/*`,
+`types/*`, `hooks/*`, `app/globals.css`), then the schema-owning branch, then
+the rest smallest-diff first. `git diff --stat main...<branch>` is enough to
+decide; don't read whole diffs for this.
 
-- the list of `ready` branches and their slugs
-- each one's `.worktree` manifest (`PURPOSE`, `HOT_FILES`, `SCHEMA`)
-- the current `main` HEAD
-- which branches are still `wip`, so it leaves them alone
-
-One agent for the whole sweep, not one per branch: merge order is a judgment
-call that needs to see all the candidates at once, and each merge moves `main`
-under the others.
-
-Running it as a subagent also keeps the task-log `Stop` hook out of the way — a
-conflicted merge leaves enough dirty files to trip it, and `Stop` does not fire
-for subagents.
-
-## Afterwards
-
-Relay the agent's report — it is not shown to the user. Keep the table, keep the
-detail for anything that did not merge, and keep the closing two lines (which
-worktrees are behind `main`, whether the schema slot is free).
-
-If a branch was flagged for a **conflict**, that is now the user's to resolve:
+## 3. Per branch, in that order
 
 ```bash
-git merge --no-ff <branch>      # in the main checkout, when they're ready
-# resolve, then:
-git add <files> && git commit
+./scripts/integrate-check.sh <branch>
 ```
 
-Offer to help with the resolution if they want it — but only after they have
-seen what disagrees, and only when they ask. Do not resolve it pre-emptively.
+It probes conflicts with `git merge-tree` (touches nothing) and checks the hard
+rules a script judges better than a read-through: new npm packages, migrations
+from a branch without the schema slot, anything touching publishing, a missing
+EXECUTIONS.md entry.
 
-Pushing to origin stays the user's call. Mention that `main` has moved and leave
-it there.
+- **STOP** → skip this branch, change nothing, report the output. A conflict is
+  the user's to resolve; never resolve one yourself.
+- **LOOK** → read just the lines it printed (and the hunk around them). Publishing
+  changes that widen what sends are the owner's call — skip and ask.
+- **All OK** → merge:
+
+```bash
+git merge --no-ff <branch> -m "Merge <branch>: <one line on what it delivered>"
+```
+
+Re-run the check for each later branch *after* the previous merge — `main` has
+moved, and a branch that merged cleanly against the old tip can conflict with
+the new one.
+
+**`/integrate review`** only: before merging, run `/code-review` on
+`main...<branch>` and fold real findings into the report. Off by default — the
+branch's own session built and verified it, and a per-branch review pass is the
+single most expensive thing this skill could do.
+
+## 4. Gates, once, on the merged main
+
+```bash
+npx tsc --noEmit && npm run lint && npm run test && npm run build
+```
+
+Stop at the first failure. Report the output and the undo point from step 1
+(`git reset --hard <sha>` drops every merge from this run — nothing has been
+pushed). Say which merged branch the failure most likely belongs to; don't fix
+it on `main` unless asked.
+
+## 5. Tidy and clean up
+
+The four log files merge with `union`, which never conflicts and so never warns
+about an exact duplicated line. One cheap check:
+
+```bash
+for f in EXECUTIONS.md LEARNINGS.md INTERFACE.md AGENTS.md; do
+  git diff <undo-sha>..HEAD -- "$f" | grep '^+[^+]' | grep -v '^+\s*$' | sort | uniq -d
+done
+```
+
+Only if that prints something: remove the duplicate and commit it as a separate
+`chore: tidy union-merged logs`.
+
+Then, per merged branch: `./scripts/worktree.sh remove <slug>`. It refuses a
+dirty tree and uses `git branch -d`, which refuses unmerged work — both
+refusals are correct; never work around them.
+
+## Report
+
+| Branch | Checks | Merged |
+|---|---|---|
+
+Then: gate result on merged `main`, anything skipped and why, live worktrees now
+behind `main`, and whether the schema slot is free
+(`./scripts/worktree.sh schema-owner`). Short.
+
+## Hard limits
+
+- Never `git branch -D`, never force anything, never resolve a conflict.
+- Never push. `main` deploys to production on push — that is the user's call.
+- Never apply a migration or touch the database.
+- Never edit a branch's code to make a check or gate pass.

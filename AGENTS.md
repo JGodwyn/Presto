@@ -106,19 +106,21 @@ worktree. Sometimes there are three; often none. The rules:
   FOLLOWUPS entry — when **nothing is in flight** (`./scripts/worktree.sh list`
   reports no worktrees). Edit `main`, run the gates yourself (tsc, eslint
   against `main`'s own baseline rather than zero, vitest, build), commit, push.
-  No `/branch`, and **no `/integrate`** — spawning the senior-engineer agent to
-  review a two-line fix costs a worktree, an agent cold start and a full review
-  pass, and buys nothing when there is no parallel work to collide with.
+  No `/branch`, and **no `/integrate`** — a branch for a two-line fix costs a
+  worktree and a merge, and buys nothing when there is no parallel work to
+  collide with.
   The moment anything else *is* in flight, or the change is more than
   housekeeping, it is a branch again — that is what the rule above protects.
 - **One branch per task you could describe in one sentence.** If the brief needs
   an "and", it is two branches.
 - **`/handoff`** in the worktree when the work is done: gates, logs, commit,
   mark ready. It does not merge.
-- **`/integrate`** in the main checkout to land what's ready — runs the
-  senior-engineer agent, which reviews, merges the clean branches, deletes what
-  is spent, and flags conflicts for you. It never resolves a conflict and never
-  pushes.
+- **`/integrate`** in the main checkout to land what's ready — runs inline (no
+  subagent): `scripts/integrate-check.sh` per branch (conflict probe + hard
+  rules), merges the clean ones, then runs the gates **once on the merged
+  `main`** and removes spent worktrees. Flags conflicts for you; never resolves
+  one and never pushes. `/integrate review` adds a `/code-review` pass per
+  branch.
 - **Schema changes are serialized.** Migrations apply straight to the live remote
   Supabase project and *cannot be unmerged*, so only one in-flight branch may own
   the DB at a time (`/branch <slug> feat --schema`; `./scripts/worktree.sh

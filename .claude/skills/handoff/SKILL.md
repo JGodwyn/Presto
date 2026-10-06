@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Finish a branch — run the quality gates, write the project logs, commit, and mark the branch ready for the senior engineer to review and merge. Use when work on a worktree branch is done, or when the user says /handoff, "wrap this up", "this branch is done", or "hand this off".
+description: Finish a branch — run the quality gates, write the project logs, commit, and mark the branch ready for /integrate to merge. Use when work on a worktree branch is done, or when the user says /handoff, "wrap this up", "this branch is done", or "hand this off".
 ---
 
 # /handoff — a branch is done
@@ -90,7 +90,7 @@ Remind them the merge happens when they run `/integrate` from the main checkout 
 
 ## Do not
 
-- Do not merge into `main`. That is the senior engineer's job.
+- Do not merge into `main`. That is `/integrate`'s job.
 - Do not push to origin. Pushing is the user's call.
 - Do not mark a branch ready with a failing gate. A red branch marked ready just
   moves the failure to a slower part of the loop.

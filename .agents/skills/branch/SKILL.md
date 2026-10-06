@@ -11,8 +11,8 @@ an "and", it is two branches.
 ## Steps
 
 1. **Get the brief.** Ask the user for the one-sentence purpose if they did not
-   already give it with the command. Do not invent one — it is what the senior
-   engineer reviews the branch against later.
+   already give it with the command. Do not invent one — it is what `/integrate`
+   checks the branch's scope against later.
 
 2. **Work out the slug and type.** Kebab-case, short, names the *area* not the
    change: `connections-oauth`, `content-filters`, `nav-interactions`. Type is
@@ -58,8 +58,8 @@ an "and", it is two branches.
    `.Codex/settings.local.json`, clones `node_modules` copy-on-write, and
    assigns a free port from 3001 up.
 
-6. **Record the brief** in the worktree's `.worktree` manifest — the senior
-   engineer reads it:
+6. **Record the brief** in the worktree's `.worktree` manifest — `/integrate`
+   reads it:
 
    ```bash
    WT=../presto-worktrees/<slug>

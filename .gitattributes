@@ -6,9 +6,8 @@
 # order, with no conflict marker.
 #
 # The trade-off is that union NEVER conflicts, so it never asks — two branches
-# editing the same region can leave a duplicated or oddly ordered entry. The
-# senior-engineer agent tidies the merged tail as part of the merge commit,
-# since it is the only actor that sees both sides.
+# editing the same region can leave a duplicated or oddly ordered entry.
+# /integrate checks the merged tails for exact duplicate lines after merging.
 EXECUTIONS.md  merge=union
 LEARNINGS.md   merge=union
 INTERFACE.md   merge=union

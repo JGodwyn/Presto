@@ -8570,3 +8570,10 @@ to main, then remove the branch.
 - Walkthrough sources swapped to MP4 first (6.3 MB vs WebM 6.7 MB).
 - Moved `components/landing/hero-gradient.tsx` → `components/shared/textured-gradient.tsx` so both upcoming gradient branches start from one component instead of each extracting it; scoped every SVG id per instance.
 - Verified on :3001 (port 3000 was a different project): gradient renders, zero unresolved `url(#…)` references, new copy and source order present. tsc, eslint (changed files, clean vs baseline), vitest 443/1 skipped, build all pass.
+
+## 2026-10-06 — /integrate rebuilt inline; senior-engineer agent removed
+
+- Owner reported /integrate cost far more tokens than a plain merge (Codex merged the same kind of branch at a fraction of the cost). Cost drivers in the old design: an Opus subagent cold-starting on AGENTS.md + every diff; a full `/code-review` per branch; tsc/lint/test/build re-run in **each branch's own worktree**, and re-run again for every remaining branch after each merge. That last one also tested the wrong thing — a branch's worktree never contains the new `main`, so those builds could not catch an integration break.
+- New design: `scripts/integrate-check.sh <branch>` does the mechanical part (merge-tree conflict probe, new npm packages, migration mentioned without the schema slot, publishing-related lines, EXECUTIONS.md entry) and prints OK/LOOK/STOP. The skill runs it per branch, merges, then runs the gates **once on the merged main**, checks union-merged logs for exact duplicate lines, and removes spent worktrees. `/integrate review` opts into a per-branch `/code-review`.
+- Exercised the script against a throwaway branch: conflict + new package → STOP/exit 1; publish env var, migration mention, no EXECUTIONS entry → three LOOKs. Found and fixed an early exit when a branch has no worktree manifest (`sed` on a missing file under `pipefail`).
+- Deleted `.claude/agents/senior-engineer.md` and the Codex twin `.codex/agents/senior-engineer.toml`; synced `.agents/skills/integrate`; updated AGENTS.md, .gitattributes, and both copies of the branch/handoff skills to stop referring to the agent.
