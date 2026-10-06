@@ -1,6 +1,10 @@
 import { logoutForClient } from "@/app/(auth)/logout/actions"
 import { ProfileScreen } from "@/components/profile/profile-screen"
-import { fetchUserAiModels, fetchUserHasPassword } from "@/lib/supabase/queries"
+import {
+  fetchProject,
+  fetchUserAiModels,
+  fetchUserHasPassword,
+} from "@/lib/supabase/queries"
 import { createClient } from "@/lib/supabase/server"
 import {
   getAvatarGradientId,
@@ -20,11 +24,14 @@ import {
 // ProfileScreen).
 export async function ProfileContent({ projectId }: { projectId?: string }) {
   const supabase = await createClient()
-  const [{ data: userData }, aiModels, hasPassword] = await Promise.all([
-    supabase.auth.getUser(),
-    fetchUserAiModels(supabase),
-    fetchUserHasPassword(supabase),
-  ])
+  const [{ data: userData }, aiModels, hasPassword, project, queuedCount] =
+    await Promise.all([
+      supabase.auth.getUser(),
+      fetchUserAiModels(supabase),
+      fetchUserHasPassword(supabase),
+      projectId ? fetchProject(supabase, projectId) : null,
+      projectId ? fetchQueuedPostCount(supabase, projectId) : 0,
+    ])
   const user = userData.user
 
   const name = getDisplayName(user?.user_metadata)?.trim() || "—"
@@ -47,6 +54,8 @@ export async function ProfileContent({ projectId }: { projectId?: string }) {
       email={email}
       memberSince={memberSince}
       projectId={projectId}
+      projectName={project?.name}
+      queuedCount={queuedCount}
       userId={user?.id ?? ""}
       avatarUrl={avatarUrl}
       avatarGradientId={avatarGradientId}
@@ -55,4 +64,21 @@ export async function ProfileContent({ projectId }: { projectId?: string }) {
       logout={logoutForClient}
     />
   )
+}
+
+// What Delete project's confirmation warns about: posts that would otherwise
+// still go out. Same rule as the Content page's Queued tab
+// (lib/content-grouping.ts) — dated and never published, overdue included.
+async function fetchQueuedPostCount(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("posts")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", projectId)
+    .not("scheduled_for", "is", null)
+    .is("published_at", null)
+  if (error) throw error
+  return count ?? 0
 }

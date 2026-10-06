@@ -1,8 +1,7 @@
-import Image from "next/image"
-
 import { UserAvatar } from "@/components/shared/user-avatar"
 import { redirect } from "next/navigation"
 
+import { CreateProjectScene } from "@/components/create-project/create-project-backdrop"
 import { CreateProjectModal } from "@/components/create-project/create-project-modal"
 import { createClient } from "@/lib/supabase/server"
 import { hasProjects } from "@/lib/supabase/queries"
@@ -41,58 +40,53 @@ export default async function CreateProjectPage() {
     "there"
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-surface-3">
-      <Image
-        src="/images/create-project/background.webp"
-        alt=""
-        fill
-        priority
-        sizes="100vw"
-        className="object-cover"
-      />
+    // surface-4: the old background image was white edge to edge, and the
+    // art is drawn to sit on white.
+    <div className="relative min-h-screen w-full overflow-hidden bg-surface-4">
+      <CreateProjectScene>
+        <p className="absolute top-[7vh] left-1/2 -translate-x-1/2 text-heading-lg font-display text-purple-100">
+          Presto
+        </p>
 
-      <p className="absolute top-[7vh] left-1/2 -translate-x-1/2 text-heading-lg font-display text-purple-100">
-        Presto
-      </p>
+        <div
+          className={cn(
+            "relative flex min-h-screen flex-col items-center justify-center gap-dist-3xl p-pad-sm",
+            ENTRANCE_TRANSITION
+          )}
+        >
+          <div className="flex w-68 flex-col items-center gap-dist-xl">
+            <div className="flex flex-col items-center gap-dist-md">
+              <UserAvatar
+                userId={user.id}
+                avatarUrl={getAvatarUrl(user.user_metadata)}
+                gradientId={getAvatarGradientId(user.user_metadata)}
+                size={32}
+              />
+              <p className="text-title-lg font-display text-text-bold">
+                Hi, {firstName}
+              </p>
+            </div>
 
-      <div
-        className={cn(
-          "relative flex min-h-screen flex-col items-center justify-center gap-dist-3xl p-pad-sm",
-          ENTRANCE_TRANSITION
-        )}
-      >
-        <div className="flex w-68 flex-col items-center gap-dist-xl">
-          <div className="flex flex-col items-center gap-dist-md">
-            <UserAvatar
-              userId={user.id}
-              avatarUrl={getAvatarUrl(user.user_metadata)}
-              gradientId={getAvatarGradientId(user.user_metadata)}
-              size={32}
-            />
-            <p className="text-title-lg font-display text-text-bold">
-              Hi, {firstName}
-            </p>
+            <h1 className="text-center text-heading-sm font-display text-text-bold">
+              You don&rsquo;t have any projects here. Let&rsquo;s create one.
+            </h1>
+
+            <CreateProjectModal />
           </div>
 
-          <h1 className="text-center text-heading-sm font-display text-text-bold">
-            You don&rsquo;t have any projects here. Let&rsquo;s create one.
-          </h1>
-
-          <CreateProjectModal />
+          <p className="w-68 text-center text-body-md text-text-subtle">
+            Each project can be customized with specific settings, making it
+            perfect for distinct content types.
+          </p>
         </div>
 
-        <p className="w-68 text-center text-body-md text-text-subtle">
-          Each project can be customized with specific settings, making it
-          perfect for distinct content types.
-        </p>
-      </div>
-
-      <form
-        action={logout}
-        className="absolute bottom-dist-xl left-1/2 -translate-x-1/2"
-      >
-        <LogoutButton />
-      </form>
+        <form
+          action={logout}
+          className="absolute bottom-dist-xl left-1/2 -translate-x-1/2"
+        >
+          <LogoutButton />
+        </form>
+      </CreateProjectScene>
     </div>
   )
 }

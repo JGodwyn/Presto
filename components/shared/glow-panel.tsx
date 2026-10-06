@@ -1,9 +1,12 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import { Info } from "@phosphor-icons/react"
 
+import {
+  GLOW_GRADIENT_ASPECT,
+  GlowGradient,
+} from "@/components/shared/glow-gradient"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { cn } from "@/lib/utils"
 
@@ -13,16 +16,14 @@ const PANEL_CORNER_RADIUS = 16
 const INFO_CORNER_RADIUS = 8
 
 // The white page-level panel shared by Generate and Content: green pixel-
-// gradient glows bleeding in from the top and bottom edges (one image,
+// gradient glows bleeding in from the top and bottom edges (one artwork,
 // mirrored — the export ships two near-identical copies), an info marker in
-// the top-right corner, and the page's own content floating over it. The glow
-// art has a baked-in white background, matching the panel's own surface-4.
+// the top-right corner, and the page's own content floating over it.
 //
 // Both exports (design-sync/generate-number-based, design-sync/
 // content-base-calendar-view) draw this identically down to the corner
 // marker's 32px/rad-md/surface-3, which is why it lives here rather than in
-// either feature folder. The artwork keeps its original /images/generate/
-// path — it's the same file, and moving it would only churn the asset.
+// either feature folder.
 export function GlowPanel({
   children,
   cornerAction,
@@ -88,24 +89,27 @@ export function GlowPanel({
         className
       )}
     >
-      {/* The export places the art at 1157px on a 920px panel — wider than
-          its container, cropped at the sides. The calc keeps that ratio at
-          any panel width; overflow-hidden above does the cropping. */}
-      <Image
-        src="/images/generate/pixel-glow.webp"
-        alt=""
-        width={1157}
-        height={868}
-        priority
-        className="pointer-events-none absolute top-0 left-1/2 w-[calc(100%*1157/920)] max-w-none -translate-x-1/2 -translate-y-[8%] -scale-y-100"
+      {/* The glow (components/shared/glow-gradient.tsx), once rising from
+          the bottom edge and once mirrored down from the top. The export
+          places the art 1157px wide on a 920px panel — wider than the panel,
+          cropped at the sides — and the calc keeps that ratio at any panel
+          width; overflow-clip above does the cropping. Height follows from
+          that width at the art's natural aspect — but never less than 45% of
+          the panel's height, the share it takes on desktop (436 of 962px).
+          Scaling by width alone shrank it to a ~115px sliver on a phone;
+          this keeps the same proportion there, the columns simply running
+          taller (the dots stay crisp — see pixel-gradient.tsx). The
+          translates are a share of the art's own height, so they hold either
+          way. They started out reproducing where the old image sat (−16% /
+          +25%) and were then pushed out by another 10% each, by request, so
+          the glow reaches less far into the page. */}
+      <GlowGradient
+        className="absolute top-0 left-1/2 h-auto min-h-[45%] w-[calc(100%*1157/920)] max-w-none -translate-x-1/2 -translate-y-[26%] -scale-y-100"
+        style={{ aspectRatio: GLOW_GRADIENT_ASPECT }}
       />
-      <Image
-        src="/images/generate/pixel-glow.webp"
-        alt=""
-        width={1157}
-        height={868}
-        priority
-        className="pointer-events-none absolute bottom-0 left-1/2 w-[calc(100%*1157/920)] max-w-none -translate-x-1/2 translate-y-1/8"
+      <GlowGradient
+        className="absolute bottom-0 left-1/2 h-auto min-h-[45%] w-[calc(100%*1157/920)] max-w-none -translate-x-1/2 translate-y-[35%]"
+        style={{ aspectRatio: GLOW_GRADIENT_ASPECT }}
       />
 
       {/* z-10: without an explicit stack order this sits behind the content

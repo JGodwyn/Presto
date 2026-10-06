@@ -18,11 +18,15 @@ export function ProfileRow({
   icon: Icon,
   label,
   onClick,
+  tone = "default",
   className,
 }: {
   icon: React.ElementType
   label: string
   onClick?: () => void
+  // "danger" is for the one destructive row (Delete project): red icon and
+  // label, same treatment Menu gives its danger items.
+  tone?: "default" | "danger"
   className?: string
 }) {
   const { ref, style } = useSquircleClipPath<HTMLButtonElement>({
@@ -41,8 +45,21 @@ export function ProfileRow({
       )}
     >
       <span className="flex shrink-0 items-center gap-dist-md">
-        <Icon weight="bold" className="size-5 text-icon-subtle" />
-        <span className="text-body-lg-bold text-text-bold">{label}</span>
+        <Icon
+          weight="bold"
+          className={cn(
+            "size-5",
+            tone === "danger" ? "text-icon-danger" : "text-icon-subtle"
+          )}
+        />
+        <span
+          className={cn(
+            "text-body-lg-bold",
+            tone === "danger" ? "text-text-danger" : "text-text-bold"
+          )}
+        >
+          {label}
+        </span>
       </span>
     </button>
   )

@@ -1,7 +1,8 @@
 "use client"
 
-import Image from "next/image"
+import { motion, useReducedMotion } from "motion/react"
 
+import { OnboardingCoverGradient } from "@/components/onboarding/onboarding-cover-gradient"
 import { Button } from "@/components/ui/button"
 import { useOnboarding } from "./onboarding-context"
 
@@ -9,32 +10,55 @@ import { useOnboarding } from "./onboarding-context"
 // everything, including the navbar and sidebar, with the dashboard behind
 // it dimmed and blurred out. "Show me around" begins the 5-step tour;
 // "Skip" dismisses it entirely (same persistence as ending the tour early).
+
+// The artwork rises from the bottom edge the way the landing hero's bars do
+// (components/shared/textured-gradient.tsx, HERO_ANIMATION): a slow, heavy
+// spring on scaleY from 0, anchored at the bottom, after a 0.1s beat.
+// Copied rather than imported so the two can be tuned apart — and because
+// that file belongs to the landing work.
+const RISE = {
+  type: "spring",
+  stiffness: 200,
+  damping: 32,
+  mass: 9,
+  delay: 0.1,
+} as const
+
 export function OnboardingCover() {
   const { step, start, end } = useOnboarding()
+  const prefersReducedMotion = useReducedMotion()
 
   if (step !== "cover") return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-hidden">
-      {/* Figma's frame puts a 60%-white/8px-blur fill *behind* this image and
-          the copy — but the image is fully opaque and edge-to-edge, so that
+      {/* The artwork is drawn in code (onboarding-cover-gradient.tsx); it's
+          transparent where it's white, so it carries bg-surface-4 to stay as
+          opaque as the image it replaced.
+          Figma's frame puts a 60%-white/8px-blur fill *behind* this artwork
+          and the copy — but the artwork is opaque and edge-to-edge, so that
           fill/blur never actually shows through either way. Rendering it as
           a literal backdrop-blur layer here (stacked after the image) blurred
           the image itself instead, which is the bug: the reference screenshot
           shows the gradient crisp, not hazy. Dropping the redundant layer
           fixes it and matches the screenshot exactly. */}
-      {/* Same mount-in as the content block below — the image previously had
+      {/* Same mount-in as the content block below — the artwork previously had
           no transition at all, so it popped in solid a beat before the text
           faded in, making the whole cover read as "snapping into view"
           overall (annotation feedback). Same duration/easing so both surfaces
           materialize together as one moment rather than a staggered reveal. */}
-      <Image
-        src="/images/onboarding/cover-gradient.webp"
-        alt=""
-        fill
-        priority
-        className="object-cover transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px]"
-      />
+      {/* The white backdrop fades in as one piece; only the art rises, so the
+          page never shows through underneath it while it grows. */}
+      <div className="absolute inset-0 bg-surface-4 transition-opacity duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0" />
+      <motion.div
+        aria-hidden
+        className="absolute inset-0 origin-bottom"
+        initial={prefersReducedMotion ? false : { scaleY: 0 }}
+        animate={{ scaleY: 1 }}
+        transition={RISE}
+      >
+        <OnboardingCoverGradient className="size-full" />
+      </motion.div>
 
       {/* Same unified blur+opacity mount-in as /projects and /create-project
           (see those for the @starting-style rationale) — a rare, first-time

@@ -1740,3 +1740,26 @@ modal pattern: the corner X dismisses and the named action navigates.
 - Landing snapping covers only the narrative (hero, problems, Who's-it-for). From the features section down, the page scrolls freely: `LandingScrollArea` switches snap off from the first `[data-landing-free-scroll]` section, and the feature shots don't snap. The pinned feature copy follows the shot nearest the middle. FAQ heading on mobile: "You might want / to know . . .".
 - The landing scroll area is 1px shorter than the screen (`--landing-screen`, inside a full-height wrapper) so Chrome on Android can't promote it to the root scroller and collapse its toolbar; every full-screen landing section sizes to `--landing-screen`, not svh. Who's-it-for's card and explanation cap at 848px from lg.
 - `/` has no server-side auth of its own: proxy.ts redirects a signed-in GET of `/` to `/projects`, and the landing page renders without touching Supabase. Problem copy animates only its visible (mobile or desktop) line groups.
+## Delete project (2026-10-05)
+
+- Lives on the **in-project Profile** as the last menu row, `ProfileRow tone="danger"` (Trash, `icon-danger`/`text-danger`). Not on the /profile route (no project in scope), not on the folder cards.
+- Confirms with the standard `ConfirmationModal` (Trash `size-12 text-icon-minimal`, danger action "Delete project", corner X is cancel). Copy names the project and states it can't be undone; when the project has queued posts it adds "N queued posts will not go out" — that's the consequence worth stopping for. Not dismissable while pending; success redirects to /projects.
+- **Type-to-confirm**: the dialog's description bolds the project name (no quotes), and a PillInput below it ("Type the project name to confirm", placeholder = the name) must match exactly, case included, before the action enables. Enter confirms. Built on `ConfirmationModal`'s `children` + `actionDisabled` — reach for those for any future high-stakes confirmation rather than a new dialog.
+- **Rename project** sits directly above it (PencilSimple, default tone) and opens `RenameProjectModal` — Create project's dialog shape with the current name prefilled and selected, "Save" with an in-button spinner, stays open while saving.
+- Not optimistic, unlike other deletes: the screen you're on *is* the thing being deleted, so there's nothing to remove from the UI ahead of the server.
+
+## Sidebar gradient — drawn in code (2026-10-06)
+
+- `SidebarGradient` (components/shared/sidebar-gradient.tsx) replaces the 384×930 webp: the same pink→violet→blue staircase, colours sampled from the original. Measured-gradient stripes + ordered-dither dot fringe + faint 2px light grid.
+- Sizing rule: holds its natural aspect from the card's width (192px tablet → 390px tall, 224px desktop → 455px), anchored to the card's bottom, and never taller than the space below the tabs — on a short sidebar the stripes compress rather than run behind the nav. Texture is in CSS px, so it never stretches. No sidebar below `md` (mobile nav), so nothing to do there.
+- Static — no entrance animation; it's persistent chrome.
+- The Generate/Content glow (`GlowGradient`, in `GlowPanel`) is the same renderer (`components/shared/pixel-gradient.tsx`) in column orientation. Width stays the export's 1157/920 of the panel, height its natural aspect but **at least 45% of the panel's height** (desktop's own share), so phones keep a proportional glow. Placement: top copy flipped at −26% of its height, bottom at +35% — 10% further out than the original image sat, by request, so it doesn't reach as far into the content. Colour: `ink` mode — one token ink (`--lime-200`, grain `--lime-400`, depth 1.15) laid at each sample's measured ink share, bolder and more saturated than the original image by request. Any future pixel-gradient art should be a `definePixelGradient` spec, not a new raster.
+
+## /create-project side art (2026-10-06)
+
+- `components/create-project/side-art.tsx` + `create-project-backdrop.tsx` replace the background image: stepped bar "diamonds" on both edges (light shell, dashed band, ridge, solid core), 8px bar grid, each side `min(28.3vw, room beside the w-68 column)`.
+- Motion: layers wipe out from the screen edge, fading in, on load (core first, 700ms, 70ms stagger) and retreat into it when a project is created (outermost first, 420ms, 50ms stagger) — the retreat starts only after the "Creating project" toast has closed, and /projects is requested as the retreat starts (so it loads meanwhile) but held back by `CreateProjectExitGate` until the retreat has ended; the page copy fades out over the retreat's last stretch. Strong ease-out both ways; none under reduced motion.
+
+## Onboarding cover gradient (2026-10-06)
+
+- `OnboardingCoverGradient` (components/onboarding/onboarding-cover-gradient.tsx) replaces the cover image: the glow's column design in violet, full-screen, sampled colours (violet → pink → white), bold ~4px halftone with bluish grain dots and a periwinkle halo. Rises from the bottom on open with the landing hero's spring (scaleY, stiffness 200 / damping 32 / mass 9, 0.1s delay). Built on `pixel-gradient.tsx` — all four pixel artworks (sidebar, glow, cover, plus the create-project side art's own renderer) are code now; no gradient rasters remain outside landing/auth.

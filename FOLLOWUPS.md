@@ -802,3 +802,11 @@ soundly.
 **Why it waited:** the current four call sites are all plain fluent chains, so
 the test is sound today, and inventing the indirection before it is needed would
 be speculative.
+
+---
+
+## Base UI "openProp" controlled → uncontrolled warning across the mobile breakpoint
+
+**From:** `feat/delete-project`, 2026-10-06. **Fix on `main` after this lands** (owner's call — housekeeping, not this branch's job).
+
+Resizing any in-project page (e.g. `/projects/<id>/generate`) across `md` (768px), where `app/projects/[projectId]/layout.tsx` swaps `ProjectSidebar` for `components/shared/mobile-project-navigation.tsx`, logs ~12× from Base UI: *"A component is changing the controlled state of openProp to be uncontrolled."* (Next dev overlay: "4 issues"). Something passes `open={…}` that can become `undefined` — likely a Tooltip/Popover/Menu in the sidebar, mobile nav or navbar whose open state depends on viewport or onboarding. Find it and keep it always controlled (`open={x ?? false}`) or always uncontrolled; verify by crossing the breakpoint with the console open. Not caused by this branch (seen while checking the gradients).
