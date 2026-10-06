@@ -2105,3 +2105,7 @@ only when that destination arrives or navigation leaves the tab system.
 - **Symptom:** The walkthrough could crop vertically on Android fullscreen again after inline video changed back to `object-cover`.
 - **Cause:** The fix depended on `:fullscreen`/`:-webkit-full-screen` overriding the base fit. Android's native video fullscreen does not reliably use that element styling path.
 - **Rule:** Make `object-fit: contain` the video's base style. Match the inline frame to the encoded aspect ratio to avoid letterboxing there, and use a dark media background when fullscreen has spare space.
+
+## A worktree's assigned port isn't proof of which worktree is serving it
+
+**Symptom:** verifying on the port `.worktree` lists showed none of the branch's changes. **Cause:** two worktrees' dev servers had been started on each other's ports (auth-polish on :3002, landing-fixes on :3003). **Rule:** before trusting a screenshot, check `lsof -p $(lsof -tiTCP:<port> -sTCP:LISTEN) | grep cwd` to confirm the port is serving this checkout.

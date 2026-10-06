@@ -3,7 +3,6 @@
 import * as React from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
-import { AuthShell } from "@/components/shared/auth-shell"
 import { SegmentedControl } from "@/components/ui/segmented-control"
 import { Toast } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
@@ -40,6 +39,7 @@ function AuthFlow() {
     return { name: "create-account" }
   })
   const [showResetSuccessToast, setShowResetSuccessToast] = React.useState(false)
+  const [showCodeResentToast, setShowCodeResentToast] = React.useState(false)
   const [showGoogleAuthErrorToast, setShowGoogleAuthErrorToast] = React.useState(
     () => searchParams.get("auth_error") === "google"
   )
@@ -59,14 +59,23 @@ function AuthFlow() {
   const isTabStep = step.name === "create-account" || step.name === "login"
 
   return (
-    <AuthShell>
+    <>
       <div className="absolute inset-x-0 top-pad-2xl flex justify-center">
         <Toast
           open={showResetSuccessToast}
           onOpenChange={setShowResetSuccessToast}
           direction="top"
+          showIcon={false}
         >
           Password reset
+        </Toast>
+        <Toast
+          open={showCodeResentToast}
+          onOpenChange={setShowCodeResentToast}
+          direction="top"
+          showIcon={false}
+        >
+          Code resent
         </Toast>
         <Toast
           open={showGoogleAuthErrorToast}
@@ -133,6 +142,10 @@ function AuthFlow() {
           email={step.email}
           sentAt={step.sentAt}
           onBack={() => setStep({ name: "create-account" })}
+          onResent={(sentAt) => {
+            setStep({ ...step, sentAt })
+            setShowCodeResentToast(true)
+          }}
         />
       ) : step.name === "forgot-password" ? (
         <ForgotPasswordScreen
@@ -149,6 +162,10 @@ function AuthFlow() {
           onContinue={() =>
             setStep({ name: "reset-password", email: step.email, sentAt: step.sentAt })
           }
+          onResent={(sentAt) => {
+            setStep({ ...step, sentAt })
+            setShowCodeResentToast(true)
+          }}
         />
       ) : (
         <ResetPasswordScreen
@@ -165,7 +182,7 @@ function AuthFlow() {
           }}
         />
       )}
-    </AuthShell>
+    </>
   )
 }
 

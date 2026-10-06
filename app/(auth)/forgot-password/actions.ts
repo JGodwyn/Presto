@@ -3,6 +3,7 @@
 import { z } from "zod"
 
 import { createClient } from "@/lib/supabase/server"
+import { resendErrorMessage } from "@/lib/supabase/otp-error"
 import {
   isNetworkError,
   networkActionError,
@@ -29,7 +30,7 @@ export async function requestPasswordReset(
 
   if (error) {
     if (isNetworkError(error)) return networkActionError()
-    return { error: error.message }
+    return { error: resendErrorMessage(error) }
   }
 
   return { success: true }
