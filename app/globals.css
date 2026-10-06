@@ -878,16 +878,7 @@
   }
 }
 
-/* The problem sequence owns one touch gesture at a time. Browser scroll snap
-   must not compete with its measured navigation or pull later sections back. */
-@media (any-pointer: coarse) {
-  [data-landing-touch-stage="problems"] {
-    touch-action: pinch-zoom;
-  }
-}
-
-[data-landing-scroll],
-[data-landing-features-scroll] {
+[data-landing-scroll] {
   overflow-anchor: none;
 }
 

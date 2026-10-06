@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePathname } from "next/navigation"
 
 import { Toast } from "@/components/ui/toast"
 import {
@@ -17,11 +18,21 @@ import {
 // back rather than waiting for the user's next action.
 const RECONNECT_PROBE_INTERVAL = 5000
 
-// Mounted once in the root layout so every screen is covered — signed out or
-// in, mid-generation or idle. It only renders; the reporting is done by the
-// browser's own online/offline events below and by each call site through
-// withNetworkStatus (lib/network-status.ts).
+// Mounted once in the root layout so every app screen is covered — signed out
+// or in, mid-generation or idle. The landing page is the exception: it's a
+// static marketing page with nothing to save or load, so a "you might be
+// offline" toast there only alarms a visitor who has the page already.
+// Skipping it in a wrapper (rather than gating the effects) means the landing
+// page never registers the listeners or starts probing at all.
 export function NetworkStatus() {
+  const pathname = usePathname()
+  if (pathname === "/") return null
+  return <NetworkStatusToast />
+}
+
+// The reporting is done by the browser's own online/offline events below and
+// by each call site through withNetworkStatus (lib/network-status.ts).
+function NetworkStatusToast() {
   const offline = React.useSyncExternalStore(
     subscribeToNetworkStatus,
     getNetworkOffline,

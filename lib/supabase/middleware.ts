@@ -87,5 +87,17 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // The landing page is for signed-out visitors; a signed-in one goes
+  // straight to their projects (which forwards on to /create-project when
+  // they have none). Doing it here, with the user this request already
+  // fetched, is what lets the landing page itself skip Supabase entirely:
+  // it renders even when Supabase is down or unconfigured, and can be
+  // served statically.
+  if (user && request.nextUrl.pathname === "/" && request.method === "GET") {
+    const url = request.nextUrl.clone()
+    url.pathname = "/projects"
+    return NextResponse.redirect(url)
+  }
+
   return response
 }

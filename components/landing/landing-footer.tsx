@@ -63,8 +63,13 @@ function FooterMark({
 }
 
 function LandingFooter() {
-  const footerRef = React.useRef<HTMLElement>(null)
-  const isInView = useInView(footerRef, { once: true, amount: 0.15 })
+  // The gradient waits until the very bottom of the footer is on screen.
+  // Triggering on the footer itself fired while the FAQ still filled most of
+  // the screen, so the animation played before anyone was looking at it. A
+  // marker on the bottom edge, rather than "all of the footer visible", also
+  // works on phones, where the footer is taller than the screen.
+  const bottomRef = React.useRef<HTMLDivElement>(null)
+  const isInView = useInView(bottomRef, { once: true })
   const prefersReducedMotion = useReducedMotion()
   const animation = FOOTER_ANIMATION
   const shouldAnimate = animation.enabled && !prefersReducedMotion
@@ -84,7 +89,6 @@ function LandingFooter() {
 
   return (
     <footer
-      ref={footerRef}
       className="relative overflow-hidden bg-purple-700 px-[var(--mgn-mobile)] py-[calc(var(--pad-7xl)-var(--pad-sm))] md:min-h-[calc(var(--pad-9xl)*2+var(--pad-8xl)-var(--pad-xs))] md:px-pad-6xl"
     >
       <motion.div
@@ -108,7 +112,7 @@ function LandingFooter() {
         <FooterGradient side="right" />
       </motion.div>
 
-      <div className="relative z-10 mx-auto flex w-full max-w-[848px] flex-col gap-dist-3xl md:gap-dist-6xl">
+      <div className="relative z-10 mx-auto flex w-full max-w-(--landing-rail) flex-col gap-dist-3xl md:gap-dist-6xl">
         <div className="flex flex-col items-start gap-dist-xl">
           <p className="font-display text-feature-eyebrow leading-[var(--pad-2xl)] font-normal text-text-inverse">
             Write next month&apos;s posts this afternoon.
@@ -143,6 +147,7 @@ function LandingFooter() {
           <p className="text-body-xl-bold text-text-inverse">©2026</p>
         </div>
       </div>
+      <div ref={bottomRef} aria-hidden className="absolute inset-x-0 bottom-0 h-px" />
     </footer>
   )
 }
