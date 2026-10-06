@@ -3,10 +3,11 @@
 import * as React from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { motion, useInView, useReducedMotion, type Transition } from "motion/react"
+import { motion, useReducedMotion, type Transition } from "motion/react"
 
 import { MarkerStroke } from "@/components/landing/marker-stroke"
 import { Button } from "@/components/ui/button"
+import { useLandingArrival } from "@/hooks/use-landing-arrival"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 
 const EASE_OUT: [number, number, number, number] = [0.23, 1, 0.32, 1]
@@ -31,9 +32,6 @@ type HighlightSettings = {
 }
 
 type WhoItsForMotionSettings = {
-  trigger: {
-    amount: number
-  }
   card: EntranceSettings
   highlight: HighlightSettings
   explanation: EntranceSettings
@@ -41,7 +39,6 @@ type WhoItsForMotionSettings = {
 }
 
 const WHO_MOTION_SETTINGS: WhoItsForMotionSettings = {
-  trigger: { amount: 0.35 },
   card: {
     enabled: true,
     delay: 0,
@@ -80,12 +77,9 @@ const WHO_MOTION_SETTINGS: WhoItsForMotionSettings = {
 }
 
 function WhoItsFor() {
-  const sectionRef = React.useRef<HTMLElement>(null)
   const settings = WHO_MOTION_SETTINGS
-  const isInView = useInView(sectionRef, {
-    once: true,
-    amount: settings.trigger.amount,
-  })
+  // Plays when the section has arrived, and replays on every arrival.
+  const { ref: sectionRef, isInView, playKey } = useLandingArrival<HTMLElement>()
   const prefersReducedMotion = useReducedMotion()
   const { ref: cardRef, style: cardStyle } =
     useSquircleClipPath<HTMLDivElement>({ cornerRadius: 24 })
@@ -114,6 +108,7 @@ function WhoItsFor() {
   const highlight = (text: string) => (
     <span data-who-highlight className="relative isolate inline-block max-w-full">
       <motion.span
+        key={`background-${playKey}`}
         data-who-highlight-background
         aria-hidden
         initial={shouldAnimateHighlight ? highlightInitial : false}
@@ -129,6 +124,7 @@ function WhoItsFor() {
       </motion.span>
       <span className="relative">{text}</span>
       <motion.span
+        key={`text-${playKey}`}
         data-who-highlight-text
         aria-hidden
         initial={shouldAnimateHighlight ? highlightInitial : false}
@@ -175,13 +171,14 @@ function WhoItsFor() {
       ref={sectionRef}
       data-who-its-for
       aria-labelledby="who-its-for-heading"
-      className="flex min-h-svh shrink-0 flex-col items-center justify-center gap-[var(--dist-xl)] overflow-clip bg-surface-4 px-[var(--mgn-mobile)] py-[var(--pad-2xl)] md:h-svh md:gap-[var(--dist-2xl)] md:px-[var(--pad-6xl)] md:py-[var(--pad-6xl)]"
+      className="flex min-h-(--landing-screen) shrink-0 snap-start snap-always flex-col items-center justify-center gap-[var(--dist-xl)] overflow-clip bg-surface-4 px-[var(--mgn-mobile)] py-[var(--pad-2xl)] md:h-(--landing-screen) md:gap-[var(--dist-2xl)] md:px-[var(--pad-6xl)] md:py-[var(--pad-6xl)]"
     >
       <motion.div
+        key={`card-${playKey}`}
         ref={cardRef}
         style={cardStyle}
         {...entrance(settings.card)}
-        className="w-full max-w-[848px] rounded-rad-xl bg-purple-700 p-[var(--pad-sm)]"
+        className="w-full max-w-(--landing-rail) rounded-rad-xl lg:max-w-[848px] bg-purple-700 p-[var(--pad-sm)]"
       >
         <div
           ref={cardInnerRef}
@@ -208,8 +205,9 @@ function WhoItsFor() {
       </motion.div>
 
       <motion.div
+        key={`explanation-${playKey}`}
         {...entrance(settings.explanation)}
-        className="flex w-full max-w-[848px] items-start gap-[var(--dist-md)] md:gap-[var(--dist-xl)]"
+        className="flex w-full max-w-(--landing-rail) items-start lg:max-w-[848px] gap-[var(--dist-md)] md:gap-[var(--dist-xl)]"
       >
         <Image
           src="/images/landing/who-its-for-info.svg"
@@ -226,6 +224,7 @@ function WhoItsFor() {
       </motion.div>
 
       <motion.div
+        key={`button-${playKey}`}
         {...entrance(settings.button)}
       >
         <span className="inline-flex drop-shadow-[0_var(--dist-md)_var(--dist-lg)_color-mix(in_srgb,var(--button-brand-primary-rest)_40%,transparent)]">

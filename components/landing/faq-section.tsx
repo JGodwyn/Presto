@@ -2,10 +2,30 @@
 
 import * as React from "react"
 import { CaretDown, ChatTeardrop } from "@phosphor-icons/react"
+import { motion, useReducedMotion, type Transition } from "motion/react"
 
 import { Chip } from "@/components/ui/chip"
+import { useLandingArrival } from "@/hooks/use-landing-arrival"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
 import { cn } from "@/lib/utils"
+
+const EASE_OUT: [number, number, number, number] = [0.23, 1, 0.32, 1]
+
+// The heading and chip come in first, then the questions one after another,
+// each sharpening up from a small blur as it rises into place.
+const ENTRANCE = {
+  heading: { offset: 16, blurFrom: 8, transition: { duration: 0.8, ease: EASE_OUT } },
+  chip: { offset: 12, blurFrom: 6, transition: { duration: 0.6, ease: EASE_OUT, delay: 0.08 } },
+  question: { offset: 12, blurFrom: 4, transition: { duration: 0.5, ease: EASE_OUT } },
+  questionsDelay: 0.15,
+  questionsStagger: 0.06,
+} satisfies {
+  heading: { offset: number; blurFrom: number; transition: Transition }
+  chip: { offset: number; blurFrom: number; transition: Transition }
+  question: { offset: number; blurFrom: number; transition: Transition }
+  questionsDelay: number
+  questionsStagger: number
+}
 
 const FAQS = [
   {
@@ -118,43 +138,78 @@ function FaqItem({
   )
 }
 
+// A centred heading over a single centred column of questions. This replaced
+// the exported two-column layout (heading left, questions right).
 function FaqSection() {
   const [openIndex, setOpenIndex] = React.useState<number | null>(0)
+  // Plays on the first arrival only.
+  const { ref: sectionRef, isInView } = useLandingArrival<HTMLElement>({ once: true })
+  const prefersReducedMotion = useReducedMotion()
+
+  const entrance = (
+    item: { offset: number; blurFrom: number; transition: Transition },
+    delay = 0
+  ) => {
+    const hidden = {
+      opacity: 0,
+      filter: prefersReducedMotion ? "blur(0px)" : `blur(${item.blurFrom}px)`,
+      transform: prefersReducedMotion ? "translateY(0px)" : `translateY(${item.offset}px)`,
+    }
+    return {
+      initial: hidden,
+      animate: isInView ? { opacity: 1, filter: "blur(0px)", transform: "translateY(0px)" } : hidden,
+      transition: prefersReducedMotion
+        ? { duration: 0.2, ease: EASE_OUT }
+        : { ...item.transition, delay: (item.transition.delay ?? 0) + delay },
+    }
+  }
 
   return (
     <section
+      ref={sectionRef}
       id="faq"
       aria-labelledby="faq-heading"
-      className="bg-surface-4 px-[var(--mgn-mobile)] py-pad-6xl md:px-pad-6xl md:py-[calc(var(--pad-7xl)-var(--pad-sm))]"
+      className="bg-surface-4 px-[var(--mgn-mobile)] py-[calc(var(--pad-6xl)+var(--pad-2xl)+var(--pad-3xl))] md:px-pad-6xl md:py-[calc(var(--pad-7xl)+var(--pad-2xl)+var(--pad-3xl))]"
     >
-      <div className="mx-auto grid w-full max-w-[848px] gap-dist-3xl md:gap-dist-5xl lg:grid-cols-[minmax(0,calc(var(--pad-9xl)+var(--pad-lg)))_minmax(0,calc(var(--pad-9xl)*2+var(--pad-sm)))]">
-        <div className="flex flex-col gap-dist-xl">
-          <h2
+      <div className="mx-auto grid w-full max-w-[calc(var(--pad-9xl)*2+var(--pad-sm))] gap-dist-3xl md:gap-dist-5xl">
+        <div className="flex flex-col items-center gap-dist-xl text-center">
+          <motion.h2
+            {...entrance(ENTRANCE.heading)}
             id="faq-heading"
-            className="max-w-68 font-display text-heading-md font-normal text-text-bold"
+            className="font-display text-heading-md font-normal text-text-bold"
           >
-            You might want to know . . .
-          </h2>
-          <Chip
-            size="md"
-            selected={false}
-            className="w-fit border-border-bold bg-surface-4 px-pad-md text-body-lg text-text-subtle"
-          >
-            Frequently asked questions
-          </Chip>
+            You might want <br className="md:hidden" />
+            to know . . .
+          </motion.h2>
+          <motion.div {...entrance(ENTRANCE.chip)} className="w-fit">
+            <Chip
+              size="md"
+              selected={false}
+              className="w-fit border-border-bold bg-surface-4 px-pad-md text-body-lg text-text-subtle"
+            >
+              Frequently asked questions
+            </Chip>
+          </motion.div>
         </div>
 
         <div className="flex min-w-0 flex-col gap-dist-lg">
           {FAQS.map((faq, index) => (
-            <FaqItem
+            <motion.div
               key={faq.question}
-              question={faq.question}
-              answer={faq.answer}
-              open={openIndex === index}
-              onOpenChange={() =>
-                setOpenIndex((current) => (current === index ? null : index))
-              }
-            />
+              {...entrance(
+                ENTRANCE.question,
+                ENTRANCE.questionsDelay + index * ENTRANCE.questionsStagger
+              )}
+            >
+              <FaqItem
+                question={faq.question}
+                answer={faq.answer}
+                open={openIndex === index}
+                onOpenChange={() =>
+                  setOpenIndex((current) => (current === index ? null : index))
+                }
+              />
+            </motion.div>
           ))}
         </div>
       </div>

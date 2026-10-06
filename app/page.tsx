@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation"
 import Link from "next/link"
 
 import { AnimatedHeroCopy } from "@/components/landing/animated-hero-copy"
@@ -12,19 +11,16 @@ import { SeeItInAction } from "@/components/landing/see-it-in-action"
 import { WhoItsFor } from "@/components/landing/who-its-for"
 import { TexturedGradient } from "@/components/shared/textured-gradient"
 import { Button } from "@/components/ui/button"
-import { HIDE_NATIVE_SCROLLBAR_CLASSNAME } from "@/lib/scrollbar"
-import { createClient } from "@/lib/supabase/server"
-import { hasProjects } from "@/lib/supabase/queries"
 
 function LandingPage() {
   return (
     <LandingScrollArea>
-      <section data-landing-touch-stage="hero" className="relative flex min-h-svh flex-col overflow-clip md:flex-row">
+      <section className="relative flex min-h-(--landing-screen) snap-start flex-col overflow-clip md:flex-row">
         <TexturedGradient />
 
         <nav
         aria-label="Landing page"
-        className="absolute top-[var(--dist-2xl)] left-1/2 z-10 flex w-[calc(100%-var(--pad-2xl))] max-w-[848px] -translate-x-1/2 items-center justify-between gap-[var(--dist-lg)] md:top-[var(--dist-3xl)] md:w-[calc(100%-var(--pad-6xl))]"
+        className="absolute top-[var(--dist-2xl)] left-1/2 z-10 flex w-[calc(100%-var(--pad-2xl))] max-w-(--landing-rail) -translate-x-1/2 items-center justify-between gap-[var(--dist-lg)] md:top-[var(--dist-3xl)] md:w-[calc(100%-var(--pad-6xl))]"
         >
         <PrestoLogo />
         <div className="hidden items-center gap-[var(--dist-md)] md:flex">
@@ -81,11 +77,16 @@ function LandingPage() {
       </section>
       <ProblemSequence />
       <WhoItsFor />
-      <div
-        data-landing-features-scroll
-        className={`relative h-svh overflow-x-clip overflow-y-auto overscroll-y-contain ${HIDE_NATIVE_SCROLLBAR_CLASSNAME}`}
-      >
-        <FeatureSections />
+      {/* The features (when stacked), and the FAQ and footer, are each one
+          snap area. Being taller than the viewport, mandatory snapping lets
+          any position inside them rest (the area still covers the screen) and
+          only snaps once an edge is on screen. Without them, mandatory snap
+          would pull every scroll past Who's-it-for back to the nearest stop. */}
+      <FeatureSections />
+      {/* The walkthrough scrolls as ordinary content: it sits in the same
+          free-scrolling snap area as the FAQ and footer rather than being a
+          stop of its own. */}
+      <div data-landing-free-scroll className="snap-start">
         {/* MP4 first: it's the smaller encode, and a browser plays the first source it can. */}
         <SeeItInAction
           videoUrl="/videos/landing-walkthrough.mp4"
@@ -94,16 +95,17 @@ function LandingPage() {
         <FaqSection />
         <LandingFooter />
       </div>
+      {/* The page's bottom edge as its own snap point. Chrome resolves a jump
+          to the end (End key, scrolling past the bottom) by snapping, and it
+          doesn't count the tall area above as reaching the end, so without
+          this it snaps all the way back to the first feature. */}
+      <div aria-hidden className="snap-end" />
     </LandingScrollArea>
   )
 }
 
-export default async function Home() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) return <LandingPage />
-  redirect((await hasProjects(supabase)) ? "/projects" : "/create-project")
+// Signed-in visitors never reach this: proxy.ts sends them to /projects
+// first. So the page needs no Supabase call of its own.
+export default function Home() {
+  return <LandingPage />
 }

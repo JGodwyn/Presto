@@ -2109,3 +2109,44 @@ only when that destination arrives or navigation leaves the tab system.
 ## A worktree's assigned port isn't proof of which worktree is serving it
 
 **Symptom:** verifying on the port `.worktree` lists showed none of the branch's changes. **Cause:** two worktrees' dev servers had been started on each other's ports (auth-polish on :3002, landing-fixes on :3003). **Rule:** before trusting a screenshot, check `lsof -p $(lsof -tiTCP:<port> -sTCP:LISTEN) | grep cwd` to confirm the port is serving this checkout.
+## Hand-rolled scroll engines lose to native snap
+
+- **Symptom:** The landing page sometimes locked scrolling for about a second, sometimes skipped from Problem 1 to Problem 2 on one gesture, and sometimes held part of the screen still while the rest scrolled.
+- **Cause:** A ~800-line wheel/touch interceptor tried to tell where one gesture ends and the next begins from inertia-tail shapes. Every threshold that fixed one case broke another (see the entries above), and a second nested scroller under Who's-it-for meant the wheel scrolled whichever box was under the pointer.
+- **Rule:** For a "one panel per gesture" sequence, use one scroller with `scroll-snap-type: y mandatory` and `scroll-snap-stop: always` on the panels. Don't intercept wheel/touch input. Put content that should scroll freely in a single snap area taller than the viewport. Mandatory snap allows any position inside an area that covers the viewport.
+
+## Mandatory snap needs an explicit end snap point
+
+- **Symptom:** With the tail of the page as one tall `snap-start` area, pressing End (or scrolling to past the bottom) landed on the first feature instead of the footer, while setting `scrollTop` to the exact maximum worked.
+- **Cause:** Chrome resolves an end-of-scroll jump by snapping, and the tall area didn't count as reaching the end (its bottom sat 0.16px past `scrollHeight`), so the nearest valid position was the area's own start.
+- **Rule:** When the last content in a mandatory-snap container is a tall area, add a zero-height `scroll-snap-align: end` element at the very bottom.
+
+## Worktree ports drift from the worktree list
+
+- **Symptom:** Browser checks on a worktree's assigned port showed none of the branch's changes.
+- **Cause:** Another worktree's server already held that port, so `next dev` quietly took the next free one.
+- **Rule:** Before verifying, map ports to directories (`lsof -ti tcp:<port> -sTCP:LISTEN` then the process's `cwd`) instead of trusting the list. A check against the wrong server can pass for the wrong reason.
+
+## A wheel hold must lift on a new flick, not on silence
+
+- **Symptom:** After a hard fling, the page sat on a problem for more than a second before it would scroll again.
+- **Cause:** The hold lifted only after the wheel had been quiet for 150ms, but a trackpad coast sends events for 1–4s. Comparing long-window averages (fullPage.js) also failed: the history included the flick's slow wind-up, so the coast looked like speeding up, and uneven mouse deltas tripped it.
+- **Rule:** Judge only the samples since the hold began, and look for a climb: several consecutive rising deltas well above the slowest point seen. Keep a short floor (150ms) so the original flick's wind-up can't count. Simulate decaying flings with noise, second flicks at different points in a coast, and steady/uneven mouse spins before claiming it works.
+
+## One section per wheel gesture isn't achievable without a cost
+
+- **Symptom:** Every guard that capped a wheel gesture at one landing stop either let a hard coast through, locked the page after a flick, or visibly nudged the page (overshoot, then clamp).
+- **Cause:** Wheel events don't expose whether they come from fingers or momentum, so the boundary between gestures is always a guess. Clamping native scroll after the fact also paints the overshoot for a frame.
+- **Rule:** Don't build another gesture guard on the landing page. The owner chose native scroll + `snap-mandatory`/`snap-always` and accepts that a very hard fling can pass a problem. Reopen this only if they ask for a discrete-step (slideshow) mode instead.
+
+## Don't rely on a tall mandatory-snap area for free scrolling on mobile
+
+- **Symptom:** On a phone, scrolling past the end of the landing footer jumped the page back to the top of the walkthrough.
+- **Cause:** The free-scrolling tail was one tall `snap-start` area inside a `snap-mandatory` container. The spec says any position where a large area covers the viewport is a valid resting point, but mobile engines re-snap such an area to its start after an overscroll at the end.
+- **Rule:** When only part of a page should snap, switch `scroll-snap-type` off below that part instead of relying on large-snap-area behaviour. Toggle it from the scroll position, switching it back on above the boundary so the snap back into the narrative still works.
+
+## Chrome Android collapses its toolbar for a full-viewport inner scroller
+
+- **Symptom:** On Android, the landing page's full-screen sections sometimes didn't fill the screen: the next section's top showed underneath, until a small scroll up.
+- **Cause:** Chrome promotes a scroller that exactly fills the viewport to an implicit root scroller, so scrolling it hides the address bar like a normal page. The screen then grows past every `svh`-sized section.
+- **Rule:** Keep the landing scroll area from exactly filling the viewport (it's 1px shorter, inside a full-height wrapper with the same background), and size full-screen sections to the area's own height (`--landing-screen`), not `svh`. If one size is changed without the other, Chrome snaps the 1px-taller sections by their bottoms.
