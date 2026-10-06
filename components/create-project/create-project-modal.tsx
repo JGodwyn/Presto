@@ -8,10 +8,18 @@ import { z } from "zod"
 import { Folder, SpinnerGap } from "@phosphor-icons/react"
 
 import { createProject } from "@/app/projects/actions"
+import { useCreateProjectLeave } from "@/components/create-project/create-project-backdrop"
+import { holdNavigationUntil } from "@/components/create-project/exit-gate"
 import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { Toast } from "@/components/ui/toast"
 import { withNetworkStatus } from "@/lib/network-status"
+
+// toast.tsx's exit (EXIT.transition, 0.2s). On /create-project the side art
+// waits for the toast to be gone before it retreats, so the two read as one
+// sequence rather than overlapping.
+const TOAST_EXIT_MS = 200
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 import {
   Dialog,
   DialogContent,
@@ -38,6 +46,7 @@ function CreateProjectModal({ trigger }: { trigger?: React.ReactNode }) {
   // so the close effect below knows when everything has actually landed.
   const [isNavigating, startNavigation] = React.useTransition()
   const router = useRouter()
+  const backdrop = useCreateProjectLeave()
   const {
     register,
     handleSubmit,
@@ -76,6 +85,27 @@ function CreateProjectModal({ trigger }: { trigger?: React.ReactNode }) {
     }
 
     reset()
+
+    // On /create-project the exit is a sequence: the "Creating project" toast
+    // closes, then the side art retreats (the page's copy fading out as it
+    // nears the end), and the projects page appears only once the art is
+    // gone. Elsewhere (the /projects grid) there's no art, so the toast just
+    // stays up through the push.
+    //
+    // The push goes out *now*, the moment the save lands, so /projects'
+    // server render (dynamic, never prefetched — measured at 1.2–1.8s on the
+    // dev server) overlaps the toast's exit and the retreat instead of
+    // following them. The page holds itself back until the whole exit has
+    // played (exit-gate.tsx), so starting early can't cut it short.
+    if (backdrop) {
+      holdNavigationUntil(
+        (async () => {
+          setShowCreatingToast(false)
+          await wait(TOAST_EXIT_MS)
+          await backdrop.leave()
+        })()
+      )
+    }
     startNavigation(() => router.push("/projects"))
   }
 

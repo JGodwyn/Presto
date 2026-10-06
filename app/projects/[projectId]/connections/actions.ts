@@ -4,14 +4,13 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 
 import { decryptApiKey } from "@/lib/ai/key-crypto"
-import {
-  getLinkedInCredentials,
-  revokeLinkedInToken,
-  verifyLinkedInToken,
-} from "@/lib/linkedin/oauth"
+import { verifyLinkedInToken } from "@/lib/linkedin/oauth"
 import { isLivenessCheckDue } from "@/lib/linkedin/liveness"
-import { getXCredentials, revokeXToken } from "@/lib/x/oauth"
 import { getLiveXAccessToken } from "@/lib/x/token"
+import {
+  REVOCABLE_SOCIAL_ACCOUNT_COLUMNS,
+  revokeSocialAccount,
+} from "@/lib/social-revoke"
 import { createClient } from "@/lib/supabase/server"
 
 const disconnectSchema = z.object({
@@ -48,7 +47,7 @@ export async function disconnectSocialAccount(
   // allowed to select this column.
   const { data: existing } = await supabase
     .from("social_accounts")
-    .select("platform, encrypted_access_token, encrypted_refresh_token")
+    .select(REVOCABLE_SOCIAL_ACCOUNT_COLUMNS)
     .eq("id", parsed.data.id)
     .eq("project_id", parsed.data.projectId)
     .maybeSingle()
@@ -62,38 +61,7 @@ export async function disconnectSocialAccount(
     return { error: "Couldn't disconnect that account. Please try again." }
   }
 
-  // Which provider to tell, and which token is worth telling it about. A
-  // two-arm switch rather than a registry on purpose: it is the only place in
-  // this file that branches, and leaving the shape uncommitted keeps whatever
-  // the publish path eventually needs free to pick its own (see AGENTS.md on
-  // parallel branches).
-  try {
-    if (existing?.platform === "x") {
-      const credentials = getXCredentials()
-      // The refresh token is the connection — revoking it ends access, while
-      // the access token beside it lapses within two hours regardless. A row
-      // with none left (already revoked, or never granted offline.access) has
-      // nothing to revoke.
-      if (credentials && existing.encrypted_refresh_token) {
-        await revokeXToken(
-          credentials,
-          decryptApiKey(existing.encrypted_refresh_token)
-        )
-      }
-    } else if (existing?.encrypted_access_token) {
-      const credentials = getLinkedInCredentials()
-      if (credentials) {
-        await revokeLinkedInToken(
-          credentials,
-          decryptApiKey(existing.encrypted_access_token)
-        )
-      }
-    }
-  } catch {
-    // A token stored under a rotated or wrong encryption key throws at decrypt
-    // (GCM fails loudly by design). The row is already gone, which is what the
-    // user asked for; the unrevoked token expires on its own.
-  }
+  if (existing) await revokeSocialAccount(existing)
 
   revalidatePath(`/projects/${parsed.data.projectId}/connections`)
 

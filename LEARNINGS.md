@@ -2105,3 +2105,30 @@ only when that destination arrives or navigation leaves the tab system.
 - **Symptom:** The walkthrough could crop vertically on Android fullscreen again after inline video changed back to `object-cover`.
 - **Cause:** The fix depended on `:fullscreen`/`:-webkit-full-screen` overriding the base fit. Android's native video fullscreen does not reliably use that element styling path.
 - **Rule:** Make `object-fit: contain` the video's base style. Match the inline frame to the encoded aspect ratio to avoid letterboxing there, and use a dark media background when fullscreen has spare space.
+
+## Server actions — best-effort work after a redirect (2026-10-05)
+
+- **Symptom:** Delete project's dialog sat on its spinner for several seconds after the row was already gone.
+- **Cause:** the action awaited token revocation and a Storage sweep (~0.9s of EU round trips) before `redirect()`, and the destination render came on top of that.
+- **Rule:** cleanup the user doesn't need to wait for goes in `after()` from `next/server`. It still runs when the action ends in `redirect()`, and Server Actions may use request APIs (the Supabase cookie client) inside it. Verified: a writing-style upload was removed from Storage by the `after()` callback.
+
+## react-hook-form — prefilled field + select-on-focus (2026-10-05)
+
+- **Symptom:** a prefilled, autofocused rename field didn't select its text; typing appended to the old name.
+- **Cause:** RHF writes `values`/`defaultValues` into an uncontrolled input after mount, so `autoFocus` + `onFocus={select()}` ran against an empty field.
+- **Rule:** when a field must be selected on open, also pass `defaultValue` on the input itself and mount the form fresh per opening (inside DialogContent), so the text is in the DOM before focus.
+
+## SVG artwork that must resize without stretching its texture (2026-10-06)
+
+- **Symptom:** a raster (or viewBox-scaled SVG) artwork either blurs its pixel texture when scaled or stretches it when its aspect changes.
+- **Rule:** omit the viewBox. Put geometry in percentages of the SVG box and texture patterns in `patternUnits="userSpaceOnUse"` pixel units — the shapes follow the box, the dots stay 2px. Size the `<svg>` from CSS (`w-…` + `aspect-ratio` + `max-h`); with `h-auto` the CSS height overrides the `height="100%"` attribute and `aspect-ratio` drives it, while `max-h` clamps without changing width. Adjacent percentage-positioned rects need `shapeRendering="crispEdges"` or they leave hairline seams.
+
+## revalidatePath in a Server Action re-renders the *current* page (2026-10-06)
+
+- **Symptom:** after creating a project, /projects took seconds to appear; the create action's POST kept streaming for ~4s after its result had already arrived, and /projects was fetched three times.
+- **Cause:** `createProject` called `revalidatePath("/projects")`. A Server Function that revalidates also refreshes the page the user is currently on as part of its response — /create-project here, a full second render (which then redirected), competing with the /projects render the user was waiting for.
+- **Rule:** don't revalidate in an action whose caller immediately navigates to a dynamic page — that page is fetched fresh anyway (`staleTimes.dynamic` is 0). Revalidate when the user stays on (or returns via cache to) the affected page.
+
+## Browser automation: evals background the tab (2026-10-06)
+
+- A `javascript_tool` eval backgrounds the tab: Chrome throttles its timers to ~1s (stretching any setTimeout-driven sequence you're timing), and the next `computer` click is dropped — no pointerdown reaches the page. Take a screenshot (foregrounds the tab) before clicking, and treat timer-driven intervals measured across evals as inflated.

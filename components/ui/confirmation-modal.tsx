@@ -33,18 +33,26 @@ export function ConfirmationModal({
   actionLabel,
   onConfirm,
   isPending = false,
+  actionDisabled = false,
   actionVariant = "danger",
   secondaryAction,
+  children,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   // Optional: some dialogs read better without one.
   icon?: React.ReactNode
   title: string
-  description: string
+  // A node rather than a string so copy can bold the thing it's about (e.g.
+  // the project name in Delete project).
+  description: React.ReactNode
   actionLabel: string
   onConfirm: () => void
   isPending?: boolean
+  // Holds the action off until the caller's own condition is met — e.g. a
+  // typed confirmation matching. Separate from isPending, which also swaps
+  // the label for a spinner.
+  actionDisabled?: boolean
   actionVariant?: VariantProps<typeof buttonVariants>["variant"]
   // An optional second way out, under the main action. The Figma export draws
   // only one button — this is an addition, for the case where refusing
@@ -53,6 +61,10 @@ export function ConfirmationModal({
   // to the primary action; closing the dialog (the corner X) still means
   // "neither", so this must never be the only way to decline.
   secondaryAction?: { label: string; onClick: () => void }
+  // Anything the confirmation needs between the copy and the action — Delete
+  // project's type-the-name field. Not in the Figma export; it inherits the
+  // dialog's dist-lg rhythm like the rows above it.
+  children?: React.ReactNode
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -65,6 +77,7 @@ export function ConfirmationModal({
         <DialogDescription className="text-center text-body-lg text-text-bold">
           {description}
         </DialogDescription>
+        {children}
       {/* The actions are their own stack so they sit dist-md apart, tighter
           than DialogContent's dist-lg rhythm between the icon, title and
           copy — two buttons offering alternatives read as one control group,
@@ -75,7 +88,7 @@ export function ConfirmationModal({
             variant={actionVariant}
             size="xl"
             className="w-full"
-            disabled={isPending}
+            disabled={isPending || actionDisabled}
             onClick={onConfirm}
           >
             {isPending ? (

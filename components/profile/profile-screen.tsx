@@ -1,15 +1,27 @@
 "use client"
 
 import * as React from "react"
-import { ArrowArcLeft, Password, Power, Robot } from "@phosphor-icons/react"
+import {
+  ArrowArcLeft,
+  Password,
+  PencilSimple,
+  Power,
+  Robot,
+  Trash,
+} from "@phosphor-icons/react"
 
+import { deleteProject } from "@/app/projects/actions"
+import { ToastSlot } from "@/components/shared/toast-slot"
 import { ConfirmationModal } from "@/components/ui/confirmation-modal"
+import { PillInput } from "@/components/ui/pill-input"
+import { Toast } from "@/components/ui/toast"
 import { AvatarPicker } from "@/components/profile/avatar-picker"
 import { useOnboarding } from "@/components/onboarding/onboarding-context"
 import { ChangePasswordPanel } from "@/components/profile/change-password-panel"
 import { EditableName } from "@/components/profile/editable-name"
 import { ProfileDisclosure } from "@/components/profile/profile-disclosure"
 import { ProfileRow } from "@/components/profile/profile-row"
+import { RenameProjectModal } from "@/components/profile/rename-project-modal"
 import { AiModelsPanel } from "@/components/settings/ai-models-panel"
 import { withNetworkStatus } from "@/lib/network-status"
 import { LOGIN_URL } from "@/lib/auth-routes"
@@ -69,6 +81,8 @@ export function ProfileScreen({
   email,
   memberSince,
   projectId,
+  projectName,
+  queuedCount = 0,
   userId,
   avatarUrl,
   avatarGradientId,
@@ -83,6 +97,9 @@ export function ProfileScreen({
   // project-scoped, so it only decides which path a write revalidates and
   // whether the tour row below belongs here.
   projectId?: string
+  // In-project only, for Delete project's confirmation copy.
+  projectName?: string
+  queuedCount?: number
   userId: string
   avatarUrl: string | null
   avatarGradientId: string | null
@@ -118,8 +135,48 @@ export function ProfileScreen({
     window.location.assign(LOGIN_URL)
   }
 
+  const [renameOpen, setRenameOpen] = React.useState(false)
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
+  // Success redirects (the action throws Next's redirect), so like logging
+  // out this only needs clearing when the delete didn't happen.
+  const [deleting, setDeleting] = React.useState(false)
+  const [deleteError, setDeleteError] = React.useState<string | null>(null)
+  // Type-the-name confirmation. Trimmed so a stray space from copy-pasting
+  // the name doesn't block it; otherwise exact, case included — the point is
+  // to make the user look at which project this is.
+  const [confirmName, setConfirmName] = React.useState("")
+  const nameConfirmed =
+    !!projectName && confirmName.trim() === projectName.trim()
+  const handleDelete = async () => {
+    if (!projectId || !nameConfirmed) return
+    setDeleting(true)
+
+    const result = await withNetworkStatus(deleteProject({ projectId }))
+
+    // A successful delete redirects, which can settle this with no value at
+    // all — the navigation is already underway, so leave the pending state up.
+    if (result === undefined) return
+    setDeleting(false)
+    // null: the disconnected toast already explains it.
+    if (result === null || result.network) return
+    setDeleteOpen(false)
+    setDeleteError(result.error)
+  }
+
   return (
     <>
+      <ToastSlot>
+        <Toast
+          open={deleteError !== null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteError(null)
+          }}
+          variant="danger"
+          direction="top"
+        >
+          {deleteError}
+        </Toast>
+      </ToastSlot>
       {/* Same unified blur+opacity mount-in as every other section (see
           /create-project for the @starting-style rationale). */}
       <div className="flex flex-1 flex-col items-center justify-center gap-dist-lg py-pad-2xl transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:opacity-0 starting:blur-[8px] md:p-pad-2xl">
@@ -182,6 +239,25 @@ export function ProfileScreen({
             />
           )}
 
+          {projectId && (
+            <ProfileRow
+              icon={PencilSimple}
+              label="Rename project"
+              onClick={() => setRenameOpen(true)}
+            />
+          )}
+
+          {/* Last in the menu and the only red row: everything above it is
+              reversible, this isn't. */}
+          {projectId && (
+            <ProfileRow
+              icon={Trash}
+              label="Delete project"
+              tone="danger"
+              onClick={() => setDeleteOpen(true)}
+            />
+          )}
+
           {/* Moved down from under the name, by request. It reads as a footnote
               to the account rather than a caption on the person, so it sits
               below the menu instead of competing with the email.
@@ -227,7 +303,73 @@ export function ProfileScreen({
             void handleLogout()
           }}
         />
+
+        {projectId && (
+          <RenameProjectModal
+            open={renameOpen}
+            onOpenChange={setRenameOpen}
+            projectId={projectId}
+            currentName={projectName ?? ""}
+          />
+        )}
+
+        <ConfirmationModal
+          open={deleteOpen}
+          onOpenChange={(open) => {
+            // Same as log out: the redirect ends this screen, so closing
+            // mid-delete would only show a page that's about to vanish.
+            if (deleting) return
+            setDeleteOpen(open)
+            // Every opening starts blank: a name left typed in from a
+            // cancelled attempt would pre-arm the next one.
+            if (!open) setConfirmName("")
+          }}
+          icon={<Trash weight="bold" className="size-12 text-icon-minimal" />}
+          title="Delete project"
+          description={deleteDescription(projectName, queuedCount)}
+          actionLabel="Delete project"
+          isPending={deleting}
+          actionDisabled={!nameConfirmed}
+          onConfirm={() => {
+            void handleDelete()
+          }}
+        >
+          <PillInput
+            label="Type the project name to confirm"
+            placeholder={projectName}
+            value={confirmName}
+            onChange={(event) => setConfirmName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && nameConfirmed && !deleting) {
+                void handleDelete()
+              }
+            }}
+            disabled={deleting}
+            autoComplete="off"
+            spellCheck={false}
+            autoFocus
+          />
+        </ConfirmationModal>
       </div>
+    </>
+  )
+}
+
+// Says what goes, and — the part worth stopping for — that anything queued
+// won't go out. Published posts are already on LinkedIn and stay there; this
+// only removes Presto's copy.
+function deleteDescription(projectName: string | undefined, queued: number) {
+  return (
+    <>
+      {projectName ? (
+        <span className="text-body-lg-bold">{projectName}</span>
+      ) : (
+        "This project"
+      )}{" "}
+      will be deleted with its instructions, posts and connected accounts. This
+      can&apos;t be undone.
+      {queued > 0 &&
+        ` ${queued} queued ${queued === 1 ? "post" : "posts"} will not go out.`}
     </>
   )
 }

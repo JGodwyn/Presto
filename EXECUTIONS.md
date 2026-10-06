@@ -8570,3 +8570,130 @@ to main, then remove the branch.
 - Walkthrough sources swapped to MP4 first (6.3 MB vs WebM 6.7 MB).
 - Moved `components/landing/hero-gradient.tsx` → `components/shared/textured-gradient.tsx` so both upcoming gradient branches start from one component instead of each extracting it; scoped every SVG id per instance.
 - Verified on :3001 (port 3000 was a different project): gradient renders, zero unresolved `url(#…)` references, new copy and source order present. tsc, eslint (changed files, clean vs baseline), vitest 443/1 skipped, build all pass.
+
+## 2026-10-05 — Delete a project (feat/delete-project, :3004)
+
+- Checked the live schema first: every project-scoped table (posts, instructions, writing_styles, content_references, social_accounts, generation_batch_context) already has `on delete cascade` to `projects`, and `projects` has a per-user DELETE policy. **No migration needed.** Storage objects (`writing-style-files`, `content-reference-files`, keyed `${userId}/${projectId}/…`) do not cascade.
+- Placement asked and decided: an in-project Profile row (not a folder-card menu, which would have been a new pattern).
+- Extracted Disconnect's revoke block into `lib/social-revoke.ts` (`revokeSocialAccount`, never throws) so Delete project ends connections the same way; `connections/actions.ts` now calls it — behaviour unchanged.
+- `deleteProject` in app/projects/actions.ts: read connection tokens → delete the project row (`.select("id")` so an RLS-hidden id reads as "no longer exists", not success) → in parallel, revoke each connection and sweep both buckets by prefix (list/remove loop, stops if a remove returns no rows so a silently-refused remove can't loop forever) → `redirect("/projects")` (which forwards to /create-project when it was the last one). Network failures return `networkActionError()`.
+- `ProfileRow` gained `tone="danger"`. ProfileContent fetches the project name and a queued-post count (published_at null, scheduled_for not null — the Queued tab's rule). ProfileScreen adds the row last in the menu (in-project only) and a `ConfirmationModal` (Trash icon) whose copy names the project and, when non-zero, says "N queued posts will not go out". Failure surfaces a danger Toast via ToastSlot.
+- Gates: tsc clean, eslint clean, vitest 443 passed.
+- Verification blocked: Chrome extension not connected; built-in browser not signed in. Seeded a throwaway project "Delete test (throwaway)" (id e24e0b8f-a83d-4d0a-b262-ffe8baf4c968) with two queued try-out posts 30 days out, left in place for the owner to exercise the flow. Revoke path not exercised live (OAuth connect only works on :3000).
+
+### Follow-up — type-to-confirm, bold name, faster redirect (2026-10-05, :3004)
+
+- `ConfirmationModal`: `description` is now a ReactNode, plus optional `children` (rendered between copy and action) and `actionDisabled`. Existing callers unchanged.
+- Delete project's dialog: project name in `text-body-lg-bold` (no quotes), and a PillInput "Type the project name to confirm" (placeholder = the name). The action stays disabled until the trimmed input matches exactly (case-sensitive); Enter confirms once it matches; input clears whenever the dialog closes.
+- Verified in Chrome on :3004 (signed in as the owner's second account): wrong case keeps the button disabled, exact match enables it, Enter deletes, lands on /projects.
+- Measured the action with temporary logs: getUser 208ms → delete done 1154ms → cleanup done 2049ms, then the /projects render on top. Moved revoke + storage sweep into `after()` (runs even though the action ends in `redirect()`, per Next's docs) and parallelised getUser with the tokens read. Re-verified with a real upload: a writing-style .txt in `writing-style-files` was gone along with the project and its rows after the delete.
+- Throwaway projects created for testing (Delete test (throwaway), 2, 3, 4) were all deleted through the UI; none remain.
+
+### Rename a project (2026-10-05, :3004)
+
+- `projects` already has a per-user UPDATE policy — no migration. `renameProject` (app/projects/actions.ts) reuses Create's zod schema plus `projectId`, updates with `.select("name")` (RLS-hidden id → "no longer exists"), revalidates `/projects` and the `/projects/<id>` layout so the sidebar and Profile props refresh in the same response.
+- New `components/profile/rename-project-modal.tsx` (Create project's dialog shape: title, one PillInput, brand Save with spinner). Opened from a new "Rename project" row (PencilSimple) on the in-project Profile, above Delete. Unchanged name closes without a request; errors land in the field's helper slot; not dismissable mid-save.
+- Dead end: first version kept the form mounted and used RHF `values` — RHF writes the value in after mount, so autoFocus's select-on-focus selected nothing and typing appended ("Rename testRenamed project"). Fixed by mounting the form inside DialogContent (fresh per opening) with `defaultValue` on the input so the text exists at focus time.
+- Verified in Chrome: prefilled name selected, typing replaces, Enter saves, sidebar shows the new name, Delete dialog's bold name/placeholder follow it. Throwaway "Rename test" project deleted through the UI afterwards.
+
+### Sidebar gradient rebuilt in code (2026-10-06, :3004)
+
+- Owner chose to keep the existing purple staircase (not the landing's textured bars), rebuilt in code so it holds up across sizes. No Figma export exists for it.
+- Measured the old `public/images/dashboard/sidebar-gradient.webp` with sharp: 15 stripes (rows 150–930 of the 930px source; above 150 is plain white), edges at 232/297/358/414/470/523/574/622/669/714/760/803/846/881, 16 colour samples per stripe. Zoomed crops showed a 2px light grid over the colour and an ordered-dither dot fringe where each stripe fades.
+- Iterated offline (sharp renders SVG → PNG beside the original): smooth gradients alone lost the stepped edges; pure Bayer dithering was far too harsh; the hybrid matched — measured gradient (darkened by exactly what the grid lightens), 4×4 Bayer fringe only where the stretched stripe outreaches the real one, 0.22-opacity grid.
+- `components/shared/sidebar-gradient.tsx`: no viewBox — stripe geometry in % of the SVG's height, texture in real CSS px, so it stays crisp at 192/224px and any DPR, and compressing vertically doesn't stretch the dots. Fringe columns merged into same-level runs (437 → 80 rects; ~660 nodes total, mostly gradient stops).
+- `project-sidebar.tsx`: spacer + folder-name block wrapped in a `relative flex-1` box; the gradient is absolute in it, bled out by pad-md left/right/bottom, natural aspect from width, `max-h` capped at the box. It can no longer run up behind the tabs. Removed the next/image import.
+- Verified in Chrome: 1440 wide → 224px wide, starts exactly at nav bottom (400) and compresses to 309px in a 757px window; 900×957 tablet → 192px at natural 390px, bottom-anchored; 1280×417 minimum → 184px, still reads as a staircase with the name on the deep end.
+- Left in place: the now-unreferenced `public/images/dashboard/sidebar-gradient.webp` (deleting files is ask-first).
+
+### Glow gradient (Generate / Content) rebuilt in code (2026-10-06, :3004)
+
+- Same design as the sidebar turned 90°, so the sidebar renderer became a shared `components/shared/pixel-gradient.tsx` (`definePixelGradient(spec)` at module scope + `<PixelGradient art>`; `orientation: "rows" | "columns"`, explicit `samples` so trailing white can be trimmed without shifting stops). `sidebar-gradient.tsx` and new `glow-gradient.tsx` are data-only wrappers.
+- Measured `public/images/generate/pixel-glow.webp` (actually 1840×984; GlowPanel declared 1157×868 but Next rendered it at natural aspect, 1630×872 on a 1296px panel). Columns at x 355/450/548/650/755/1080/1185/1288/1385/1480; the centre's three sub-columns were identical so merged; only the bottom half (rows 492–984) has colour; 32 samples per column.
+- Dead end: first render showed grey blocks — the image's faint grey paper-dots average to neutral greys (#f9f9f9…), drawn solid they're a wash. Each column now stops at its first neutral sample; the two outermost columns were only that and are dropped.
+- GlowPanel: both `<Image>`s → `<GlowGradient>`, same width calc, translates halved to match the half-height art (−16% flipped top, +25% bottom) — verified identical placement (−70 / 635 on a 962px panel). Added `min-h-[45%]` (desktop's own share, 436/962) so a phone-width panel keeps a proportional glow instead of a ~115px sliver; verified 274px on a 608px panel, natural height still wins on wide panels.
+- Verified Generate + Content at desktop, ~820 and ~606 wide. Gates: tsc, eslint, vitest 443 pass.
+- Noticed, not mine: 12× Base UI "changing the controlled state of openProp to be uncontrolled" console errors when the window crosses the mobile breakpoint (Next dev overlay "4 issues").
+- Now unreferenced: `public/images/generate/pixel-glow.webp` (alongside the sidebar webp) — left for the owner to OK deleting.
+
+### Glow texture pass — closer to the original (2026-10-06, :3004)
+
+- Owner's screenshot of the old glow showed more grain, a grey dot halo, and grainy edges. Zooming the source confirmed: the neutral greys dropped earlier *are* the effect — each column has a regular grey dot grid above its green that fades upward and stops at its own stepped edge (measured tops: 48/96/136/193/241/280px up, symmetric), darker grain dots through the green, and a dot pitch of ~4.25 CSS px at the 1296px desktop panel (the raster scaled with the panel).
+- Built an offline harness (scratchpad `render.cjs`): TypeScript `transpileModule` the real components, `renderToStaticMarkup`, sharp/librsvg → PNG beside the original crop at 1×. Iterated against that instead of eyeballing.
+- `pixel-gradient.tsx` gained a per-artwork `texture` (pitch, gridLine, gridOpacity, grainOpacity, fringeStretch/Opacity, haloColor/Density) with the sidebar's previous values as defaults, plus per-band `halo`. New layers: grain (band colour deepened ×2.2 through a small-dot mask) and halo (regular dot grid with an opacity ramp, scaled by how much colour has gone so grey never sits on the green). Fringe dither switched 4×4 Bayer → 8×8 Bayer.
+- Dead ends: dithering the halo (wrong — the original's halo dots are all present, just fainter); a seeded random 8×8 threshold tile (clumped, and its repeat was visible); grid line width as a share of pitch (1px lines at a 4px pitch — far too bold; now an absolute `gridLine`).
+- Glow settings: pitch 4, gridLine 0.6, gridOpacity 0.45, grain 0.35, fringe 1.35/1, halo #b0b0b0 [0.7, 0.3]; the two outermost columns are back as halo-only. Verified live on Content at 1440 — matches the owner's reference; sidebar unchanged in character.
+- The openProp warning is now a FOLLOWUPS entry for main (owner's request), not a separate task.
+
+### Glow tucked in (2026-10-06, :3004)
+
+- By request ("extend too much into the page"): both GlowPanel copies pushed a further 10% of their own height past the panel edge — top −16% → −26%, bottom +25% → +35%. On the 962px desktop panel that's ~44px less reach each (top ≈178 → 134px in, bottom ≈139 → 95px up). Sidebar gradient untouched (it lives inside its own card). Checked live on Generate and Content in the owner's project.
+
+### Glow made bolder / more saturated (2026-10-06, :3004)
+
+- First try: a `tone` (deepen ×1.3–1.6, saturation ×1.3–1.4) on the sampled colours — barely visible, because the sampled near-whites are greyish greens and scaling chroma around grey leaves them grey; a grey band sat between the green and the halo. Removed.
+- What landed: an `ink` mode in `pixel-gradient.tsx`. Each sample keeps only its ink share (relative to the artwork's deepest sample, × `depth`), drawn as one colour at that stop-opacity. Glow uses `var(--lime-200)` (grain `var(--lime-400)`), depth 1.5 — so its colours are now design tokens rather than sampled hex. Sidebar unchanged (still sampled-colour mode).
+- Verified live on Content in the owner's project: saturated lime through the visible (tucked) part, no grey cast, grain and halo intact.
+- Toned back by request ("a little bit too bold"): ink depth 1.5 → 1.3.
+- Toned back again by request: ink depth 1.3 → 1.15.
+
+### /create-project side art rebuilt in code + animated (2026-10-06, :3004)
+
+- Different design from the other two: per side, a stepped diamond of vertical bars against the screen edge. Measured from `public/images/create-project/background.webp` (2880×2048): 16px cells (11px bar / 5px gap), 15 steps on a 128-row grid (rows 0/6/11/18/25/32/41/49/peak/79/87/95/102/109/116/121), four layers — light shell (13→51 cells), dashed (4→33, ~30% dashes missing), a near-solid ridge on steps 4–10 (cells ~15–27), solid core (6→14). Colours sampled per zone; no pink/blue tokens exist, so sampled hex (same exception as the other art).
+- `components/create-project/side-art.tsx`: one SVG per layer, no viewBox — step rows/spans in %, bars and dashes on a fixed 8px grid (the original's pitch at a typical desktop). Dropouts and a per-cell "accent" (deeper ramp on a seeded share of cells — the original's mottled dash strength) come from seeded 16×16-cell tiles so SSR and client match. Tuned beside the original at 1440×1024 with a second offline harness (`render-side.cjs`).
+- Dead ends: first pass had one "mid" layer and a 4-cell dark core — the real image has a wide solid core, a heavily-dashed band, and a denser ridge; uniform dashes read flat until the accent cells were added.
+- `create-project-backdrop.tsx` (client): `CreateProjectScene` renders both sides (right = left mirrored) and a context. Each layer is a clip-path inset wipe from the edge (no squashed bars): enter via `@starting-style`, core→ridge→dashed→light, 700ms / 70ms stagger; retreat light→core, 420ms / 50ms; strong ease-out both ways; `motion-reduce:transition-none`. Width `min(28.333vw, (100vw − w-68)/2)` so it never runs under the copy on narrow screens. Page bg surface-3 → surface-4 (the image was white edge to edge).
+- `CreateProjectModal` starts the retreat on submit (it plays during the save), `stay()`s it back on failure, and awaits it before `router.push` — first version fired it on success and /projects (prefetched) swapped in before a single frame of retreat rendered.
+- Verified in Chrome (Coder account, with the has-projects redirect temporarily disabled locally, then restored from HEAD): renders like the original; entrance caught mid-wipe. The retreat timing fix was NOT re-verified live — the owner declined deleting the first throwaway "Exit test" project, so I stopped creating more. That project is still on the Coder account.
+- Accident fixed: an earlier `npx prettier --write` on page.tsx (no repo config) added semicolons/trailing commas; rebuilt the file from HEAD with only the intended edits.
+- Now unreferenced: `public/images/create-project/background.webp` (joins the other two webps awaiting the owner's OK to delete).
+
+### /create-project art: blur-in + dither fade (2026-10-06, :3004)
+
+- Entrance "too sharp": each layer now transitions `filter` alongside its clip-path wipe — `starting:blur-[10px]` → `blur-none`, and back to 10px while retreating. Classes are literal strings (a template-built `starting:${BLUR}` would never be generated by Tailwind).
+- Outer shell now dissolves into dither: four extra layers (`fade1`–`fade4`) straddle each step's original edge — cells −3…−1 at 25% missing, −1…+1 at 50%, +1…+3 at 72%, +3…+5 at 88% — drawn in the shell's colours and revealed with it. The solid shell now stops at edge −3. Art width 51 → 56 cells, so the side box goes 28.333vw → 31.111vw (same narrow-screen cap).
+- Verified in Chrome (redirect bypassed temporarily, restored from a clean copy): early frames blurred, settled frame sharp, shell edge dissolving into scattered dashes.
+- Blur swapped for opacity by request: layers fade 0 → 1 alongside the wipe (and back to 0 on retreat); transition-[clip-path,opacity]. Verified computed styles live (filter: none, opacity 1 settled).
+
+### Entrance always from 0; unused images deleted (2026-10-06, :3004)
+
+- `@starting-style` wasn't reliable for the server-rendered first paint, so the side art now renders hidden (opacity 0, clipped) and `CreateProjectScene` flips an `entered` flag after two animation frames (150ms timeout fallback — rAF never fires in a background tab). `shown = entered && !leaving` drives both directions; the `starting:` classes are gone. Verified: the server HTML carries all 16 layers as `opacity-0 [clip-path:inset(0_100%_0_0)]`; after load all 16 carry `opacity-100`. (Reading computed opacity via an eval reports 0 — evals background the tab and freeze the transition at its start; read the class instead.)
+- Deleted, at the owner's request: `public/images/generate/pixel-glow.webp`, `public/images/dashboard/sidebar-gradient.webp`, `public/images/create-project/background.webp` — no code references; provenance comments updated to say so.
+
+### Retreat sequenced after the toast (2026-10-06, :3004)
+
+- By request: the art no longer retreats when the dialog closes. Sequence on /create-project is now: submit → dialog closes, art stays, "Creating project" toast during the save → on success the toast closes → wait its 200ms exit (toast.tsx `EXIT.transition`) → `backdrop.leave()` → `router.push("/projects")` when leave resolves, at 85% of the retreat (`EXIT_HANDOFF_MS`), so the page arrives as the last layer tucks away. On failure nothing retreated, so `stay()` was removed. The /projects-grid copy of the dialog (no backdrop) keeps the toast up through the push, as before.
+- tsc/eslint clean. NOT verified live: it needs a real project created; the owner declined cleaning up the previous throwaway, so no more were made.
+- Follow-up (owner saw a ~1s blank page after the retreat): mostly the dev server compiling /projects on demand, but production would still leave a few hundred ms — /projects is dynamic with no loading.js, so Next doesn't prefetch it (docs: guides/prefetching.md) and the request only started after the retreat. Now `router.push("/projects")` starts together with the retreat (`void backdrop.leave()`), so the page loads while the art tucks away. Not verified live (needs a real project created).
+
+### Exit: art retreats last, content fades, page held until done (2026-10-06, :3004)
+
+- By request: the page's copy lingered after the art retreated; the retreat should be the very last thing, the copy fading as it nears its end.
+- `CreateProjectScene` wraps the page content in an unpositioned div (so the absolutely-placed wordmark/log-out still resolve against the page) that fades to 0 over 280ms, delayed to end ~80ms before the art's 570ms retreat does.
+- New `components/create-project/exit-gate.tsx`: `holdNavigationUntil(promise)` (module state — dialog and destination share no provider) + `<CreateProjectExitGate />`, rendered on /projects, which `use()`s the pending promise. The push still starts with the retreat (so /projects' dynamic, unprefetched server render overlaps it), but a navigation is a transition and React keeps the current page while the incoming one suspends — so the swap waits for whichever finishes last, data or retreat. No loading.tsx above /projects (checked), so nothing can show a fallback instead. On any other arrival the gate has nothing pending and renders null.
+- tsc/eslint clean. NOT verified live — needs a real project created (see earlier entries).
+
+### Create → projects lag: measured, two fixes (2026-10-06, :3004)
+
+- Owner OK'd creating/deleting throwaway projects. Ran the flow five times with a MutationObserver + PerformanceObserver timeline (deleting each "Timing test" through the new Delete project UI — SQL deletes were declined).
+- Run 1 (cold): save 1.47s, retreat 1.71→2.28s, /projects swapped in at 2.91s → ~620ms blank. Run 2 (warm): three /projects RSC requests (same key) finishing 2.9–3.7s, swap at 3.73s.
+- Fix 1: push fires the moment the save lands (not after the 200ms toast exit); the gate waits on toast-exit + retreat together.
+- Fix 2: removed `revalidatePath("/projects")` from `createProject`. A revalidating Server Function re-renders the page the user is on in its response — here /create-project, which then redirects — and the action's POST kept streaming to 5.7s while competing with the /projects render. /projects is dynamic and fetched fresh on push, so there was nothing to invalidate. After: POST 1.07s, a single /projects request done at 1.79s.
+- Final run, real-time terms: save 1.07s → toast exit → retreat done ≈1.84s, data already there at 1.79s ⇒ page appears as the art finishes, no gap. (The recorded swap at 3.09s is inflated: script evals background the tab and Chrome throttles its timers to ~1s — no long tasks were recorded.)
+- Not done, owner's call: production functions likely run in Vercel's default US-East region while Supabase is eu-central-2; pinning to fra1 would cut every server render's DB/auth round trips.
+- Automation note: the "first click ignored" seen repeatedly was the harness — no pointerdown reached the document; a click right after a script eval or navigate lands on a backgrounded tab. Screenshot first (foregrounds), then click.
+
+### Onboarding cover gradient rebuilt in code (2026-10-06, :3004)
+
+- Audit (outside landing/auth) found one remaining gradient *artwork*: the onboarding cover's `cover-gradient.webp`. Everything else is functional (edge-fade masks, scroll-area fade strip, dotted divider, gradient avatars, file-icon tags).
+- Same design as the glow, in violet: `components/onboarding/onboarding-cover-gradient.tsx`, columns orientation over the full 2880×2048, 13 symmetric columns (edges 0/184/338/501/684/881/1094 | 1786/1999/2196/2379/2542/2696/2880 — the derivative method only found the ~51px halftone period, so edges were read off the image), 32 samples each, halo reaches measured per column (944→2048px). Sampled-colour mode, not ink — the hue drifts violet→pink up the column.
+- `pixel-gradient.tsx` texture gained optional `grainDot`, `grainDepth`, `haloDot` (defaults = the previous constants, so sidebar/glow unchanged) and `grainColor` (fixed dot hue laid at each sample's share of the band's ink). Cover: pitch 4, gridLine 0.5 @0.12, grain #9a74ee @0.6 (dot 0.55), halo #b4b0f7 (dot 0.5, density 0.55→0.15), fringe 1.4/0.9.
+- Dead ends: compared at 1× first and halved the pitch to 2 — the original is a 2× asset whose ~4px dots blur into a checker at 1×; re-compared at 2× (harness `render-cover.cjs`, density 144) and went back to 4. Deepening pink for the grain gave hot magenta dots; the original's dots are bluish → `grainColor`.
+- Cover now draws the SVG with `bg-surface-4` (the image was opaque white; the SVG isn't), keeping the existing blur+opacity mount-in. Verified live via Replay onboarding in the owner's "NEW" project, then dismissed with Skip (flag back to `done`). No project was created.
+- Deleted `public/images/onboarding/cover-gradient.webp` (owner's standing ask to remove unused images).
+
+### Onboarding cover art rises like the landing hero (2026-10-06, :3004)
+
+- The cover's art now grows from the bottom edge with the landing hero's motion (`HERO_ANIMATION` in components/shared/textured-gradient.tsx): Motion `scaleY` 0 → 1, `origin-bottom`, spring stiffness 200 / damping 32 / mass 9, 0.1s delay. Values copied (with a pointer) rather than imported — that file belongs to the landing branch in flight.
+- Split the white backdrop (plain div, opacity fade as before) from the rising art (motion.div), so the page never shows through beneath the growing art. Reduced motion: `initial={false}`.
+- Verified via Replay onboarding: frames caught with the art a sliver at the bottom, then mostly risen, then settled; tour dismissed with Skip (flag back to `done`).

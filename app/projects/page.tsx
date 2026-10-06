@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 
+import { CreateProjectExitGate } from "@/components/create-project/exit-gate"
 import { NewProjectFolder } from "@/components/projects/new-project-folder"
 import { ProjectFolder } from "@/components/projects/project-folder"
 import { ProjectsNavbar } from "@/components/projects/projects-navbar"
@@ -77,6 +78,10 @@ export default async function ProjectsPage() {
         ))}
         <NewProjectFolder />
       </main>
+
+      {/* Arriving from /create-project: holds this page back until that
+          page's exit animation has finished. Renders nothing. */}
+      <CreateProjectExitGate />
     </div>
   )
 }

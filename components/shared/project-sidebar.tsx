@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 import {
@@ -18,6 +17,10 @@ import {
 import { cn } from "@/lib/utils"
 import { startSectionNavigation } from "@/lib/section-navigation"
 import { useSquircleClipPath } from "@/hooks/use-squircle-clip-path"
+import {
+  SIDEBAR_GRADIENT_ASPECT,
+  SidebarGradient,
+} from "@/components/shared/sidebar-gradient"
 import {
   CHROME_LOCK_CLASSNAME,
   CHROME_UNLOCK_CLASSNAME,
@@ -131,7 +134,7 @@ function SidebarItem({
 }
 
 // The in-project sidebar from the Figma "Dashboard" frame: a white squircle
-// card of pill nav items, with the pixel-gradient artwork and the current
+// card of pill nav items, with the pixel-staircase gradient and the current
 // project's name pinned to the bottom.
 export function ProjectSidebar({ projectName }: { projectName: string }) {
   const pathname = usePathname()
@@ -183,30 +186,6 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
         locked ? CHROME_LOCK_CLASSNAME : CHROME_UNLOCK_CLASSNAME
       )}
     >
-      {/* The 384×930 pixel-gradient artwork scaled to card width (the Figma
-          frame shows it exactly this way: full image, natural aspect — white
-          staircase in, deep violet at the foot). No crop; the card's clip
-          rounds its bottom corners. loading="eager": this sidebar renders on
-          every in-project page, so the image is always above the fold —
-          Next was flagging it as the LCP element and asking for eager
-          loading (this Next version deprecated `priority` in favor of
-          `preload`, but its own docs say `loading="eager"` is what to reach
-          for in the common case, which this is).
-          Rendered first (before nav) so it always paints *behind* nav —
-          both are positioned elements with the default stacking order, so
-          DOM order alone keeps the image from ever visually covering the
-          tabs at short viewport heights, without needing to resize, clip,
-          or offset the image itself. */}
-      <Image
-        src="/images/dashboard/sidebar-gradient.webp"
-        alt=""
-        aria-hidden
-        width={384}
-        height={930}
-        loading="eager"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-auto w-full"
-      />
-
       <nav className="relative flex flex-col gap-dist-md">
         {PROJECT_NAV_ITEMS.map(({ path, label, icon }) => {
           const href = `/projects/${projectId}/${path}`
@@ -237,30 +216,49 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
         })}
       </nav>
 
-      {/* Hardcoded (not a design token — an explicit call, not a guess): at
-          least 80px between the tabs and the folder name below. flex-1 so it
-          also soaks up any *extra* room in a tall viewport — pushing the
-          folder-name block down to the card's true bottom edge, same as
-          when that block was bottom-pinned directly — but min-h-20 stops it
-          shrinking past 80px, which is also what stops the card's own
-          min-h-max collapsing tighter than nav + this gap + the folder-name
-          block's own height. A fixed-height spacer alone isn't enough here:
-          the folder-name block can wrap to 3 lines (line-clamp-3) and grow
-          taller than 80px on its own, which ate into a fixed gap entirely at
-          the card's minimum height — this way its real height is always
-          counted, not assumed away. */}
-      <div aria-hidden className="min-h-20 flex-1" />
+      {/* Everything below the tabs. It's the box the gradient is allowed to
+          fill, which is what keeps the artwork from ever running up behind
+          the nav. */}
+      <div className="relative flex flex-1 flex-col">
+        {/* The staircase artwork (components/shared/sidebar-gradient.tsx),
+            bled out to the card's left, right and bottom edges past its
+            padding — the card's squircle clip rounds the bottom corners.
+            It holds its natural aspect from the card's width, so it's the
+            same shape at 192px and 224px; on a sidebar too short for that,
+            max-h caps it at this box (plus the bottom bleed) and the stripes
+            compress instead of sliding under the tabs. The texture is in
+            real pixels, so it doesn't stretch when that happens.
+            Rendered first so the folder-name block, later in the DOM and
+            also positioned, paints over it. */}
+        <SidebarGradient
+          className="absolute -bottom-pad-md -left-pad-md h-auto max-h-[calc(100%+var(--pad-md))] w-[calc(100%+2*var(--pad-md))]"
+          style={{ aspectRatio: SIDEBAR_GRADIENT_ASPECT }}
+        />
+        {/* Hardcoded (not a design token — an explicit call, not a guess): at
+            least 80px between the tabs and the folder name below. flex-1 so it
+            also soaks up any *extra* room in a tall viewport — pushing the
+            folder-name block down to the card's true bottom edge, same as
+            when that block was bottom-pinned directly — but min-h-20 stops it
+            shrinking past 80px, which is also what stops the card's own
+            min-h-max collapsing tighter than nav + this gap + the folder-name
+            block's own height. A fixed-height spacer alone isn't enough here:
+            the folder-name block can wrap to 3 lines (line-clamp-3) and grow
+            taller than 80px on its own, which ate into a fixed gap entirely at
+            the card's minimum height — this way its real height is always
+            counted, not assumed away. */}
+        <div aria-hidden className="min-h-20 flex-1" />
 
-      {/* relative (not just in-flow): a static element paints *behind*
-          positioned ones regardless of DOM order, so without this the
-          (still-absolute) image above painted over it entirely — same
-          stacking rule that keeps nav above the image, just the inverse
-          failure mode. */}
-      <div className="relative flex flex-col gap-dist-md p-pad-lg">
-        <FolderSimple weight="bold" className="size-6 text-text-inverse" />
-        <p className="line-clamp-3 text-title-lg font-display break-words text-text-inverse">
-          {projectName}
-        </p>
+        {/* relative (not just in-flow): a static element paints *behind*
+            positioned ones regardless of DOM order, so without this the
+            absolute gradient above painted over it entirely — same
+            stacking rule that keeps nav above the image, just the inverse
+            failure mode. */}
+        <div className="relative flex flex-col gap-dist-md p-pad-lg">
+          <FolderSimple weight="bold" className="size-6 text-text-inverse" />
+          <p className="line-clamp-3 text-title-lg font-display break-words text-text-inverse">
+            {projectName}
+          </p>
+        </div>
       </div>
     </aside>
   )
