@@ -18,7 +18,12 @@ export function OnboardingTopbar() {
     // Not inert: Next/Complete in the callout advance the tour, but this bar
     // is the way *out* of it at any step — an earlier `inert` here left the
     // button visible and dead.
-    <header className="flex items-center justify-between">
+    //
+    // h-14 is the navbar's logo box at md+ (ProjectsNavbar, the only
+    // breakpoint this bar renders at). Left to its content it was the 40px
+    // button tall, so swapping bars on entering/leaving the tour moved the
+    // sidebar and page 16px.
+    <header className="flex h-14 items-center justify-between">
       <span className="text-heading-sm font-display text-text-subtle">
         Onboarding
       </span>
