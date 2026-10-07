@@ -1766,7 +1766,7 @@ modal pattern: the corner X dismisses and the named action navigates.
 
 ## Site metadata & icons (2026-10-07)
 
-- Name, pitch and origin live in `lib/site.ts`; the root layout's `metadata` reads them (title template `%s · Presto`, OpenGraph, `summary_large_image`). Icons and the social card are generated in code from the brand tokens (`lib/brand-image.tsx`): a "P" from the three-layer colour wordmark (purple-400 / lime-200 / flame-400 on gray-1000) for `icon`/`apple-icon`, the full wordmark plus the pitch in gray-300 for `opengraph-image`. Change the colours in the tokens, never in those files.
+- Name, pitch and origin live in `lib/site.ts`; the root layout's `metadata` reads them (title template `%s · Presto`, OpenGraph, `summary_large_image`). The icons are files cut from the logo (`design-sync/PrestoLogo.png`): `app/icon.png`, `app/apple-icon.png` (corners flattened onto white for iOS), `app/favicon.ico`. The social card is generated in code (`lib/brand-image.tsx`): the logo, then the three-layer colour wordmark (purple-400 / lime-200 / flame-400 on gray-1000), then the pitch in gray-300. Change the colours in the tokens, never in those files.
 
 ## Network failures on auth pages (2026-10-07)
 
@@ -1774,4 +1774,4 @@ modal pattern: the corner X dismisses and the named action navigates.
 
 ## Onboarding tour motion (2026-10-07)
 
-- Step to step: the callout card slides to the narrated nav item (`translate-y`, 300ms, `cubic-bezier(0.23,1,0.32,1)`), its contents re-enter (200ms), and the sidebar highlight fades across on the same 300ms curve — the fade only during the tour. The cover leaves with a 250ms ease-out fade + 8px blur over the tour, which is already rendering beneath it.
+- Step to step: the callout card slides to the narrated nav item (`translate-y`, 300ms, `cubic-bezier(0.23,1,0.32,1)`), its contents re-enter (200ms), and the sidebar highlight fades across on the same 300ms curve — the fade only during the tour. The cover leaves with a 250ms ease-out fade + 8px blur over the tour, which is already rendering beneath it. The topbar's End/Complete onboarding is live at every step (the tour's way out); Next/Complete in the callout is the way forward.

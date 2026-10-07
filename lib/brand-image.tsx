@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-// Shared by the code-generated metadata images (app/icon.tsx,
-// app/apple-icon.tsx, app/opengraph-image.tsx). ImageResponse renders outside
+// Used by the code-generated social card (app/opengraph-image.tsx); the icons
+// themselves are plain files cut from the logo (app/icon.png,
+// app/apple-icon.png, app/favicon.ico). ImageResponse renders outside
 // the browser, so neither Tailwind classes nor next/font reach it: colours are
 // read out of app/globals.css (where every token resolves) and the display
 // face out of a local copy of Phudu.
@@ -39,6 +40,13 @@ export async function loadBrandFont() {
     join(process.cwd(), "app/fonts/phudu/Phudu-Bold.ttf")
   )
   return { name: "Phudu", data, style: "normal" as const, weight: 700 as const }
+}
+
+// The app icon (app/icon.png, cut from design-sync/PrestoLogo.png) as a data
+// URL — Satori takes <img> sources inline rather than fetching a path.
+export async function loadBrandMark() {
+  const data = await readFile(join(process.cwd(), "app/icon.png"))
+  return `data:image/png;base64,${data.toString("base64")}`
 }
 
 // The colour wordmark from components/landing/presto-logo.tsx: three copies

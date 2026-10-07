@@ -1,6 +1,11 @@
 import { ImageResponse } from "next/og"
 
-import { StackedWordmark, loadBrandColors, loadBrandFont } from "@/lib/brand-image"
+import {
+  StackedWordmark,
+  loadBrandColors,
+  loadBrandFont,
+  loadBrandMark,
+} from "@/lib/brand-image"
 import { SITE_DESCRIPTION, SITE_NAME } from "@/lib/site"
 
 export const alt = `${SITE_NAME} — ${SITE_DESCRIPTION}`
@@ -9,7 +14,11 @@ export const contentType = "image/png"
 
 // Picked up by Next for both og:image and twitter:image.
 export default async function OpengraphImage() {
-  const [colors, font] = await Promise.all([loadBrandColors(), loadBrandFont()])
+  const [colors, font, mark] = await Promise.all([
+    loadBrandColors(),
+    loadBrandFont(),
+    loadBrandMark(),
+  ])
   return new ImageResponse(
     (
       <div
@@ -20,11 +29,12 @@ export default async function OpengraphImage() {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          gap: 32,
+          gap: 28,
           background: colors.ink,
         }}
       >
-        <StackedWordmark text={SITE_NAME} fontSize={200} colors={colors} />
+        <img src={mark} width={160} height={160} alt="" />
+        <StackedWordmark text={SITE_NAME} fontSize={160} colors={colors} />
         <div
           style={{
             display: "flex",
