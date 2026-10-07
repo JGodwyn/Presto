@@ -1763,3 +1763,15 @@ modal pattern: the corner X dismisses and the named action navigates.
 ## Onboarding cover gradient (2026-10-06)
 
 - `OnboardingCoverGradient` (components/onboarding/onboarding-cover-gradient.tsx) replaces the cover image: the glow's column design in violet, full-screen, sampled colours (violet → pink → white), bold ~4px halftone with bluish grain dots and a periwinkle halo. Rises from the bottom on open with the landing hero's spring (scaleY, stiffness 200 / damping 32 / mass 9, 0.1s delay). Built on `pixel-gradient.tsx` — all four pixel artworks (sidebar, glow, cover, plus the create-project side art's own renderer) are code now; no gradient rasters remain outside landing/auth.
+
+## Site metadata & icons (2026-10-07)
+
+- Name, pitch and origin live in `lib/site.ts`; the root layout's `metadata` reads them (title template `%s · Presto`, OpenGraph, `summary_large_image`). Icons and the social card are generated in code from the brand tokens (`lib/brand-image.tsx`): a "P" from the three-layer colour wordmark (purple-400 / lime-200 / flame-400 on gray-1000) for `icon`/`apple-icon`, the full wordmark plus the pitch in gray-300 for `opengraph-image`. Change the colours in the tokens, never in those files.
+
+## Network failures on auth pages (2026-10-07)
+
+- The global "You might be offline" toast doesn't run on `/`, `/login`, `/signup`, `/forgot-password` or `/auth/*`. Auth forms report a connection failure inline against their field (`withInlineNetworkError` + `NETWORK_ERROR_MESSAGE`); every in-app screen keeps `withNetworkStatus` and the toast.
+
+## Onboarding tour motion (2026-10-07)
+
+- Step to step: the callout card slides to the narrated nav item (`translate-y`, 300ms, `cubic-bezier(0.23,1,0.32,1)`), its contents re-enter (200ms), and the sidebar highlight fades across on the same 300ms curve — the fade only during the tour. The cover leaves with a 250ms ease-out fade + 8px blur over the tour, which is already rendering beneath it.

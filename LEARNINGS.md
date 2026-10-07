@@ -2176,3 +2176,15 @@ only when that destination arrives or navigation leaves the tab system.
 ## Browser automation: evals background the tab (2026-10-06)
 
 - A `javascript_tool` eval backgrounds the tab: Chrome throttles its timers to ~1s (stretching any setTimeout-driven sequence you're timing), and the next `computer` click is dropped — no pointerdown reaches the page. Take a screenshot (foregrounds the tab) before clicking, and treat timer-driven intervals measured across evals as inflated.
+
+## Tailwind v4 `translate-[x_y]` is invalid CSS (2026-10-07)
+
+- **Symptom:** the onboarding callout sat on step 1's row for the whole tour; its `translate` transition never ran. Computed `translate: none`.
+- **Cause:** `translate-[…]` writes its value into *both* `--tw-translate-x` and `--tw-translate-y`, then emits `translate: var(--tw-translate-x) var(--tw-translate-y)`. An "x y" pair as the value becomes four lengths, which is invalid, so the whole declaration is dropped — silently.
+- **Rule:** one axis per utility: `translate-x-(--a)` / `translate-y-(--b)`, each fed a single length. Check `getComputedStyle(el).translate` when a translate "doesn't animate".
+
+## next/og (Satori) can't read variable fonts (2026-10-07)
+
+- **Symptom:** `app/icon.tsx` and friends returned an empty reply; the dev log only said "failed to pipe response".
+- **Cause:** Satori's font parser crashes on a variable font's `fvar` table. It also only takes ttf/otf/woff, never woff2 — so next/font's files can't be reused.
+- **Rule:** give ImageResponse a static instance (`app/fonts/phudu/Phudu-Bold.ttf`, cut with fontTools `varLib.instancer … --static --remove-overlaps`). The dev server caches generated images and loaded fonts in memory — after swapping a font, verify from `next build`'s output (`.next/server/app/*.body`), not the running dev server.

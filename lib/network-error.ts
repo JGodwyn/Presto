@@ -70,3 +70,20 @@ export type ActionError = { error: string; network?: true }
 export function networkActionError(): ActionError {
   return { error: NETWORK_ERROR_MESSAGE, network: true }
 }
+
+// For screens that report a connectivity failure inline rather than through
+// the global disconnected toast — the auth pages, where the toast isn't
+// mounted (components/shared/network-status.tsx). A request the browser never
+// got out comes back as the same ActionError a server action returns when
+// *its* fetch failed, so the call site has one shape to handle. Any other
+// rejection is rethrown — redirects travel that way, and so do real bugs.
+export async function withInlineNetworkError<T>(
+  request: Promise<T>
+): Promise<T | ActionError> {
+  try {
+    return await request
+  } catch (error) {
+    if (isNetworkError(error)) return networkActionError()
+    throw error
+  }
+}

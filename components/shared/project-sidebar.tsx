@@ -60,6 +60,7 @@ function SidebarItem({
   current,
   onNavigate,
   warning,
+  animateHighlight,
 }: {
   href: string
   label: string
@@ -68,6 +69,7 @@ function SidebarItem({
   current: boolean
   onNavigate: () => void
   warning?: boolean
+  animateHighlight?: boolean
 }) {
   const { ref, style } = useSquircleClipPath<HTMLAnchorElement>({
     cornerRadius: ITEM_CORNER_RADIUS,
@@ -111,6 +113,12 @@ function SidebarItem({
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex items-center gap-dist-md rounded-rad-xmd border-2 px-pad-md py-pad-sm",
+        // The tour moves the highlight down the list on its own clock, in
+        // step with the callout card sliding (300ms, same curve), so it has
+        // to travel rather than snap. A real tab tap stays instant — the
+        // highlight there is feedback for the click, not narration.
+        animateHighlight &&
+          "transition-[background-color,border-color,color] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]",
         active
           ? "border-purple-600 bg-purple-400 text-body-lg-bold text-text-inverse"
           : warning
@@ -211,6 +219,7 @@ export function ProjectSidebar({ projectName }: { projectName: string }) {
               current={pathname === href}
               onNavigate={() => setPending({ fromPathname: pathname, path })}
               warning={path === "connections" && hasExpiredLinkedIn}
+              animateHighlight={onboardingLocked}
             />
           )
         })}

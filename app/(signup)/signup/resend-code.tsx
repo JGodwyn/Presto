@@ -3,8 +3,7 @@
 import * as React from "react"
 import { SpinnerGap } from "@phosphor-icons/react"
 
-import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
-import type { ActionError } from "@/lib/network-error"
+import { withInlineNetworkError, type ActionError } from "@/lib/network-error"
 
 // Matches Supabase's own minimum interval between emails to one address
 // (Auth → Rate Limits). Resending sooner is refused server-side anyway, so
@@ -48,14 +47,9 @@ function ResendCode({ sentAt, resend, onResent }: ResendCodeProps) {
   const handleResend = async () => {
     setIsSending(true)
     setErrorMessage(null)
-    const result = await withNetworkStatus(resend())
+    const result = await withInlineNetworkError(resend())
     setIsSending(false)
-    if (result === null) return
     if ("error" in result) {
-      if (result.network) {
-        reportNetworkIssue()
-        return
-      }
       setErrorMessage(result.error)
       return
     }

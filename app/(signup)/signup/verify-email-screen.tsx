@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
 import { resendSignupCode, verifySignup } from "@/app/(auth)/signup/actions"
 import { otpErrorMessage } from "@/lib/supabase/otp-error"
-import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { NETWORK_ERROR_MESSAGE, withInlineNetworkError } from "@/lib/network-error"
 import { ResendCode } from "./resend-code"
 
 const CODE_LENGTH = 6
@@ -45,18 +45,10 @@ function VerifyEmailScreen({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     setIsSubmitting(true)
-    const result = await withNetworkStatus(verifySignup({ email, token: code }))
-    if (result === null) {
-      setIsSubmitting(false)
-      return
-    }
+    const result = await withInlineNetworkError(verifySignup({ email, token: code }))
     if (result && "error" in result) {
       // Never blame the code for a request that never landed.
-      if (result.network) {
-        reportNetworkIssue()
-        return
-      }
-      setErrorMessage(otpErrorMessage(sentAt))
+      setErrorMessage(result.network ? NETWORK_ERROR_MESSAGE : otpErrorMessage(sentAt))
       setIsSubmitting(false)
     }
   }

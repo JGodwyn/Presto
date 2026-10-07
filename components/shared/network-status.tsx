@@ -18,15 +18,26 @@ import {
 // back rather than waiting for the user's next action.
 const RECONNECT_PROBE_INTERVAL = 5000
 
-// Mounted once in the root layout so every app screen is covered — signed out
-// or in, mid-generation or idle. The landing page is the exception: it's a
-// static marketing page with nothing to save or load, so a "you might be
-// offline" toast there only alarms a visitor who has the page already.
-// Skipping it in a wrapper (rather than gating the effects) means the landing
-// page never registers the listeners or starts probing at all.
+// Mounted once in the root layout so every in-app screen is covered. Two
+// exceptions. The landing page is static marketing with nothing to save or
+// load, so the toast there only alarms a visitor who has the page already.
+// The auth pages report a failed request inline against the form instead
+// (withInlineNetworkError, lib/network-error.ts) — a toast over a sign-in
+// form someone hasn't submitted yet reads as the app being broken. Skipping
+// in a wrapper (rather than gating the effects) means those pages never
+// register the listeners or start probing at all.
+const UNWATCHED_PATHS = ["/login", "/signup", "/forgot-password", "/auth"]
+
+function isUnwatched(pathname: string) {
+  if (pathname === "/") return true
+  return UNWATCHED_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`)
+  )
+}
+
 export function NetworkStatus() {
   const pathname = usePathname()
-  if (pathname === "/") return null
+  if (isUnwatched(pathname)) return null
   return <NetworkStatusToast />
 }
 

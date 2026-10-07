@@ -92,10 +92,9 @@ export function OnboardingCallout() {
         ref={ref}
         style={{
           ...style,
-          "--callout-mobile-offset": "0 0",
-          "--callout-desktop-offset": calloutOffset(index),
+          "--callout-offset": calloutOffset(index),
         } as React.CSSProperties}
-        className="absolute bottom-0 left-0 w-full translate-[var(--callout-mobile-offset)] rounded-rad-lg border-[length:var(--stroke-xl)] border-purple-700 bg-purple-500 p-pad-xl transition-[translate,opacity,filter,scale] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-95 starting:opacity-0 starting:blur-[8px] md:top-0 md:bottom-auto md:left-pad-lg md:w-86 md:translate-[var(--callout-desktop-offset)]"
+        className="absolute bottom-0 left-0 w-full rounded-rad-lg border-[length:var(--stroke-xl)] border-purple-700 bg-purple-500 p-pad-xl transition-[translate,opacity,filter,scale] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] starting:scale-95 starting:opacity-0 starting:blur-[8px] md:top-0 md:bottom-auto md:left-pad-lg md:w-86 md:translate-y-(--callout-offset)"
       >
         {/* Keyed on step so each one is a fresh element: the icon/heading/
             description/button swap gets its own starting-style entrance
@@ -151,6 +150,12 @@ export function OnboardingCallout() {
 // Expressed as a `translate` (not `top`) so moving between steps animates on
 // the compositor instead of triggering layout — per the animation standards'
 // "only animate transform and opacity" rule.
+//
+// A single y length, applied with `translate-y-*`. It used to be an "x y"
+// pair fed to `translate-[…]`, which Tailwind v4 writes into *both* axis
+// variables — `translate: 0 calc(…) 0 calc(…)`, four values, invalid — so the
+// declaration was dropped, the card computed `translate: none`, and it sat on
+// step 1's row for the whole tour with nothing to transition.
 function calloutOffset(index: number) {
-  return `0 calc(var(--pad-md) + ${index} * (2.5rem + var(--dist-md)))`
+  return `calc(var(--pad-md) + ${index} * (2.5rem + var(--dist-md)))`
 }

@@ -10,7 +10,7 @@ import {
   verifyRecoveryOtp,
 } from "@/app/(auth)/forgot-password/actions"
 import { otpErrorMessage } from "@/lib/supabase/otp-error"
-import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { NETWORK_ERROR_MESSAGE, withInlineNetworkError } from "@/lib/network-error"
 import { ResendCode } from "./resend-code"
 
 const CODE_LENGTH = 6
@@ -50,19 +50,11 @@ function ForgotPasswordVerifyScreen({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     setIsSubmitting(true)
-    const result = await withNetworkStatus(verifyRecoveryOtp({ email, token: code }))
-    if (result === null) {
-      setIsSubmitting(false)
-      return
-    }
+    const result = await withInlineNetworkError(verifyRecoveryOtp({ email, token: code }))
     setIsSubmitting(false)
     if ("error" in result) {
       // Never blame the code for a request that never landed.
-      if (result.network) {
-        reportNetworkIssue()
-        return
-      }
-      setErrorMessage(otpErrorMessage(sentAt))
+      setErrorMessage(result.network ? NETWORK_ERROR_MESSAGE : otpErrorMessage(sentAt))
       return
     }
     onContinue()

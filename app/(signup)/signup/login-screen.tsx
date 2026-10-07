@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { GoogleIcon } from "@/components/shared/google-icon"
 import { login } from "@/app/(auth)/login/actions"
-import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { withInlineNetworkError } from "@/lib/network-error"
 import { signInWithGoogle } from "./google-auth"
 
 const loginSchema = z.object({
@@ -45,18 +45,10 @@ function LoginScreen({ onForgotPassword, onGoogleAuthError }: LoginScreenProps) 
   const isLoggingIn = isSubmitting || isRedirecting
 
   const onSubmit = async (values: LoginValues) => {
-    const result = await withNetworkStatus(login(values))
-    // withNetworkStatus already raised the disconnected toast — the request
-    // never landed, so there's nothing to report against a field.
-    if (result === null) return
+    const result = await withInlineNetworkError(login(values))
     if (result && "error" in result) {
-      // A connectivity failure isn't the password's fault — raise the global
-      // disconnected toast instead of marking the field invalid, which is
-      // what used to read as "wrong password" during an outage.
-      if (result.network) {
-        reportNetworkIssue()
-        return
-      }
+      // A connectivity failure carries its own wording, so an outage never
+      // reads as "wrong password".
       setError("password", { message: result.error })
     } else {
       setIsRedirecting(true)

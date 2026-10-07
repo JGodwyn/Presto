@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 import { Agentation } from "agentation";
 import { NetworkStatus } from "@/components/shared/network-status";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 const openRunde = localFont({
@@ -38,9 +39,29 @@ const phudu = Phudu({
   weight: ["400", "600", "700"],
 });
 
+// Icons and the social card are code-generated from the brand tokens:
+// app/icon.tsx, app/apple-icon.tsx, app/opengraph-image.tsx.
 export const metadata: Metadata = {
-  title: "Presto",
-  description: "Generate, organize, and schedule social media posts.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: SITE_NAME,
+    template: `%s · ${SITE_NAME}`,
+  },
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  openGraph: {
+    type: "website",
+    siteName: SITE_NAME,
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    url: "/",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+  },
 };
 
 export default function RootLayout({

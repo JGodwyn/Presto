@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button"
 import { PillInput } from "@/components/ui/pill-input"
 import { GoogleIcon } from "@/components/shared/google-icon"
 import { signup } from "@/app/(auth)/signup/actions"
-import { reportNetworkIssue, withNetworkStatus } from "@/lib/network-status"
+import { withInlineNetworkError } from "@/lib/network-error"
 import { signInWithGoogle } from "./google-auth"
 
 const createAccountSchema = z.object({
@@ -47,15 +47,8 @@ function CreateAccountScreen({ onContinue, onGoogleAuthError }: CreateAccountScr
   } = useForm<CreateAccountValues>({ resolver: zodResolver(createAccountSchema) })
 
   const onSubmit = async (values: CreateAccountValues) => {
-    const result = await withNetworkStatus(signup(values))
-    // withNetworkStatus already raised the disconnected toast — the request
-    // never landed, so there's nothing to report against a field.
-    if (result === null) return
-    if ("error" in result) {
-      if (result.network) {
-        reportNetworkIssue()
-        return
-      }
+    const result = await withInlineNetworkError(signup(values))
+    if (result && "error" in result) {
       setError("email", { message: result.error })
       return
     }
